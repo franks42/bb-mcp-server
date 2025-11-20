@@ -32,6 +32,50 @@ A **clean, modular Babashka MCP server** with lessons learned from mcp-nrepl-joy
 4. **Cloud-first thinking** - HTTP/cloud deployment as primary use case
 5. **Plugin architecture** - Easy to add new tool domains
 
+### Critical Implementation Lessons 🔴
+
+**LESSON: MCP Protocol Versions Are Spec Release Dates**
+
+During Phase 1.2 testing, we discovered that `protocolVersion` is NOT a semantic version (like "1.0") but rather the **release date of the MCP specification** in YYYY-MM-DD format:
+
+- **"2024-11-05"** - First stable MCP spec (uses SSE for long-lived connections)
+- **"2025-03-26"** - Major update with OAuth 2.1, chunked HTTP streaming, breaking changes
+- **"2025-06-18"** - Removed JSON-RPC batching (more breaking changes)
+
+**What went wrong:**
+- We assumed `protocolVersion: "1.0"` based on semantic versioning conventions
+- Claude Code sent the actual spec version `"2024-11-05"`
+- Server rejected with error -32602 "Invalid params"
+- Connection failed silently from user perspective
+
+**Correct implementation (learned from nrepl-mcp-server):**
+```clojure
+(defn handle-initialize [request]
+  ;; Don't validate protocol version - just return a fixed response
+  {:protocolVersion "2024-11-05"  ; Current stable spec version
+   :serverInfo {:name "bb-mcp-server" :version "0.1.0"}
+   :capabilities {:tools {}}})
+```
+
+**Why this works:**
+- The MCP spec expects servers to return a supported version
+- If client sends "2024-11-05" or "2025-03-26", server can respond with either
+- Version negotiation happens through the response, not validation
+- Strict validation breaks compatibility with newer/older clients
+
+**Key takeaways:**
+1. ✅ Always consult the official MCP specification (spec.modelcontextprotocol.io)
+2. ✅ Protocol version format: YYYY-MM-DD (not semantic versioning)
+3. ✅ Return a fixed supported version, don't validate client's version
+4. ✅ Test with real MCP clients (Claude Code, not just curl)
+5. ✅ Study working implementations (Python SDK, TypeScript SDK, nrepl-mcp-server)
+
+**Resources:**
+- Official MCP Spec: https://spec.modelcontextprotocol.io/
+- Python SDK: https://github.com/modelcontextprotocol/python-sdk
+- TypeScript SDK: https://github.com/modelcontextprotocol/typescript-sdk
+- Changelog: https://modelcontextprotocol.io/specification/2025-03-26/changelog
+
 ---
 
 ## Architecture Overview
