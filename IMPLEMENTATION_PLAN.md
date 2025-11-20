@@ -49,7 +49,7 @@
 |---|------|------|--------|-------|-------------------|
 | 1.2.1 | Design MCP message protocol | 🎯 | ✅ | Orchestrator | JSON-RPC 2.0 request/response spec |
 | 1.2.2 | Implement message parsing | 🤖 | ✅ | Agent | Parse/validate JSON-RPC. Handle malformed input. Unit tests |
-| 1.2.3 | Implement core handler router | 🤖 | ⏳ | Agent | Dispatch to method handlers. Error handling. Unit tests |
+| 1.2.3 | Implement core handler router | 🤖 | ✅ | Agent | Dispatch to method handlers. Error handling. Unit tests |
 | 1.2.4 | Implement "initialize" handler | 🤖 | ⏳ | Agent | Returns server capabilities. Unit tests |
 | 1.2.5 | Implement "tools/list" handler | 🤖 | ⏳ | Agent | Returns list of available tools. Unit tests |
 | 1.2.6 | Implement "tools/call" dispatcher | 🤖 | ⏳ | Agent | Routes to registered tool handlers. Unit tests |
