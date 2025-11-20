@@ -302,26 +302,47 @@ The **FINAL** version synthesizes the best elements from all four.
 
 ---
 
-## Recommendations
+## Recommendations (UPDATED v1.1)
 
-### Use the FINAL Version When:
-- ✅ Starting new Clojure projects
-- ✅ Onboarding AI assistants to Clojure development
-- ✅ Need comprehensive development guidelines
-- ✅ Working with teams (security, testing, git workflows included)
-- ✅ Production-quality code required
+### ⚠️ Strategy Shift After User Feedback
 
-### Use Original When:
-- Minimal context needed (token budget constraints)
-- Quick refresher on core rules
-- Already familiar with tooling/workflows
+**Initial assumption (v1.0):** Synthesize everything into FINAL (~1,400 lines)
+**Reality check:** AI assistants "glaze over" after 400-500 lines
 
-### Don't Use Individual LLM Versions
-- Gemini: Too concise, missing sections
-- Grok: Missing security, softer requirements
-- GPT: Missing troubleshooting, less detailed
+**Revised recommendation:** Use the individual LLM versions, NOT the FINAL version.
 
-**The FINAL version is the authoritative document.**
+### Use LLM-Specific Versions for AI Assistants
+
+#### Use GROK Version (~330 lines) When:
+- ✅ Production projects needing complete workflows
+- ✅ Team development (git integration + checklists)
+- ✅ Need troubleshooting guidance
+- ✅ Educational content with examples
+- ✅ Default choice for most scenarios
+
+#### Use GPT Version (~251 lines) When:
+- ✅ Security-critical projects
+- ✅ Strict compliance requirements
+- ✅ Need structured verification templates
+- ✅ Graceful degradation for missing tools
+
+#### Use GEMINI Version (~203 lines) When:
+- ✅ Simple scripts and quick tasks
+- ✅ Minimal token budget
+- ✅ Large codebase contexts (leaves room)
+- ✅ Fast onboarding needed
+
+### Use FINAL Version (~1,400 lines) When:
+- ✅ Human reference/study (NOT for AI assistants)
+- ✅ Checking completeness
+- ✅ Historical archive of synthesis effort
+
+### Don't Use for AI Assistants:
+- ❌ FINAL (too long, attention drops)
+- ❌ QUICKSTART (still above optimal 400-line threshold)
+- ❌ ORIGINAL (superseded by enhanced versions)
+
+**Key Learning:** Context window capacity ≠ Effective reading length. The 200-330 line LLM versions are optimal for AI consumption.
 
 ---
 
@@ -392,9 +413,24 @@ The **FINAL** version successfully combines:
 
 **Result:** A production-ready, comprehensive guide for AI-assisted Clojure development that handles real-world scenarios while maintaining strict quality standards.
 
-**Recommendation:** Use `CLOJURE_EXPERT_CONTEXT_FINAL.md` as the authoritative document. Archive or delete the individual LLM versions to avoid confusion.
+**Recommendation (REVISED):** Use the individual LLM versions (GROK/GPT/GEMINI) for AI assistants. Keep FINAL as human reference only.
 
 ---
 
-*Comparison Version 1.0*
+## Revision History
+
+**Version 1.1 (2025-11-20):** Strategy shift based on user feedback
+- Updated recommendations to favor LLM-specific versions for AI
+- Reclassified FINAL as human reference only
+- Added "Key Learning" about effective reading length vs context capacity
+
+**Version 1.0 (2025-11-20):** Initial comparison
+- Analyzed all four versions
+- Created comprehensive synthesis (FINAL)
+- Original recommendation: Use FINAL for everything
+
+---
+
+*Comparison Version 1.1*
 *Created: 2025-11-20*
+*Updated: 2025-11-20*
