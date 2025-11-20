@@ -64,11 +64,16 @@ During Phase 1.2 testing, we discovered that `protocolVersion` is NOT a semantic
 - Strict validation breaks compatibility with newer/older clients
 
 **Key takeaways:**
-1. ✅ Always consult the official MCP specification (spec.modelcontextprotocol.io)
-2. ✅ Protocol version format: YYYY-MM-DD (not semantic versioning)
-3. ✅ Return a fixed supported version, don't validate client's version
-4. ✅ Test with real MCP clients (Claude Code, not just curl)
-5. ✅ Study working implementations (Python SDK, TypeScript SDK, nrepl-mcp-server)
+1. 📚 **RTFM: Read the specification FIRST** - Don't assume based on other protocols!
+2. ✅ Always consult the official MCP specification (spec.modelcontextprotocol.io)
+3. ✅ Protocol version format: YYYY-MM-DD (not semantic versioning)
+4. ✅ Return a fixed supported version, don't validate client's version
+5. ✅ Test with real MCP clients (Claude Code, not just curl)
+6. ✅ Study working implementations (Python SDK, TypeScript SDK, nrepl-mcp-server)
+
+**The REAL lesson:** We spent hours debugging because we assumed semantic versioning
+(like "1.0") instead of reading the spec that clearly documented the date format.
+The "excellent debugging" was only necessary because we didn't RTFM! 😅
 
 **Resources:**
 - Official MCP Spec: https://spec.modelcontextprotocol.io/
