@@ -1,0 +1,19 @@
+{:linters {:unresolved-symbol {:level :error}
+           :unresolved-var {:level :error}
+           :unresolved-namespace {:level :error}
+           :invalid-arity {:level :error}
+           :unused-binding {:level :warning}
+           :unused-namespace {:level :warning}
+           :unused-referred-var {:level :warning}
+           :redefined-var {:level :warning}
+           :missing-docstring {:level :warning}
+           :misplaced-docstring {:level :error}
+           :redundant-do {:level :warning}
+           :redundant-let {:level :warning}
+           :type-mismatch {:level :error}
+           :not-empty? {:level :warning}
+           :deprecated-var {:level :warning}}
+
+ :output {:canonical-paths true}
+
+ :skip-comments true}

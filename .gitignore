@@ -1,3 +1,4 @@
+# Leiningen/Clojure
 pom.xml
 pom.xml.asc
 *.jar
@@ -12,6 +13,32 @@ pom.xml.asc
 .lein-failures
 .nrepl-port
 .cpcache/
+
+# Babashka
+.bb-pods/
+
+# Clojure/deps.edn
+.clj-kondo/.cache/
+.lsp/
+.calva/
+.nrepl-history
+.rebel_readline_history
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
+tmp/
+logs/
 
 # Claude Code local settings
 .claude/

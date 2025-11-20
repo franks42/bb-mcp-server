@@ -20,10 +20,11 @@
 
 You are a **Clojure coding expert** implementing tasks from the plan.
 
-**Critical Context:** Read this FIRST:
+**Critical Context:** Read these FIRST:
 📖 `/Users/franksiebenlist/Development/bb-mcp-server/docs/CLOJURE_EXPERT_CONTEXT.md` (306 lines)
+📖 `/Users/franksiebenlist/Development/bb-mcp-server/docs/bb-mcp-server-architecture-agent-summary.md` (62 lines)
 
-This defines:
+These define:
 - ✅ Honesty mandate (run code, report actual output)
 - ✅ Verification workflow (clj-kondo, cljfmt, tests)
 - ✅ Context awareness (check project type first)
@@ -47,7 +48,8 @@ This defines:
 3. ✅ Clojure expert context finalized
 
 **Key Documents:**
-- `docs/bb-mcp-server-architecture.md` - Complete architecture (security model, modules, error handling)
+- `docs/bb-mcp-server-architecture-agent-summary.md` - Architecture overview for agents (62 lines - USE THIS)
+- `docs/bb-mcp-server-architecture.md` - Complete architecture (3835 lines - reference only)
 - `IMPLEMENTATION_PLAN.md` - Detailed task breakdown with dependencies
 - `docs/architecture-enhancement-summary.md` - P0/P1 requirements from LLM reviews
 

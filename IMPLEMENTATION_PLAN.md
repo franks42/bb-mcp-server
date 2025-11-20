@@ -24,14 +24,15 @@
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 1.1.1 | Design project structure | 🎯 | ⏳ | Orchestrator | Directory layout, dependency choices documented |
-| 1.1.2 | Create bb.edn with tasks | 🤖 | ⏳ | Agent | Tasks: lint, format, test, check. Zero clj-kondo warnings |
-| 1.1.3 | Create deps.edn with minimal deps | 🤖 | ⏳ | Agent | Babashka-compatible deps only. Builds successfully |
-| 1.1.4 | Set up directory structure | 🤖 | ⏳ | Agent | src/, test/, .clj-kondo/, docs/ created |
-| 1.1.5 | Configure clj-kondo | 🤖 | ⏳ | Agent | .clj-kondo/config.edn with strict rules |
-| 1.1.6 | Configure cljfmt | 🤖 | ⏳ | Agent | .cljfmt.edn with project style |
-| 1.1.7 | Add .gitignore | 🤖 | ⏳ | Agent | Standard Clojure + bb ignores |
-| 1.1.8 | Review and verify setup | 🎯 | ⏳ | Orchestrator | All tools work, bb check passes |
+| 1.1.1 | Design project structure | 🎯 | ✅ | Orchestrator | Directory layout, dependency choices documented |
+| 1.1.2 | Create bb.edn with tasks | 🤖 | ✅ | Agent | Tasks: lint, format, test, check. Zero clj-kondo warnings |
+| 1.1.3 | Create deps.edn with minimal deps | 🤖 | ✅ | Agent | Babashka-compatible deps only. Builds successfully |
+| 1.1.4 | Set up directory structure | 🤖 | ✅ | Agent | src/, test/, .clj-kondo/, docs/ created |
+| 1.1.5 | Configure clj-kondo | 🤖 | ✅ | Agent | .clj-kondo/config.edn with strict rules |
+| 1.1.6 | Configure cljfmt | 🤖 | ✅ | Agent | .cljfmt.edn with project style |
+| 1.1.7 | Add .gitignore | 🤖 | ✅ | Agent | Standard Clojure + bb ignores |
+| 1.1.8 | Review and verify setup | 🎯 | ✅ | Orchestrator | All tools work, bb check passes |
+| 1.1.9 | Document agent workflow assessment | 🎯 | ✅ | Orchestrator | Agent performance evaluated, recommendations documented |
 
 **Dependencies:** None
 **Estimated LOC:** ~100 (config files)

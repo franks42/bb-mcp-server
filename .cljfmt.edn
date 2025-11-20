@@ -1,0 +1,18 @@
+{:indents {defn [[:inner 0]]
+           defn- [[:inner 0]]
+           defmacro [[:inner 0]]
+           fn [[:inner 0]]
+           let [[:block 1]]
+           when [[:block 1]]
+           when-not [[:block 1]]
+           if [[:block 1]]
+           if-not [[:block 1]]
+           cond [[:block 0]]
+           condp [[:block 2]]
+           case [[:block 1]]}
+
+ :remove-surrounding-whitespace? true
+ :remove-trailing-whitespace? true
+ :remove-consecutive-blank-lines? true
+ :insert-missing-whitespace? true
+ :max-consecutive-blank-lines 2}
