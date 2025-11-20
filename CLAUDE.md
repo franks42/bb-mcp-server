@@ -38,24 +38,42 @@ These define:
 
 ## Current Status
 
-**Phase:** 1.1 - Project Initialization
-**Status:** Ready to begin
+**Phase:** 1.2 - Minimal MCP Server
+**Status:** ✅ COMPLETE - Verified with Claude Code
 
 ### What's Been Done
 
 1. ✅ Architecture designed (reviewed by 3 LLMs)
 2. ✅ Implementation plan created (85 tasks, 5 phases)
 3. ✅ Clojure expert context finalized
+4. ✅ **Phase 1.2 COMPLETE** - Minimal MCP server working end-to-end
+   - JSON-RPC 2.0 protocol implementation
+   - MCP handlers: initialize, tools/list, tools/call
+   - stdio transport for Claude Code
+   - Example hello tool
+   - **TESTED AND VERIFIED with real Claude Code integration**
 
 **Key Documents:**
-- `docs/bb-mcp-server-architecture-agent-summary.md` - Architecture overview for agents (62 lines - USE THIS)
-- `docs/bb-mcp-server-architecture.md` - Complete architecture (3835 lines - reference only)
+- `docs/bb-mcp-server-architecture.md` - Complete architecture with **CRITICAL LESSONS LEARNED** (see new section)
 - `IMPLEMENTATION_PLAN.md` - Detailed task breakdown with dependencies
-- `docs/architecture-enhancement-summary.md` - P0/P1 requirements from LLM reviews
+- `README.md` - Updated with verification status
+
+### Critical Lesson Learned 🔴
+
+**MCP Protocol Versions Are Spec Release Dates (NOT Semantic Versions)**
+
+During Phase 1.2 testing, we discovered that `protocolVersion` uses YYYY-MM-DD format:
+- ❌ WRONG: `"1.0"` (semantic versioning - what we assumed)
+- ✅ CORRECT: `"2024-11-05"` (MCP spec release date - what Claude Code sends)
+
+**This caused initialize to fail with error -32602 "Invalid params"**
+
+See `docs/bb-mcp-server-architecture.md` → "Critical Implementation Lessons" for full details.
 
 ### What's Left To Do
 
-**Next Task:** Phase 1.1.2 - Create bb.edn with tasks (lint, format, test, check)
+**Next Phase:** Phase 2 - Tool Registry & Error Handling
+See `IMPLEMENTATION_PLAN.md` for detailed tasks.
 
 See `IMPLEMENTATION_PLAN.md` for complete task list.
 
