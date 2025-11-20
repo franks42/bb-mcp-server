@@ -23,7 +23,17 @@
   - \"2025-03-26\" = Major update with OAuth 2.1, chunked HTTP (Mar 26, 2025)
   - \"2025-06-18\" = Removed JSON-RPC batching (Jun 18, 2025)
 
-  We return \"2024-11-05\" as a fixed version that works with current clients.
+  We return \"2025-03-26\" to signal support for:
+  - Tool annotations (readOnly, destructive flags)
+  - Future HTTP transport with OAuth 2.1 and chunked streaming
+
+  IMPORTANT: Capabilities Negotiation
+  ====================================
+  We declare what we support via the capabilities object:
+  - {:tools {}} = We support tools (required)
+  - No authorization capability = OAuth not implemented (stdio uses environment auth)
+  - When we add HTTP transport, we'll add authorization capability
+
   Do NOT validate the client's version - just return this fixed response.
 
   For details, see: docs/bb-mcp-server-architecture.md -> Critical Implementation Lessons
@@ -48,9 +58,10 @@
                :server-initialized true})
 
     ;; Return fixed response matching MCP spec
-    ;; IMPORTANT: "2024-11-05" is a DATE (Nov 5, 2024), NOT a version number!
+    ;; IMPORTANT: "2025-03-26" is a DATE (Mar 26, 2025), NOT a version number!
+    ;; We don't declare authorization capability, so OAuth is not required
     (msg/create-response request-id
-                         {:protocolVersion "2024-11-05"
+                         {:protocolVersion "2025-03-26"
                           :serverInfo {:name "bb-mcp-server"
                                        :version "0.1.0"}
                           :capabilities {:tools {}}})))
