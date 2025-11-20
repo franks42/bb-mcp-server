@@ -43,22 +43,26 @@
 ### 1.2 Minimal MCP Server (stdio only)
 **Goal:** Prove MCP protocol works end-to-end
 
+**Strategy:** Build core protocol first (testable without I/O), then add stdio transport
+
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
 | 1.2.1 | Design MCP message protocol | 🎯 | ⏳ | Orchestrator | JSON-RPC 2.0 request/response spec |
-| 1.2.2 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Tests pass |
-| 1.2.3 | Implement message parsing | 🤖 | ⏳ | Agent | Parse MCP requests. Handle malformed input |
-| 1.2.4 | Implement "initialize" handler | 🤖 | ⏳ | Agent | Responds with server capabilities |
-| 1.2.5 | Implement "tools/list" handler | 🤖 | ⏳ | Agent | Returns list of available tools |
-| 1.2.6 | Implement "tools/call" dispatcher | 🤖 | ⏳ | Agent | Routes to registered tool handlers |
-| 1.2.7 | Implement one test tool: "hello" | 🤖 | ⏳ | Agent | Takes name, returns greeting. Full tests |
+| 1.2.2 | Implement message parsing | 🤖 | ⏳ | Agent | Parse/validate JSON-RPC. Handle malformed input. Unit tests |
+| 1.2.3 | Implement core handler router | 🤖 | ⏳ | Agent | Dispatch to method handlers. Error handling. Unit tests |
+| 1.2.4 | Implement "initialize" handler | 🤖 | ⏳ | Agent | Returns server capabilities. Unit tests |
+| 1.2.5 | Implement "tools/list" handler | 🤖 | ⏳ | Agent | Returns list of available tools. Unit tests |
+| 1.2.6 | Implement "tools/call" dispatcher | 🤖 | ⏳ | Agent | Routes to registered tool handlers. Unit tests |
+| 1.2.7 | Implement test tool: "hello" | 🤖 | ⏳ | Agent | Takes name, returns greeting. Full tests |
 | 1.2.8 | Add telemetry to all handlers | 🤖 | ⏳ | Agent | Telemere-lite logging on all paths |
-| 1.2.9 | Write integration tests | 🤖 | ⏳ | Agent | Test full request/response cycle |
-| 1.2.10 | Review protocol implementation | 🎯 | ⏳ | Orchestrator | MCP spec compliant, error handling correct |
+| 1.2.9 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
+| 1.2.10 | Write integration tests | 🤖 | ⏳ | Agent | Test full request/response cycle via stdio |
+| 1.2.11 | Review protocol implementation | 🎯 | ⏳ | Orchestrator | MCP spec compliant, error handling correct |
 
 **Dependencies:** 1.1 (Project Initialization)
 **Estimated LOC:** ~300-400
 **Deliverable:** Working MCP server responding to stdio
+**Testing Strategy:** Unit test core protocol, then integration test stdio transport
 
 ---
 
