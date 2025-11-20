@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bb-mcp-server": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/bb",
+      "args": [
+        "server.clj"
+      ],
+      "env": {}
+    }
+  }
+}
