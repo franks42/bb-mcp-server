@@ -972,6 +972,1436 @@ Add to bb.edn:
 
 ---
 
+## Security Model
+
+### Overview
+
+**Security-first design** is critical for bb-mcp-server, especially given:
+- Code execution capabilities (nREPL eval)
+- Network-exposed HTTP/REST endpoints
+- Dynamic module loading from configuration files
+- Multi-user cloud deployment scenarios
+
+This section addresses security concerns identified during architecture review by three independent LLM reviewers (Gemini 3, GPT-5.1, Grok).
+
+### Security Principles
+
+1. **Defense in Depth**: Multiple security layers, not relying on single mechanism
+2. **Least Privilege**: Minimal permissions by default, explicit grants required
+3. **Secure by Default**: Safe configuration out of the box
+4. **Fail Secure**: Errors should deny access, not grant it
+5. **Auditability**: All security events logged via telemetry
+
+---
+
+### Transport Security (HTTP/REST)
+
+#### Authentication Mechanisms
+
+**Problem**: HTTP/REST endpoints expose tools (including code execution) to network without authentication.
+
+**Solution**: Pluggable authentication middleware with multiple options.
+
+##### 1. API Key Authentication (Default for Cloud)
+
+```clojure
+;; src/bb_mcp_server/security/auth.clj
+(ns bb-mcp-server.security.auth
+  (:require [bb-mcp-server.telemetry :as tel]
+            [clojure.string :as str]))
+
+(defn generate-api-key
+  "Generate cryptographically secure API key"
+  []
+  (let [random-bytes (byte-array 32)]
+    (.nextBytes (java.security.SecureRandom.) random-bytes)
+    (-> random-bytes
+        (java.util.Base64/getEncoder)
+        (.encodeToString)
+        (str/replace #"[/+=]" ""))))  ; URL-safe
+
+(defn hash-api-key
+  "Hash API key for storage (SHA-256)"
+  [api-key]
+  (let [digest (java.security.MessageDigest/getInstance "SHA-256")
+        hash-bytes (.digest digest (.getBytes api-key "UTF-8"))]
+    (-> hash-bytes
+        (java.util.Base64/getEncoder)
+        (.encodeToString))))
+
+(defonce valid-keys
+  "Registry of valid API key hashes"
+  (atom #{}))
+
+(defn add-api-key!
+  "Add API key to valid keys (stores hash, not plaintext)"
+  [api-key]
+  (let [key-hash (hash-api-key api-key)]
+    (swap! valid-keys conj key-hash)
+    (tel/log-event! "security.api-key.added" {:key-hash key-hash})))
+
+(defn validate-api-key
+  "Validate API key against registry"
+  [api-key]
+  (let [key-hash (hash-api-key api-key)]
+    (contains? @valid-keys key-hash)))
+
+(defn auth-middleware
+  "Middleware to check API key in request headers"
+  [handler]
+  (fn [request]
+    (let [api-key (get-in request [:headers "x-api-key"])
+          auth-header (get-in request [:headers "authorization"])
+          bearer-token (when auth-header
+                        (second (str/split auth-header #"Bearer ")))]
+      (cond
+        ;; stdio transport - always allow (no network exposure)
+        (= (:transport request) :stdio)
+        (handler request)
+
+        ;; API key in custom header
+        (and api-key (validate-api-key api-key))
+        (do
+          (tel/log-event! "security.auth.success"
+                         {:method (:request-method request)
+                          :uri (:uri request)
+                          :auth-type :api-key})
+          (handler request))
+
+        ;; Bearer token
+        (and bearer-token (validate-api-key bearer-token))
+        (do
+          (tel/log-event! "security.auth.success"
+                         {:method (:request-method request)
+                          :uri (:uri request)
+                          :auth-type :bearer})
+          (handler request))
+
+        ;; No valid auth
+        :else
+        (do
+          (tel/log-event! "security.auth.failed"
+                         {:method (:request-method request)
+                          :uri (:uri request)
+                          :remote-addr (:remote-addr request)
+                          :reason (cond
+                                    (nil? api-key) :missing-key
+                                    :else :invalid-key)})
+          {:status 401
+           :headers {"Content-Type" "application/json"}
+           :body (cheshire.core/generate-string
+                  {:error "Unauthorized"
+                   :message "Valid API key required in X-API-Key header or Authorization: Bearer header"})})))))
+```
+
+**Configuration**:
+
+```clojure
+;; .bb-mcp-server.edn
+{:security
+ {:auth
+  {:enabled true
+   :type :api-key  ; :api-key | :mTLS | :none (stdio only)
+   :api-keys-file "~/.config/bb-mcp-server/api-keys.edn"}  ; Secure storage
+
+ :rate-limiting
+  {:enabled true
+   :requests-per-minute 60
+   :burst 10}}}
+```
+
+**Usage**:
+
+```bash
+# Generate API key
+bb security:generate-key
+# Output: mcp_BQx8vK2NpLm9... (store securely!)
+
+# Add to server
+bb security:add-key mcp_BQx8vK2NpLm9...
+
+# Client usage
+curl -H "X-API-Key: mcp_BQx8vK2NpLm9..." \
+     http://localhost:9339/api/tools
+```
+
+##### 2. mTLS (Mutual TLS) - Optional
+
+```clojure
+;; For high-security deployments
+{:security
+ {:auth
+  {:enabled true
+   :type :mTLS
+   :ca-cert "certs/ca.pem"
+   :server-cert "certs/server.pem"
+   :server-key "certs/server-key.pem"
+   :client-certs ["certs/client1.pem" "certs/client2.pem"]}}}
+```
+
+##### 3. None (stdio only - Default for Local)
+
+```clojure
+;; Safe for stdio-only usage (no network exposure)
+{:security
+ {:auth
+  {:enabled false
+   :type :none
+   :stdio-only true}}}  ; Enforces stdio-only mode
+```
+
+#### Rate Limiting
+
+**Problem**: Prevent abuse and DoS attacks on HTTP/REST endpoints.
+
+**Solution**: Token bucket rate limiting per client IP.
+
+```clojure
+;; src/bb_mcp_server/security/rate_limit.clj
+(ns bb-mcp-server.security.rate-limit
+  (:require [bb-mcp-server.telemetry :as tel]))
+
+(defonce rate-limit-state
+  "Token bucket state per client IP"
+  (atom {}))
+
+(defn rate-limit-middleware
+  "Middleware to enforce rate limits"
+  [handler {:keys [requests-per-minute burst]}]
+  (fn [request]
+    (let [client-ip (:remote-addr request)
+          now (System/currentTimeMillis)
+          bucket (get @rate-limit-state client-ip
+                     {:tokens burst
+                      :last-refill now})]
+
+      ;; Refill tokens based on elapsed time
+      (let [elapsed-ms (- now (:last-refill bucket))
+            tokens-to-add (* (/ elapsed-ms 60000.0) requests-per-minute)
+            new-tokens (min burst (+ (:tokens bucket) tokens-to-add))]
+
+        (if (>= new-tokens 1)
+          ;; Allow request, consume 1 token
+          (do
+            (swap! rate-limit-state assoc client-ip
+                   {:tokens (dec new-tokens)
+                    :last-refill now})
+            (handler request))
+
+          ;; Rate limit exceeded
+          (do
+            (tel/log-event! "security.rate-limit.exceeded"
+                           {:client-ip client-ip
+                            :uri (:uri request)
+                            :tokens new-tokens})
+            {:status 429
+             :headers {"Content-Type" "application/json"
+                       "Retry-After" "60"}
+             :body (cheshire.core/generate-string
+                    {:error "Rate limit exceeded"
+                     :message "Too many requests. Please try again later."})}))))))
+```
+
+---
+
+### Configuration Security
+
+#### Problem: load-file Vulnerability
+
+**Issue**: `load-file` executes arbitrary Clojure code from paths in configuration files. Compromised `.bb-mcp-server.edn` or `~/.config/bb-mcp-server/config.edn` enables code injection.
+
+**Risk Level**: HIGH 🔴
+
+#### Solutions
+
+##### 1. Config File Validation
+
+```clojure
+;; src/bb_mcp_server/security/config.clj
+(ns bb-mcp-server.security.config
+  (:require [clojure.spec.alpha :as s]
+            [bb-mcp-server.telemetry :as tel]))
+
+(s/def ::module-path string?)
+(s/def ::enabled boolean?)
+(s/def ::config map?)
+(s/def ::module (s/keys :req-un [::module-path ::enabled]
+                       :opt-un [::config]))
+(s/def ::load-on-startup (s/coll-of ::module))
+(s/def ::modules (s/keys :req-un [::load-on-startup]))
+(s/def ::config-file (s/keys :req-un [::modules]))
+
+(defn validate-config!
+  "Validate config file against schema"
+  [config]
+  (if (s/valid? ::config-file config)
+    config
+    (let [explanation (s/explain-str ::config-file config)]
+      (tel/log-event! "security.config.validation-failed"
+                     {:explanation explanation})
+      (throw (ex-info "Invalid configuration file"
+                     {:explanation explanation})))))
+```
+
+##### 2. Module Path Whitelisting
+
+```clojure
+(defn path-in-whitelist?
+  "Check if module path is in allowed directories"
+  [module-path whitelist]
+  (let [canonical-path (.getCanonicalPath (io/file module-path))]
+    (some #(str/starts-with? canonical-path %) whitelist)))
+
+(def default-whitelist
+  "Default allowed module directories"
+  [(str (System/getProperty "user.home") "/.config/bb-mcp-server/modules")
+   "src/modules"  ; Built-in modules
+   "modules"])    ; Project modules
+
+(defn validate-module-path!
+  "Ensure module path is in whitelist"
+  [module-path {:keys [whitelist] :or {whitelist default-whitelist}}]
+  (if (path-in-whitelist? module-path whitelist)
+    module-path
+    (do
+      (tel/log-event! "security.module-path.rejected"
+                     {:path module-path
+                      :whitelist whitelist})
+      (throw (ex-info "Module path not in whitelist"
+                     {:path module-path
+                      :whitelist whitelist})))))
+```
+
+##### 3. Config File Signing (Optional)
+
+```clojure
+(defn sign-config
+  "Generate SHA-256 signature for config file"
+  [config-path secret-key]
+  (let [content (slurp config-path)
+        hmac (javax.crypto.Mac/getInstance "HmacSHA256")
+        secret-key-spec (javax.crypto.spec.SecretKeySpec.
+                          (.getBytes secret-key "UTF-8") "HmacSHA256")]
+    (.init hmac secret-key-spec)
+    (-> (.doFinal hmac (.getBytes content "UTF-8"))
+        (java.util.Base64/getEncoder)
+        (.encodeToString))))
+
+(defn verify-config-signature
+  "Verify config file hasn't been tampered with"
+  [config-path signature secret-key]
+  (= signature (sign-config config-path secret-key)))
+```
+
+**Usage**:
+
+```bash
+# Sign config (stores signature in .bb-mcp-server.edn.sig)
+bb security:sign-config .bb-mcp-server.edn
+
+# Server validates on load
+bb triple  # Validates signature before loading config
+```
+
+---
+
+### Registry Security
+
+#### Problem: Tool Name Collisions
+
+**Issue**: Simple map-based registry allows duplicate tool names to silently overwrite earlier registrations.
+
+```clojure
+;; Current behavior (PROBLEMATIC):
+(swap! registry assoc "eval" nrepl-eval)  ; Registered
+(swap! registry assoc "eval" custom-eval) ; Silently overwrites!
+```
+
+**Risk Level**: HIGH 🟠
+
+#### Solutions
+
+##### 1. Namespaced Tool Names (Required)
+
+**Enforce module:tool naming convention**:
+
+```clojure
+;; src/bb_mcp_server/registry.clj (UPDATED)
+(ns bb-mcp-server.registry
+  (:require [bb-mcp-server.telemetry :as tel]
+            [clojure.string :as str]))
+
+(defonce registry (atom {}))
+
+(defn valid-tool-name?
+  "Tool names must be namespaced: module:tool or module/tool"
+  [tool-name]
+  (or (str/includes? tool-name ":")
+      (str/includes? tool-name "/")))
+
+(defn register-tool!
+  "Register tool with collision detection"
+  [tool-name handler metadata]
+  (cond
+    ;; Validate namespacing
+    (not (valid-tool-name? tool-name))
+    (do
+      (tel/log-event! "registry.tool.invalid-name"
+                     {:tool-name tool-name
+                      :reason :missing-namespace})
+      (throw (ex-info "Tool names must be namespaced (module:tool or module/tool)"
+                     {:tool-name tool-name
+                      :examples ["nrepl:eval" "blockchain:fetch-wallet"]})))
+
+    ;; Detect collision
+    (contains? @registry tool-name)
+    (let [existing (get @registry tool-name)]
+      (tel/log-event! "registry.tool.collision-detected"
+                     {:tool-name tool-name
+                      :existing-module (get-in existing [:metadata :module])
+                      :new-module (:module metadata)})
+      (throw (ex-info "Tool name collision detected"
+                     {:tool-name tool-name
+                      :existing-module (get-in existing [:metadata :module])
+                      :new-module (:module metadata)
+                      :suggestion "Use unique namespaced name"})))
+
+    ;; Register
+    :else
+    (do
+      (swap! registry assoc tool-name {:handler handler :metadata metadata})
+      (tel/log-event! "registry.tool.registered"
+                     {:tool-name tool-name
+                      :module (:module metadata)})
+      {:status :registered
+       :tool-name tool-name})))
+```
+
+**Module naming convention**:
+
+```clojure
+;; modules/nrepl.clj
+(registry/register-tool!
+ "nrepl:eval"  ; NOT "eval" - must be namespaced
+ eval-code
+ {:name "nrepl:eval"
+  :module "nrepl"
+  :description "Evaluate Clojure code in nREPL session"})
+
+;; modules/blockchain.clj
+(registry/register-tool!
+ "blockchain:eval"  ; Different namespace - no collision
+ blockchain-eval
+ {:name "blockchain:eval"
+  :module "blockchain"
+  :description "Evaluate on-chain contract code"})
+```
+
+##### 2. Collision Policy Configuration
+
+```clojure
+;; .bb-mcp-server.edn
+{:registry
+ {:collision-policy :error     ; :error | :warn | :allow-overwrite
+  :enforce-namespacing true}}  ; Require module:tool format
+```
+
+##### 3. Tool Listing by Module
+
+```clojure
+(defn list-tools-by-module
+  "Group tools by module namespace"
+  []
+  (reduce (fn [acc [tool-name {:keys [metadata]}]]
+            (let [module (or (:module metadata)
+                            (first (str/split tool-name #"[:/]")))]
+              (update acc module (fnil conj []) tool-name)))
+          {}
+          @registry))
+
+;; bb list-tools output:
+;; nrepl:
+;;   - nrepl:eval
+;;   - nrepl:connect
+;;   - nrepl:disconnect
+;; blockchain:
+;;   - blockchain:fetch-wallet
+;;   - blockchain:analyze-staking
+```
+
+---
+
+### Module Trust Model
+
+#### Principles
+
+1. **Built-in Modules**: Trusted (shipped with bb-mcp-server)
+2. **Global Config Modules**: User-trusted (in ~/.config)
+3. **Project Config Modules**: Project-trusted (in project dir)
+4. **Community Modules**: Untrusted until vetted
+
+#### Module Vetting Process (Future)
+
+```clojure
+;; Module metadata for ecosystem
+{:module-name "awesome-tools"
+ :version "1.0.0"
+ :author "user@example.com"
+ :verified true        ; Vetted by maintainers
+ :security-audit "2025-11-01"
+ :dependencies []      ; Other modules required
+ :permissions          ; Requested capabilities
+  {:network true       ; Network access
+   :filesystem true    ; File system access
+   :code-execution false}}  ; Can execute arbitrary code
+```
+
+---
+
+### Threat Model
+
+#### Threats Addressed
+
+| Threat | Risk | Mitigation |
+|--------|------|------------|
+| **Unauthorized API access** | Critical | API key auth, rate limiting |
+| **Config file tampering** | High | Validation, signing, whitelisting |
+| **Tool name collision** | High | Namespacing, collision detection |
+| **Module code injection** | High | Path whitelisting, validation |
+| **DoS via tool abuse** | Medium | Rate limiting, timeouts |
+| **Data exfiltration** | Medium | Telemetry monitoring, network policies |
+
+#### Threats Not Addressed (Future Work)
+
+| Threat | Risk | Plan |
+|--------|------|------|
+| **Module isolation** | High | Investigate babashka.pods (v2.0) |
+| **Resource exhaustion** | Medium | Per-tool resource limits |
+| **Supply chain attacks** | Medium | Module signing, hash verification |
+
+---
+
+### Security Configuration Example
+
+```clojure
+;; .bb-mcp-server.edn - Production security config
+{:security
+ {:auth
+  {:enabled true
+   :type :api-key
+   :api-keys-file "~/.config/bb-mcp-server/api-keys.edn"}
+
+  :rate-limiting
+  {:enabled true
+   :requests-per-minute 60
+   :burst 10}
+
+  :config-validation
+  {:enabled true
+   :signature-required true
+   :secret-key-file "~/.config/bb-mcp-server/secret.key"}
+
+  :module-loading
+  {:path-whitelist
+   ["~/.config/bb-mcp-server/modules"
+    "src/modules"
+    "modules"]
+   :require-signatures false  ; Future: verify module signatures
+   }}
+
+ :registry
+ {:collision-policy :error
+  :enforce-namespacing true}
+
+ :telemetry
+ {:security-events-only false  ; Log all events
+  :alert-on-failed-auth true}}
+```
+
+### Security Checklist for Deployment
+
+**Before deploying to cloud:**
+
+- [ ] Enable API key authentication
+- [ ] Generate strong API keys (`bb security:generate-key`)
+- [ ] Enable rate limiting
+- [ ] Validate config file signatures
+- [ ] Review module path whitelist
+- [ ] Enable security event logging
+- [ ] Test unauthorized access handling
+- [ ] Review and restrict network exposure
+- [ ] Document key rotation policy
+- [ ] Set up monitoring alerts
+
+---
+
+## Module Dependencies and Loading Order
+
+### Overview
+
+**Problem**: Modules may depend on other modules being loaded first. For example, a "data-analysis" module might require the "nrepl" module to be available, or a "dashboard" module might need both "blockchain" and "nrepl" modules.
+
+**Solution**: Dependency declaration in module metadata with topological sort for load order resolution.
+
+### Module Metadata Format
+
+```clojure
+;; src/modules/data-analysis.clj
+(ns modules.data-analysis
+  (:require [bb-mcp-server.registry :as registry]
+            [bb-mcp-server.telemetry :as tel]))
+
+;; Module metadata with dependencies
+(def metadata
+  {:module-name "data-analysis"
+   :version "1.0.0"
+   :description "Statistical analysis tools"
+   :depends-on ["nrepl" "filesystem"]  ; Required modules
+   :load-order 100                      ; Optional explicit ordering (higher = later)
+   :optional-deps ["visualization"]     ; Optional, don't fail if missing
+   :author "..."
+   :license "..."})
+```
+
+### Dependency Resolution
+
+```clojure
+;; src/bb_mcp_server/loader.clj
+(ns bb-mcp-server.loader
+  (:require [bb-mcp-server.telemetry :as tel]))
+
+(defn get-module-metadata
+  "Extract metadata from module namespace"
+  [module-path]
+  (let [ns-sym (load-module-namespace module-path)]
+    (or (some-> ns-sym
+               (ns-resolve 'metadata)
+               deref)
+        {:module-name (extract-name-from-path module-path)
+         :depends-on []
+         :load-order 50})))  ; Default middle priority
+
+(defn resolve-dependencies
+  "Topological sort of modules based on dependencies"
+  [modules]
+  (let [module-map (into {} (map (fn [m]
+                                   [(:module-name m) m])
+                                 modules))
+        sorted (atom [])
+        visited (atom #{})
+        temp-mark (atom #{})]
+
+    (defn visit [module-name]
+      (cond
+        ;; Already processed
+        (contains? @visited module-name)
+        nil
+
+        ;; Cycle detected
+        (contains? @temp-mark module-name)
+        (throw (ex-info "Circular dependency detected"
+                       {:module module-name
+                        :cycle (conj @temp-mark module-name)}))
+
+        ;; Process dependencies first
+        :else
+        (let [module (get module-map module-name)]
+          (swap! temp-mark conj module-name)
+
+          ;; Visit all dependencies
+          (doseq [dep (:depends-on module)]
+            (when-not (contains? module-map dep)
+              (if (contains? (set (:optional-deps module)) dep)
+                (tel/log-event! "loader.optional-dependency.missing"
+                               {:module module-name
+                                :missing-dep dep})
+                (throw (ex-info "Required dependency not found"
+                               {:module module-name
+                                :missing-dep dep
+                                :available-modules (keys module-map)}))))
+            (visit dep))
+
+          ;; Add to sorted list
+          (swap! temp-mark disj module-name)
+          (swap! visited conj module-name)
+          (swap! sorted conj module))))
+
+    ;; Visit all modules
+    (doseq [module-name (keys module-map)]
+      (visit module-name))
+
+    ;; Apply explicit load-order as secondary sort
+    (sort-by :load-order @sorted)))
+
+(defn load-modules-with-dependencies!
+  "Load modules respecting dependencies"
+  [module-configs]
+  (try
+    (tel/log-event! "loader.dependency-resolution.started"
+                   {:module-count (count module-configs)})
+
+    ;; Get metadata for all modules
+    (let [modules-with-meta (map (fn [config]
+                                   (assoc config
+                                          :metadata
+                                          (get-module-metadata (:module-path config))))
+                                 module-configs)
+
+          ;; Resolve load order
+          sorted-modules (resolve-dependencies (map :metadata modules-with-meta))
+          sorted-configs (map (fn [meta]
+                               (first (filter #(= (:module-name meta)
+                                                  (get-in % [:metadata :module-name]))
+                                             modules-with-meta)))
+                             sorted-modules)]
+
+      (tel/log-event! "loader.dependency-resolution.completed"
+                     {:load-order (mapv :module-name sorted-modules)})
+
+      ;; Load in dependency order
+      (doseq [config sorted-configs]
+        (load-module! config))
+
+      {:status :success
+       :loaded (mapv :module-name sorted-modules)})
+
+    (catch Exception e
+      (tel/log-event! "loader.dependency-resolution.failed"
+                     {:error (.getMessage e)
+                      :data (ex-data e)})
+      (throw e))))
+```
+
+### Dependency Graph Visualization
+
+```clojure
+;; Helper function for debugging dependency issues
+(defn visualize-dependencies
+  "Generate DOT format dependency graph for visualization"
+  [modules]
+  (let [lines (atom ["digraph modules {"])]
+    (doseq [module modules]
+      (let [name (:module-name module)]
+        ;; Add node
+        (swap! lines conj (str "  \"" name "\" [label=\"" name "\\nv" (:version module) "\"];"))
+
+        ;; Add edges for dependencies
+        (doseq [dep (:depends-on module)]
+          (swap! lines conj (str "  \"" name "\" -> \"" dep "\";")))
+
+        ;; Add dashed edges for optional deps
+        (doseq [opt-dep (:optional-deps module)]
+          (swap! lines conj (str "  \"" name "\" -> \"" opt-dep "\" [style=dashed];")))
+      (swap! lines conj "}")))
+    (clojure.string/join "\n" @lines)))
+
+;; Usage: bb modules:graph > deps.dot && dot -Tpng deps.dot -o deps.png
+```
+
+### Configuration with Dependencies
+
+```clojure
+;; .bb-mcp-server.edn - Modules with dependencies
+{:modules
+ {:load-on-startup
+  [{:module-path "src/modules/nrepl.clj"
+    :enabled true
+    :config {:default-host "localhost"
+             :default-port 7890}}
+
+   {:module-path "src/modules/filesystem.clj"
+    :enabled true}
+
+   ;; This will be loaded AFTER nrepl and filesystem
+   {:module-path "src/modules/data-analysis.clj"
+    :enabled true
+    :config {:default-session "repl-session"}}
+
+   ;; This might depend on data-analysis
+   {:module-path "src/modules/dashboard.clj"
+    :enabled true}]}}
+```
+
+### Dependency Resolution Features
+
+1. **Topological Sort**: Ensures dependencies loaded before dependents
+2. **Cycle Detection**: Prevents infinite loops from circular dependencies
+3. **Missing Dependency Errors**: Clear error messages for unmet dependencies
+4. **Optional Dependencies**: Graceful degradation when optional modules missing
+5. **Explicit Ordering**: `load-order` field for fine-grained control
+6. **Telemetry**: All dependency resolution events logged
+
+### Error Messages
+
+```clojure
+;; Circular dependency error
+{:error "Circular dependency detected"
+ :module "dashboard"
+ :cycle #{"dashboard" "data-analysis" "visualization" "dashboard"}
+ :suggestion "Remove circular reference or make dependency optional"}
+
+;; Missing required dependency
+{:error "Required dependency not found"
+ :module "data-analysis"
+ :missing-dep "nrepl"
+ :available-modules ["filesystem" "blockchain"]
+ :suggestion "Enable nrepl module in configuration or mark as optional"}
+```
+
+---
+
+## Error Handling Strategy
+
+### Overview
+
+**Problem**: Multiple failure points exist (transport errors, module crashes, invalid inputs, resource exhaustion) but no unified error handling strategy.
+
+**Solution**: Multi-layer error handling with global exception middleware, graceful degradation, and comprehensive error recovery.
+
+### Error Handling Layers
+
+```
+┌─────────────────────────────────────┐
+│   Transport Error Handling          │  Layer 1: Network/protocol errors
+├─────────────────────────────────────┤
+│   Authentication Middleware          │  Layer 2: Security errors
+├─────────────────────────────────────┤
+│   Request Validation                 │  Layer 3: Input validation
+├─────────────────────────────────────┤
+│   Tool Execution Error Handling      │  Layer 4: Tool-specific errors
+├─────────────────────────────────────┤
+│   Module Lifecycle Error Handling    │  Layer 5: Module state errors
+├─────────────────────────────────────┤
+│   Global Exception Middleware        │  Layer 6: Catch-all safety net
+└─────────────────────────────────────┘
+```
+
+### Global Exception Middleware
+
+```clojure
+;; src/bb_mcp_server/middleware/error_handling.clj
+(ns bb-mcp-server.middleware.error-handling
+  (:require [bb-mcp-server.telemetry :as tel]
+            [cheshire.core :as json]))
+
+(defn error-response
+  "Generate standardized error response"
+  [error-type message & {:keys [details status-code]
+                         :or {status-code 500}}]
+  {:status status-code
+   :headers {"Content-Type" "application/json"}
+   :body (json/generate-string
+          {:jsonrpc "2.0"
+           :error {:code (case error-type
+                          :parse-error -32700
+                          :invalid-request -32600
+                          :method-not-found -32601
+                          :invalid-params -32602
+                          :internal-error -32603
+                          :server-error -32000)
+                   :message message
+                   :data (or details {})}})})
+
+(defn exception-middleware
+  "Global exception handler - last line of defense"
+  [handler]
+  (fn [request]
+    (try
+      (handler request)
+
+      ;; Specific exception types
+      (catch clojure.lang.ExceptionInfo e
+        (let [data (ex-data e)
+              message (.getMessage e)]
+          (tel/log-event! "error.exception-info"
+                         {:message message
+                          :data data
+                          :request-id (:request-id request)})
+          (cond
+            ;; Security errors
+            (= (:type data) :security)
+            (error-response :server-error message
+                          :details data
+                          :status-code 403)
+
+            ;; Validation errors
+            (= (:type data) :validation)
+            (error-response :invalid-params message
+                          :details data
+                          :status-code 400)
+
+            ;; Module errors
+            (= (:type data) :module)
+            (error-response :server-error message
+                          :details data
+                          :status-code 503)
+
+            ;; Generic ExceptionInfo
+            :else
+            (error-response :internal-error message
+                          :details data
+                          :status-code 500))))
+
+      ;; Timeout errors
+      (catch java.util.concurrent.TimeoutException e
+        (tel/log-event! "error.timeout"
+                       {:message (.getMessage e)
+                        :request-id (:request-id request)})
+        (error-response :server-error "Request timeout"
+                      :status-code 504))
+
+      ;; Resource errors
+      (catch java.io.IOException e
+        (tel/log-event! "error.io"
+                       {:message (.getMessage e)
+                        :request-id (:request-id request)})
+        (error-response :server-error "I/O error occurred"
+                      :status-code 500))
+
+      ;; Catch-all for unexpected errors
+      (catch Throwable t
+        (tel/log-event! "error.uncaught-exception"
+                       {:message (.getMessage t)
+                        :class (.getName (.getClass t))
+                        :stack-trace (mapv str (.getStackTrace t))
+                        :request-id (:request-id request)})
+        (error-response :internal-error "Internal server error"
+                      :status-code 500)))))
+```
+
+### Module Lifecycle Error States
+
+```clojure
+;; Enhanced lifecycle states with error handling
+(defprotocol ILifecycle
+  (start! [this config] "Start with error recovery")
+  (stop! [this] "Stop with cleanup guarantees")
+  (status [this] "Return detailed status including errors")
+  (restart! [this config] "Restart with error recovery")
+  (health-check [this] "Deep health check with diagnostics"))
+
+;; Lifecycle states
+;; :stopped    - Clean shutdown state
+;; :starting   - Initialization in progress
+;; :running    - Fully operational
+;; :degraded   - Partially operational (some features failing)
+;; :failed     - Non-operational (start failed or critical error)
+;; :stopping   - Shutdown in progress
+
+(defn safe-start!
+  "Start module with error recovery"
+  [lifecycle-instance config]
+  (try
+    (tel/log-event! "lifecycle.start.attempting"
+                   {:module (type lifecycle-instance)})
+
+    (let [result (start! lifecycle-instance config)]
+      (tel/log-event! "lifecycle.start.succeeded"
+                     {:module (type lifecycle-instance)
+                      :state (:state result)})
+      result)
+
+    (catch Exception e
+      (tel/log-event! "lifecycle.start.failed"
+                     {:module (type lifecycle-instance)
+                      :error (.getMessage e)
+                      :data (ex-data e)})
+      ;; Return failed state instead of crashing
+      {:state :failed
+       :error {:message (.getMessage e)
+               :type (type e)
+               :data (ex-data e)}
+       :timestamp (System/currentTimeMillis)})))
+
+(defn safe-stop!
+  "Stop module with guaranteed cleanup"
+  [lifecycle-instance]
+  (try
+    (tel/log-event! "lifecycle.stop.attempting"
+                   {:module (type lifecycle-instance)})
+
+    ;; Set timeout for stop operation
+    (let [stop-future (future (stop! lifecycle-instance))
+          result (deref stop-future 30000 :timeout)]
+
+      (if (= result :timeout)
+        (do
+          (tel/log-event! "lifecycle.stop.timeout"
+                         {:module (type lifecycle-instance)})
+          (future-cancel stop-future)
+          {:state :failed
+           :error {:message "Stop operation timed out"
+                   :type :timeout}})
+        (do
+          (tel/log-event! "lifecycle.stop.succeeded"
+                         {:module (type lifecycle-instance)})
+          result)))
+
+    (catch Exception e
+      (tel/log-event! "lifecycle.stop.failed"
+                     {:module (type lifecycle-instance)
+                      :error (.getMessage e)})
+      ;; Even if stop fails, mark as stopped to prevent hanging
+      {:state :stopped
+       :error {:message (.getMessage e)
+               :type (type e)}})))
+```
+
+### Partial Module Load Failure Recovery
+
+```clojure
+;; src/bb_mcp_server/loader.clj
+(defn load-modules-with-recovery!
+  "Load modules with partial failure recovery"
+  [module-configs]
+  (let [results (atom {:succeeded []
+                       :failed []
+                       :total (count module-configs)})]
+
+    (doseq [config module-configs]
+      (try
+        (tel/log-event! "loader.module.loading"
+                       {:path (:module-path config)})
+
+        (load-module! config)
+
+        (swap! results update :succeeded conj
+               {:path (:module-path config)
+                :status :loaded})
+
+        (tel/log-event! "loader.module.loaded"
+                       {:path (:module-path config)})
+
+        (catch Exception e
+          (tel/log-event! "loader.module.failed"
+                         {:path (:module-path config)
+                          :error (.getMessage e)
+                          :data (ex-data e)})
+
+          (swap! results update :failed conj
+                 {:path (:module-path config)
+                  :error (.getMessage e)
+                  :type (type e)}))))
+
+    (let [final-results @results]
+      (tel/log-event! "loader.summary"
+                     {:total (:total final-results)
+                      :succeeded (count (:succeeded final-results))
+                      :failed (count (:failed final-results))})
+
+      ;; Return results with warnings if partial failure
+      (cond
+        (empty? (:failed final-results))
+        {:status :success
+         :results final-results}
+
+        (empty? (:succeeded final-results))
+        {:status :total-failure
+         :results final-results
+         :message "All modules failed to load"}
+
+        :else
+        {:status :partial-success
+         :results final-results
+         :message (str (count (:failed final-results)) " modules failed to load")
+         :warnings (:failed final-results)}))))
+```
+
+### Transport Error Retry Logic
+
+```clojure
+;; src/bb_mcp_server/transport/http.clj
+(defn exponential-backoff-retry
+  "Retry failed operations with exponential backoff"
+  [operation & {:keys [max-retries initial-delay max-delay]
+                :or {max-retries 3
+                     initial-delay 100
+                     max-delay 5000}}]
+  (loop [attempt 0
+         delay initial-delay]
+    (let [result (try
+                   {:status :success
+                    :result (operation)}
+                   (catch Exception e
+                     {:status :error
+                      :error e}))]
+
+      (cond
+        ;; Success
+        (= (:status result) :success)
+        (:result result)
+
+        ;; Max retries reached
+        (>= attempt max-retries)
+        (do
+          (tel/log-event! "retry.max-attempts-reached"
+                         {:attempts (inc attempt)
+                          :error (.getMessage (:error result))})
+          (throw (:error result)))
+
+        ;; Retry with backoff
+        :else
+        (do
+          (tel/log-event! "retry.attempting"
+                         {:attempt (inc attempt)
+                          :delay delay
+                          :error (.getMessage (:error result))})
+          (Thread/sleep delay)
+          (recur (inc attempt)
+                 (min (* delay 2) max-delay)))))))
+
+;; Usage in HTTP transport
+(defn send-http-request
+  "Send HTTP request with retry logic"
+  [url payload]
+  (exponential-backoff-retry
+   #(http/post url {:body (json/generate-string payload)
+                    :headers {"Content-Type" "application/json"}})
+   :max-retries 3
+   :initial-delay 100
+   :max-delay 2000))
+```
+
+### Tool Execution Timeout Protection
+
+```clojure
+;; src/bb_mcp_server/registry.clj
+(defn execute-tool-with-timeout
+  "Execute tool with timeout protection"
+  [tool-name params & {:keys [timeout-ms]
+                       :or {timeout-ms 30000}}]
+  (let [tool (get @registry tool-name)]
+    (if-not tool
+      (throw (ex-info "Tool not found"
+                     {:type :validation
+                      :tool-name tool-name
+                      :available-tools (keys @registry)}))
+
+      (let [execution-future (future
+                              (try
+                                ((:handler tool) params)
+                                (catch Exception e
+                                  {:error (.getMessage e)
+                                   :type :tool-error})))
+            result (deref execution-future timeout-ms :timeout)]
+
+        (cond
+          ;; Timeout
+          (= result :timeout)
+          (do
+            (future-cancel execution-future)
+            (tel/log-event! "tool.execution.timeout"
+                           {:tool-name tool-name
+                            :timeout-ms timeout-ms})
+            (throw (ex-info "Tool execution timeout"
+                           {:type :timeout
+                            :tool-name tool-name
+                            :timeout-ms timeout-ms})))
+
+          ;; Tool error
+          (:error result)
+          (do
+            (tel/log-event! "tool.execution.error"
+                           {:tool-name tool-name
+                            :error (:error result)})
+            (throw (ex-info (:error result)
+                           {:type :tool-error
+                            :tool-name tool-name})))
+
+          ;; Success
+          :else
+          (do
+            (tel/log-event! "tool.execution.success"
+                           {:tool-name tool-name})
+            result))))))
+```
+
+### Error Handling Configuration
+
+```clojure
+;; .bb-mcp-server.edn - Error handling config
+{:error-handling
+ {:retry
+  {:enabled true
+   :max-retries 3
+   :initial-delay-ms 100
+   :max-delay-ms 5000}
+
+  :timeouts
+  {:tool-execution-ms 30000
+   :module-start-ms 10000
+   :module-stop-ms 30000
+   :http-request-ms 60000}
+
+  :module-loading
+  {:fail-on-any-error false    ; Continue loading other modules
+   :required-modules []          ; Must succeed or abort
+   :log-all-errors true}
+
+  :graceful-degradation
+  {:enabled true
+   :allow-partial-functionality true}}}
+```
+
+### Error Recovery Best Practices
+
+1. **Fail Fast for Security**: Authentication/authorization errors immediately deny access
+2. **Graceful Degradation**: Allow partial functionality when non-critical modules fail
+3. **Comprehensive Logging**: All errors logged with context for debugging
+4. **User-Friendly Messages**: Translate technical errors to actionable messages
+5. **Timeout Protection**: Prevent hanging on blocking operations
+6. **Retry with Backoff**: Retry transient failures with exponential backoff
+7. **Resource Cleanup**: Guarantee cleanup even when errors occur
+
+---
+
+## Schema Validation
+
+### Overview
+
+**Problem**: Tools receive parameters from LLMs which may not match expected schemas, causing runtime errors or undefined behavior.
+
+**Solution**: Schema validation using Malli (Babashka-compatible) with clear error messages for LLM correction.
+
+### Why Malli?
+
+- **Babashka Compatible**: Works in Babashka without additional dependencies
+- **Expressive**: Supports complex nested schemas
+- **Good Error Messages**: Detailed explanations for validation failures
+- **Runtime Performance**: Fast validation suitable for request handling
+- **Human Readable**: Schemas are data, easy to introspect and document
+
+### Schema Definition
+
+```clojure
+;; src/modules/nrepl.clj
+(ns modules.nrepl
+  (:require [malli.core :as m]
+            [malli.error :as me]
+            [bb-mcp-server.registry :as registry]
+            [bb-mcp-server.telemetry :as tel]))
+
+;; Tool input schemas
+(def eval-schema
+  [:map
+   [:code [:string {:min 1}]]
+   [:ns {:optional true} :string]
+   [:timeout-ms {:optional true} [:int {:min 1000 :max 300000}]]])
+
+(def connect-schema
+  [:map
+   [:host [:string {:min 1}]]
+   [:port [:int {:min 1 :max 65535}]]
+   [:timeout-ms {:optional true} [:int {:min 1000 :max 60000}]]])
+
+(def list-sessions-schema
+  [:map])  ; No required parameters
+
+;; Schema registry for module
+(def schemas
+  {"nrepl:eval" eval-schema
+   "nrepl:connect" connect-schema
+   "nrepl:list-sessions" list-sessions-schema})
+```
+
+### Validation Middleware
+
+```clojure
+;; src/bb_mcp_server/middleware/validation.clj
+(ns bb-mcp-server.middleware.validation
+  (:require [malli.core :as m]
+            [malli.error :as me]
+            [bb-mcp-server.telemetry :as tel]))
+
+(defn validate-params
+  "Validate tool parameters against schema"
+  [tool-name params schema]
+  (if (m/validate schema params)
+    ;; Valid - return params unchanged
+    params
+
+    ;; Invalid - throw detailed error
+    (let [explanation (me/humanize (m/explain schema params))]
+      (tel/log-event! "validation.schema.failed"
+                     {:tool-name tool-name
+                      :params params
+                      :errors explanation})
+      (throw (ex-info "Invalid parameters"
+                     {:type :validation
+                      :tool-name tool-name
+                      :errors explanation
+                      :params params
+                      :suggestion "Check parameter types and required fields"})))))
+
+(defn validation-middleware
+  "Middleware to validate tool inputs"
+  [handler schema]
+  (fn [params]
+    (let [validated-params (validate-params
+                            (get params :tool-name "unknown")
+                            params
+                            schema)]
+      (handler validated-params))))
+```
+
+### Tool Registration with Schema
+
+```clojure
+;; src/bb_mcp_server/registry.clj
+(defn register-tool!
+  "Register tool with schema validation"
+  [tool-name handler metadata]
+  (let [schema (:schema metadata)
+        validated-handler (if schema
+                           (validation-middleware handler schema)
+                           handler)]
+
+    ;; Validate tool name and register
+    (when-not (valid-tool-name? tool-name)
+      (throw (ex-info "Tool names must be namespaced"
+                     {:tool-name tool-name})))
+
+    (when (contains? @registry tool-name)
+      (throw (ex-info "Tool name collision"
+                     {:tool-name tool-name})))
+
+    (swap! registry assoc tool-name
+           {:handler validated-handler
+            :metadata (assoc metadata :has-schema (some? schema))})
+
+    (tel/log-event! "registry.tool.registered"
+                   {:tool-name tool-name
+                    :has-schema (some? schema)})
+
+    {:status :registered
+     :tool-name tool-name
+     :validated (some? schema)}))
+```
+
+### Schema Examples
+
+```clojure
+;; Common schema patterns
+
+;; String with constraints
+[:string {:min 1 :max 1000}]
+
+;; Enum/options
+[:enum "json" "edn" "string"]
+
+;; Optional field
+[:map
+ [:required-field :string]
+ [:optional-field {:optional true} :int]]
+
+;; Nested map
+[:map
+ [:config [:map
+           [:host :string]
+           [:port :int]]]]
+
+;; Array/vector
+[:vector :string]
+[:vector {:min 1} [:map [:name :string] [:value :int]]]
+
+;; Union types
+[:or :string :int]
+
+;; Regular expression
+[:re #"^[a-zA-Z0-9_-]+$"]
+
+;; Custom validator
+[:string {:min 1}
+ [:fn {:error/message "Must be valid JSON"}
+  #(try (cheshire.core/parse-string %) true
+        (catch Exception _ false))]]
+```
+
+### Error Messages for LLMs
+
+When validation fails, generate clear messages that help LLMs correct their requests:
+
+```clojure
+;; Example validation error response
+{:error "Invalid parameters"
+ :tool-name "nrepl:eval"
+ :errors {:code ["should be a string with at least 1 character"
+                 "missing required key"]
+          :timeout-ms ["should be an integer between 1000 and 300000"]}
+ :received-params {:code 123           ; Wrong: should be string
+                   :timeout-ms 500000}  ; Wrong: exceeds max
+ :suggestion "Check parameter types and required fields"
+ :valid-example {:code "(+ 1 2)"
+                 :ns "user"
+                 :timeout-ms 30000}}
+```
+
+### Schema Documentation Generation
+
+```clojure
+;; Generate JSON Schema for tool documentation
+(defn malli-to-json-schema
+  "Convert Malli schema to JSON Schema for MCP tool descriptions"
+  [malli-schema]
+  ;; Simplified conversion (full implementation would handle all Malli types)
+  (cond
+    (= (first malli-schema) :map)
+    {:type "object"
+     :properties (into {}
+                      (map (fn [[k opts & rest]]
+                             (let [required? (not (:optional opts))
+                                   schema-type (if rest (first rest) opts)]
+                               [k (malli-to-json-schema schema-type)]))
+                           (rest malli-schema)))
+     :required (filterv #(not (get-in malli-schema [% :optional]))
+                       (map first (rest malli-schema)))}
+
+    (= (first malli-schema) :string)
+    {:type "string"
+     :minLength (get-in malli-schema [1 :min])
+     :maxLength (get-in malli-schema [1 :max])}
+
+    (= (first malli-schema) :int)
+    {:type "integer"
+     :minimum (get-in malli-schema [1 :min])
+     :maximum (get-in malli-schema [1 :max])}
+
+    ;; ... handle other types
+    ))
+
+;; Usage: Generate MCP tool description from Malli schema
+(defn tool-description
+  "Generate MCP tool description with schema"
+  [tool-name schema description]
+  {:name tool-name
+   :description description
+   :inputSchema (malli-to-json-schema schema)})
+```
+
+### Schema Validation Configuration
+
+```clojure
+;; .bb-mcp-server.edn - Validation config
+{:schema-validation
+ {:enabled true
+  :strict-mode true              ; Fail on unknown keys
+  :generate-examples true         ; Include valid examples in errors
+  :log-validation-errors true
+  :validation-timeout-ms 1000}}  ; Max time for schema validation
+```
+
+### Benefits of Schema Validation
+
+1. **Early Error Detection**: Catch parameter errors before tool execution
+2. **Better Error Messages**: LLMs get clear feedback on what to fix
+3. **Self-Documenting**: Schemas serve as tool documentation
+4. **Type Safety**: Prevent runtime type errors
+5. **Tool Description Generation**: Auto-generate MCP tool schemas
+6. **Validation is Fast**: Malli validation adds minimal overhead
+7. **Comprehensive Coverage**: Support for complex nested structures
+
+---
+
 ## Module Development Pattern
 
 ### Example: nREPL Module (Stateful with Lifecycle)
@@ -1549,6 +2979,197 @@ Add to bb.edn:
            (println "✅ Using default configuration")
            (println "   (Config file not modified)")
            (clojure.pprint/pprint config/default-config))}
+
+  ;; ============================================================
+  ;; Security Tasks
+  ;; ============================================================
+
+  :security:generate-key
+  {:doc "Generate new API key for authentication"
+   :requires ([bb-mcp-server.security.auth :as auth]
+              [clojure.java.io :as io])
+   :task (let [api-key (auth/generate-api-key)
+               key-hash (auth/hash-api-key api-key)
+               key-name (or (first *command-line-args*) "default")]
+           (println "Generated API key:")
+           (println "")
+           (println "  Name:" key-name)
+           (println "  Key: " api-key)
+           (println "")
+           (println "⚠️  Save this key securely - it won't be shown again!")
+           (println "")
+           (println "To add to server configuration:")
+           (println "  bb security:add-key" key-name key-hash)
+           (println "")
+           (println "Or add manually to ~/.config/bb-mcp-server/api-keys.edn:")
+           (println "  {" key-name (str "\"" key-hash "\"") "}"))}
+
+  :security:add-key
+  {:doc "Add API key to registry: bb security:add-key <name> <hash>"
+   :requires ([bb-mcp-server.security.auth :as auth]
+              [clojure.java.io :as io]
+              [clojure.edn :as edn])
+   :task (let [[key-name key-hash] *command-line-args*
+               keys-file (io/file (System/getProperty "user.home")
+                                 ".config/bb-mcp-server/api-keys.edn")]
+           (if (or (nil? key-name) (nil? key-hash))
+             (println "Usage: bb security:add-key <name> <hash>")
+             (do
+               ;; Create directory if needed
+               (.mkdirs (.getParentFile keys-file))
+
+               ;; Load existing keys or create new map
+               (let [existing-keys (if (.exists keys-file)
+                                    (edn/read-string (slurp keys-file))
+                                    {})
+                     updated-keys (assoc existing-keys (keyword key-name) key-hash)]
+
+                 ;; Write updated keys
+                 (spit keys-file (with-out-str (clojure.pprint/pprint updated-keys)))
+                 (println "✅ API key added:" key-name)
+                 (println "   Keys file:" (.getPath keys-file))))))}
+
+  :security:list-keys
+  {:doc "List all registered API keys (names only, not secrets)"
+   :requires ([clojure.java.io :as io]
+              [clojure.edn :as edn])
+   :task (let [keys-file (io/file (System/getProperty "user.home")
+                                  ".config/bb-mcp-server/api-keys.edn")]
+           (if-not (.exists keys-file)
+             (println "No API keys registered yet")
+             (let [keys-map (edn/read-string (slurp keys-file))]
+               (println "Registered API keys:")
+               (doseq [[key-name _] keys-map]
+                 (println "  -" (name key-name)))
+               (println "")
+               (println "Total:" (count keys-map) "keys"))))}
+
+  :security:revoke-key
+  {:doc "Revoke an API key: bb security:revoke-key <name>"
+   :requires ([clojure.java.io :as io]
+              [clojure.edn :as edn])
+   :task (let [key-name (first *command-line-args*)
+               keys-file (io/file (System/getProperty "user.home")
+                                 ".config/bb-mcp-server/api-keys.edn")]
+           (if-not key-name
+             (println "Usage: bb security:revoke-key <name>")
+             (if-not (.exists keys-file)
+               (println "⚠️  No API keys file found")
+               (let [existing-keys (edn/read-string (slurp keys-file))
+                     key-keyword (keyword key-name)]
+                 (if-not (contains? existing-keys key-keyword)
+                   (println "⚠️  Key not found:" key-name)
+                   (let [updated-keys (dissoc existing-keys key-keyword)]
+                     (spit keys-file (with-out-str (clojure.pprint/pprint updated-keys)))
+                     (println "✅ API key revoked:" key-name)))))))}
+
+  :security:sign-config
+  {:doc "Sign project config file: bb security:sign-config [--global]"
+   :requires ([bb-mcp-server.security.config :as sec-config]
+              [clojure.java.io :as io])
+   :task (let [global? (some #{"--global"} *command-line-args*)
+               config-path (if global?
+                            (str (System/getProperty "user.home")
+                                "/.config/bb-mcp-server/config.edn")
+                            "./.bb-mcp-server.edn")
+               config-file (io/file config-path)]
+           (if-not (.exists config-file)
+             (println "⚠️  Config file not found:" config-path)
+             (let [signature (sec-config/sign-config-file config-path)]
+               (println "✅ Config file signed")
+               (println "   Signature:" signature)
+               (println "")
+               (println "Add to config file:")
+               (println "  :signature" (str "\"" signature "\""))))))}
+
+  :security:verify-config
+  {:doc "Verify config file signature: bb security:verify-config [--global]"
+   :requires ([bb-mcp-server.security.config :as sec-config]
+              [clojure.java.io :as io])
+   :task (let [global? (some #{"--global"} *command-line-args*)
+               config-path (if global?
+                            (str (System/getProperty "user.home")
+                                "/.config/bb-mcp-server/config.edn")
+                            "./.bb-mcp-server.edn")]
+           (if-not (.exists (io/file config-path))
+             (println "⚠️  Config file not found:" config-path)
+             (if (sec-config/verify-config-file config-path)
+               (println "✅ Config signature valid")
+               (do
+                 (println "❌ Config signature invalid or missing")
+                 (System/exit 1)))))}
+
+  :security:check-permissions
+  {:doc "Check file permissions for security-sensitive files"
+   :requires ([clojure.java.io :as io])
+   :task (let [sensitive-files
+               [(str (System/getProperty "user.home") "/.config/bb-mcp-server/api-keys.edn")
+                (str (System/getProperty "user.home") "/.config/bb-mcp-server/secret.key")
+                "./.bb-mcp-server.edn"]]
+           (println "Checking file permissions:")
+           (println "")
+           (doseq [path sensitive-files]
+             (let [file (io/file path)]
+               (if (.exists file)
+                 (let [readable? (.canRead file)
+                       writable? (.canWrite file)
+                       executable? (.canExecute file)
+                       perms (str (if readable? "r" "-")
+                                 (if writable? "w" "-")
+                                 (if executable? "x" "-"))]
+                   (println (format "  %s: %s" path perms))
+                   (when executable?
+                     (println "    ⚠️  WARNING: File should not be executable"))
+                   (when (and readable? (not= (System/getProperty "user.name")
+                                             (.getName (.toPath file))))
+                     (println "    ⚠️  WARNING: File readable by others")))
+                 (println (format "  %s: (not found)" path)))))
+           (println "")
+           (println "Recommended permissions for sensitive files:")
+           (println "  - API keys file: 600 (rw-------)")
+           (println "  - Secret key file: 600 (rw-------)")
+           (println "  - Config files: 644 (rw-r--r--)"))}
+
+  :security:audit-config
+  {:doc "Audit security configuration for common issues"
+   :requires ([bb-mcp-server.config :as config]
+              [bb-mcp-server.security.audit :as audit])
+   :task (do
+           (println "Security Configuration Audit")
+           (println "============================")
+           (println "")
+           (let [config (config/load-config!)
+                 issues (audit/audit-config config)]
+             (if (empty? issues)
+               (println "✅ No security issues found")
+               (do
+                 (println "Security issues found:")
+                 (println "")
+                 (doseq [{:keys [severity message suggestion]} issues]
+                   (println (format "[%s] %s" (name severity) message))
+                   (when suggestion
+                     (println "       Suggestion:" suggestion))
+                   (println ""))
+                 (println "Total issues:" (count issues))
+                 (when (some #(= (:severity %) :critical) issues)
+                   (println "")
+                   (println "⚠️  CRITICAL issues found - address immediately!")
+                   (System/exit 1))))))}
+
+  :security:test-auth
+  {:doc "Test API key authentication: bb security:test-auth <key>"
+   :requires ([bb-mcp-server.security.auth :as auth])
+   :task (let [test-key (first *command-line-args*)]
+           (if-not test-key
+             (println "Usage: bb security:test-auth <api-key>")
+             (let [key-hash (auth/hash-api-key test-key)]
+               (if (auth/validate-api-key test-key)
+                 (do
+                   (println "✅ API key is valid")
+                   (println "   Hash:" key-hash))
+                 (do
+                   (println "❌ API key is invalid")
+                   (System/exit 1))))))}
 
   ;; ============================================================
   ;; Tool Registry Tasks
