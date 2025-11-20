@@ -4,14 +4,16 @@ A production-ready Model Context Protocol (MCP) server implemented in Clojure/Ba
 
 ## Features
 
-✅ **Phase 1.2 Complete - Minimal MCP Server:**
+✅ **Phase 1.2 Complete - Minimal MCP Server (VERIFIED WITH CLAUDE CODE):**
 - JSON-RPC 2.0 message parsing and validation
 - Core handler router with initialization state management
 - MCP protocol handlers: `initialize`, `tools/list`, `tools/call`
+- MCP protocol version: `2024-11-05` (spec-compliant)
 - Example tool: `hello` (greeting tool)
 - stdio transport for Claude Code integration
 - Comprehensive telemetry (structured logging on all paths)
 - 94 tests, 393 assertions, all passing
+- **✅ TESTED: Successfully connected and verified with Claude Code**
 
 ## Quick Start
 
