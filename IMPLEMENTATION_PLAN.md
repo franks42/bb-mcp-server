@@ -55,14 +55,21 @@
 | 1.2.6 | Implement "tools/call" dispatcher | 🤖 | ⏳ | Agent | Routes to registered tool handlers. Unit tests |
 | 1.2.7 | Implement test tool: "hello" | 🤖 | ⏳ | Agent | Takes name, returns greeting. Full tests |
 | 1.2.8 | Add telemetry to all handlers | 🤖 | ⏳ | Agent | Telemere-lite logging on all paths |
-| 1.2.9 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
-| 1.2.10 | Write integration tests | 🤖 | ⏳ | Agent | Test full request/response cycle via stdio |
-| 1.2.11 | Review protocol implementation | 🎯 | ⏳ | Orchestrator | MCP spec compliant, error handling correct |
+| 1.2.9 | Test RPC handlers with Claude Code | 🎯 | ⏳ | Orchestrator | Configure bb-mcp-server, verify all methods work in real Claude session |
+| 1.2.10 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
+| 1.2.11 | Test stdio with Claude Code | 🎯 | ⏳ | Orchestrator | End-to-end test via stdio in real Claude session |
+| 1.2.12 | Write additional integration tests | 🤖 | ⏳ | Agent | Automated test suite for CI/CD |
+| 1.2.13 | Review protocol implementation | 🎯 | ⏳ | Orchestrator | MCP spec compliant, error handling correct |
 
 **Dependencies:** 1.1 (Project Initialization)
 **Estimated LOC:** ~300-400
 **Deliverable:** Working MCP server responding to stdio
-**Testing Strategy:** Unit test core protocol, then integration test stdio transport
+**Testing Strategy:**
+1. Unit test core protocol (no I/O)
+2. Test RPC handlers with real Claude Code (validate protocol works)
+3. Add stdio transport
+4. Test stdio with real Claude Code (validate transport works)
+5. Automated integration tests for CI/CD
 
 ---
 
