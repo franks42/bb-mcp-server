@@ -56,7 +56,7 @@
 | 1.2.7 | Implement test tool: "hello" | 🤖 | ✅ | Agent | Takes name, returns greeting. Full tests |
 | 1.2.8 | Add telemetry to all handlers | 🤖 | ✅ | Agent | Telemere-lite logging on all paths (completed during implementation) |
 | 1.2.9 | Test RPC handlers with Claude Code | 🎯 | ✅ | Orchestrator | Configure bb-mcp-server, verify all methods work in real Claude session |
-| 1.2.10 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
+| 1.2.10 | Implement stdio transport | 🤖 | ✅ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
 | 1.2.11 | Test stdio with Claude Code | 🎯 | ⏳ | Orchestrator | End-to-end test via stdio in real Claude session |
 | 1.2.12 | Write additional integration tests | 🤖 | ⏳ | Agent | Automated test suite for CI/CD |
 | 1.2.13 | Review protocol implementation | 🎯 | ⏳ | Orchestrator | MCP spec compliant, error handling correct |
