@@ -53,7 +53,7 @@
 | 1.2.4 | Implement "initialize" handler | 🤖 | ✅ | Agent | Returns server capabilities. Unit tests |
 | 1.2.5 | Implement "tools/list" handler | 🤖 | ✅ | Agent | Returns list of available tools. Unit tests |
 | 1.2.6 | Implement "tools/call" dispatcher | 🤖 | ✅ | Agent | Routes to registered tool handlers. Unit tests |
-| 1.2.7 | Implement test tool: "hello" | 🤖 | ⏳ | Agent | Takes name, returns greeting. Full tests |
+| 1.2.7 | Implement test tool: "hello" | 🤖 | ✅ | Agent | Takes name, returns greeting. Full tests |
 | 1.2.8 | Add telemetry to all handlers | 🤖 | ⏳ | Agent | Telemere-lite logging on all paths |
 | 1.2.9 | Test RPC handlers with Claude Code | 🎯 | ⏳ | Orchestrator | Configure bb-mcp-server, verify all methods work in real Claude session |
 | 1.2.10 | Implement stdio transport | 🤖 | ⏳ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
