@@ -40,7 +40,7 @@
 
 ---
 
-### 1.2 Minimal MCP Server (stdio only)
+### 1.2 Minimal MCP Server (stdio only) ✅ COMPLETE
 **Goal:** Prove MCP protocol works end-to-end
 
 **Strategy:** Build core protocol first (testable without I/O), then add stdio transport
@@ -58,12 +58,25 @@
 | 1.2.9 | Test RPC handlers with Claude Code | 🎯 | ✅ | Orchestrator | Configure bb-mcp-server, verify all methods work in real Claude session |
 | 1.2.10 | Implement stdio transport | 🤖 | ✅ | Agent | Read/write JSON-RPC over stdio. Wraps tested handlers |
 | 1.2.11 | Test stdio with Claude Code | 🎯 | ✅ | Orchestrator | End-to-end test via stdio in real Claude session |
-| 1.2.12 | Write additional integration tests | 🤖 | ⏳ | Agent | Automated test suite for CI/CD |
+| 1.2.12 | Write additional integration tests | 🤖 | ⏳ | Agent | Automated test suite for CI/CD (deferred to Phase 1.2 cleanup) |
 | 1.2.13 | Review protocol implementation | 🎯 | ✅ | Orchestrator | MCP spec compliant, error handling correct |
 
 **Dependencies:** 1.1 (Project Initialization)
-**Estimated LOC:** ~300-400
-**Deliverable:** Working MCP server responding to stdio
+**Actual LOC:** ~500 (including comprehensive telemetry)
+**Deliverable:** ✅ Working MCP server responding to stdio, verified with Claude Code
+**Tagged:** v0.1.0-phase1.2
+
+**Phase 1.2 Achievements:**
+- MCP protocol version 2025-03-26 (forward-compatible)
+- JSON-RPC notification handling (per spec)
+- Capabilities negotiation
+- Comprehensive telemetry with structured logging
+- Critical bug fixes: stderr logging, notification handling
+
+**Cleanup Needed:**
+- Update test suite to expect protocol version 2025-03-26
+- Fix test failures due to protocol version mismatch
+- Add integration tests for notification handling
 **Testing Strategy:**
 1. Unit test core protocol (no I/O)
 2. Test RPC handlers with real Claude Code (validate protocol works)
@@ -80,15 +93,15 @@
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 2.1.1 | Design tool registry interface | 🎯 | ⏸️ | Orchestrator | API design for register/unregister/lookup |
-| 2.1.2 | Implement tool registry | 🤖 | ⏸️ | Agent | Thread-safe registry. Full tests |
-| 2.1.3 | Add schema validation (Malli) | 🤖 | ⏸️ | Agent | Validate tool definitions. Clear errors |
-| 2.1.4 | Update tools/list to use registry | 🤖 | ⏸️ | Agent | Dynamic tool listing works |
-| 2.1.5 | Update tools/call to use registry | 🤖 | ⏸️ | Agent | Dynamic dispatch works |
-| 2.1.6 | Add 3 example tools | 🤖 | ⏸️ | Agent | echo, add, concat with tests |
-| 2.1.7 | Review registry design | 🎯 | ⏸️ | Orchestrator | Clean API, good error messages |
+| 2.1.1 | Design tool registry interface | 🎯 | ⏳ | Orchestrator | API design for register/unregister/lookup |
+| 2.1.2 | Implement tool registry | 🤖 | ⏳ | Agent | Thread-safe registry. Full tests |
+| 2.1.3 | Add schema validation (Malli) | 🤖 | ⏳ | Agent | Validate tool definitions. Clear errors |
+| 2.1.4 | Update tools/list to use registry | 🤖 | ⏳ | Agent | Dynamic tool listing works |
+| 2.1.5 | Update tools/call to use registry | 🤖 | ⏳ | Agent | Dynamic dispatch works |
+| 2.1.6 | Add 3 example tools | 🤖 | ⏳ | Agent | echo, add, concat with tests |
+| 2.1.7 | Review registry design | 🎯 | ⏳ | Orchestrator | Clean API, good error messages |
 
-**Dependencies:** 1.2 (Minimal MCP Server)
+**Dependencies:** 1.2 (Minimal MCP Server) ✅ UNBLOCKED
 **Estimated LOC:** ~200-300
 **Deliverable:** Tools can be registered at runtime
 
