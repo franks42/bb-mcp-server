@@ -73,9 +73,11 @@
       (:notification parse-result)
       (do
         (log/info "Processing notification (no response will be sent)"
-                  {:method (get-in parse-result [:notification :method])})
+                  {:method (get-in parse-result [:notification :method])
+                   :params (get-in parse-result [:notification :params])})
         ;; TODO: Route and process notification when we need to handle them
-        ;; For now, just log and return nil (signals: don't send any response)
+        ;; For now, just log full notification details and return nil
+        (log/debug "Notification details" {:notification (:notification parse-result)})
         nil)
 
       ;; Regular request - route and respond
