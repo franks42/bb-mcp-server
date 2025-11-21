@@ -69,15 +69,23 @@
                     (is (= "Missing 'method' field" (get-in result [:error :data]))))))
 
 (deftest test-parse-missing-id
-         (testing "Invalid request when id field is missing"
+         (testing "Missing id field is treated as notification (JSON-RPC 2.0 spec)"
                   (let [json-str (json/generate-string
                                   {:jsonrpc "2.0"
                                    :method "tools/list"})
                         result (msg/parse-request json-str)]
-                    (is (contains? result :error))
-                    (is (= -32600 (get-in result [:error :code])))
-                    (is (= "Invalid Request" (get-in result [:error :message])))
-                    (is (= "Missing 'id' field" (get-in result [:error :data]))))))
+                    ;; JSON-RPC 2.0 spec: missing id = notification
+                    (is (contains? result :notification)
+                        "Result should have :notification field")
+                    (is (not (contains? result :error))
+                        "Result should not have :error field")
+                    (is (not (contains? result :request))
+                        "Result should not have :request field")
+                    ;; Check notification structure
+                    (is (= "2.0" (get-in result [:notification :jsonrpc]))
+                        "Notification should have jsonrpc field")
+                    (is (= "tools/list" (get-in result [:notification :method]))
+                        "Notification should have method field"))))
 
 (deftest test-create-response
          (testing "Create valid success response"
