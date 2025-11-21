@@ -1,7 +1,7 @@
 (ns bb-mcp-server.protocol.router
     "JSON-RPC request router that dispatches methods to handlers."
     (:require [bb-mcp-server.protocol.message :as msg]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 ;; Server state
 (defonce ^:private server-state
@@ -21,11 +21,11 @@
     - A success response map (use msg/create-response)
     - An error response map (use msg/create-error-response)"
   [method-name handler-fn]
-  (log/info "Registering handler" {:method method-name})
+  (log/log! {:level :info :msg "Registering handler" :data {:method method-name}})
   (swap! server-state assoc-in [:handlers method-name] handler-fn)
-  (log/debug "Handler registered successfully"
-             {:method method-name
-              :total-handlers (count (:handlers @server-state))}))
+  (log/log! {:level :debug :msg "Handler registered successfully"
+             :data {:method method-name
+                    :total-handlers (count (:handlers @server-state))}}))
 
 (defn route-request
   "Route a parsed JSON-RPC request to the appropriate handler.
@@ -47,10 +47,10 @@
         request-id (:id parsed-request)
         start-time (System/nanoTime)]
 
-    (log/info "Routing request"
-              {:method method
-               :id request-id
-               :params (keys (:params parsed-request))})
+    (log/log! {:level :info :msg "Routing request"
+               :data {:method method
+                      :id request-id
+                      :params (keys (:params parsed-request))}})
 
     (try
       ;; Get current state
@@ -66,10 +66,10 @@
                          (:method-not-found msg/error-codes)
                          "Method not found"
                          {:method method})]
-           (log/warn "Unknown method requested"
-                     {:method method
-                      :id request-id
-                      :available-methods (keys (:handlers state))})
+           (log/log! {:level :warn :msg "Unknown method requested"
+                      :data {:method method
+                             :id request-id
+                             :available-methods (keys (:handlers state))}})
            response)
 
           ;; Check if initialized (except for initialize method)
@@ -81,9 +81,9 @@
                          "Server not initialized"
                          {:method method
                           :hint "Call 'initialize' method first"})]
-           (log/warn "Method called before initialization"
-                     {:method method
-                      :id request-id})
+           (log/log! {:level :warn :msg "Method called before initialization"
+                      :data {:method method
+                             :id request-id}})
            response)
 
           ;; Call handler
@@ -93,25 +93,26 @@
                success? (not (contains? response :error))]
 
            (if success?
-             (log/info "Request completed successfully"
-                       {:method method
-                        :id request-id
-                        :duration-ms duration-ms})
-             (log/warn "Request completed with error"
-                       {:method method
-                        :id request-id
-                        :duration-ms duration-ms
-                        :error-code (get-in response [:error :code])
-                        :error-message (get-in response [:error :message])}))
+             (log/log! {:level :info :msg "Request completed successfully"
+                        :data {:method method
+                               :id request-id
+                               :duration-ms duration-ms}})
+             (log/log! {:level :warn :msg "Request completed with error"
+                        :data {:method method
+                               :id request-id
+                               :duration-ms duration-ms
+                               :error-code (get-in response [:error :code])
+                               :error-message (get-in response [:error :message])}}))
 
            response)))
 
      (catch Exception e
             (let [duration-ms (/ (- (System/nanoTime) start-time) 1000000.0)]
-              (log/error e "Unhandled exception in router"
-                         {:method method
-                          :id request-id
-                          :duration-ms duration-ms})
+              (log/log! {:level :error :msg "Unhandled exception in router"
+                         :error e
+                         :data {:method method
+                                :id request-id
+                                :duration-ms duration-ms}})
               (msg/create-error-response
                request-id
                (:internal-error msg/error-codes)
@@ -120,11 +121,12 @@
                 :type (str (type e))}))))))
 
 (defn set-initialized!
-  "Mark the server as initialized.
+  "Set the server initialized state.
 
-  This is typically called by the initialize handler after successful initialization."
+  Args:
+  - initialized? (boolean): New state"
   [initialized?]
-  (log/info "Setting server initialized state" {:initialized initialized?})
+  (log/log! {:level :info :msg "Setting server initialized state" :data {:initialized initialized?}})
   (swap! server-state assoc :initialized initialized?))
 
 (defn initialized?
@@ -135,12 +137,11 @@
   (:initialized @server-state))
 
 (defn reset-state!
-  "Reset server state to initial values.
+  "Reset server state to default (uninitialized, no handlers).
 
-  WARNING: This clears all registered handlers and initialization state.
-  Primarily used for testing."
+  Used for testing."
   []
-  (log/warn "Resetting server state")
+  (log/log! {:level :warn :msg "Resetting server state"})
   (reset! server-state {:initialized false
                         :handlers {}}))
 

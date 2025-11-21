@@ -11,7 +11,7 @@
     (:require [bb-mcp-server.test-harness :as test-harness]
               [bb-mcp-server.protocol.message :as msg]
               [cheshire.core :as json]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 (defn run-stdio-server!
   "Run the stdio MCP server.
@@ -35,34 +35,34 @@
 
   This function blocks until stdin is closed."
   []
-  (log/info "Starting stdio MCP server")
+  (log/log! {:level :info :msg "Starting stdio MCP server"})
 
   ;; Setup server state
   (try
    (test-harness/setup!)
-   (log/info "Server setup complete, ready to accept requests")
+   (log/log! {:level :info :msg "Server setup complete, ready to accept requests"})
 
     ;; Main request/response loop
    (try
     (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-           (log/debug "Received request line" {:length (count line)})
+           (log/log! {:level :debug :msg "Received request line" :data {:length (count line)}})
 
            (try
           ;; Process request and get response
             (let [response (test-harness/process-json-rpc line)]
               ;; Only send response if not nil (nil = notification, don't respond)
               (when response
-                (log/debug "Sending response" {:length (count response)})
+                (log/log! {:level :debug :msg "Sending response" :data {:length (count response)}})
 
                 ;; Write response to stdout
                 (println response)
                 (flush)
 
-                (log/debug "Response sent successfully")))
+                (log/log! {:level :debug :msg "Response sent successfully"})))
 
             (catch Exception e
             ;; Handle request processing errors
-                   (log/error e "Error processing request" {:line line})
+                   (log/log! {:level :error :msg "Error processing request" :error e :data {:line line}})
 
             ;; Send error response
                    (let [error-response (msg/create-error-response
@@ -73,20 +73,22 @@
                          response-json (json/generate-string error-response)]
                      (println response-json)
                      (flush)
-                     (log/debug "Error response sent")))))
+                     (log/log! {:level :debug :msg "Error response sent"})))))
 
     (catch java.io.IOException e
         ;; EOF or I/O error - normal shutdown
-           (log/info "Stdio stream closed" {:message (ex-message e)}))
+           (log/log! {:level :info :msg "Stdio stream closed" :data {:message (ex-message e)}}))
 
     (catch Exception e
         ;; Unexpected error in main loop
-           (log/error e "Fatal error in stdio server main loop")))
+           (log/log! {:level :error :msg "Fatal error in stdio server main loop" :error e})))
 
    (catch Exception e
       ;; Setup error
-          (log/error e "Failed to setup stdio server")
+          (log/log! {:level :error :msg "Failed to setup stdio server" :error e})
           (throw e))
 
    (finally
-    (log/info "Stdio MCP server shutdown complete"))))
+    (log/log! {:level :info :msg "Stdio MCP server shutdown complete"}))))
+
+

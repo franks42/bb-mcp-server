@@ -5,7 +5,7 @@
   This tool serves as a reference implementation and integration test."
     (:require [bb-mcp-server.handlers.tools-list :as tools-list]
               [bb-mcp-server.handlers.tools-call :as tools-call]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 ;; Tool definition for tools/list
 (def hello-tool
@@ -33,17 +33,17 @@
   Telemetry: Logs hello request with provided name"
   [arguments]
   (let [name (:name arguments)]
-    (log/info "Processing hello request" {:name name})
+    (log/log! {:level :info :msg "Processing hello request" :data {:name name}})
 
     ;; Validate name is present (should be caught by schema validation, but defensive)
     (when (or (nil? name) (empty? name))
-      (log/error "Hello handler called with missing or empty name" {:arguments arguments})
+      (log/log! {:level :error :msg "Hello handler called with missing or empty name" :data {:arguments arguments}})
       (throw (ex-info "Missing or empty name argument"
                       {:type :invalid-arguments
                        :arguments arguments})))
 
     (let [greeting (str "Hello, " name "!")]
-      (log/info "Hello request completed" {:name name :greeting greeting})
+      (log/log! {:level :info :msg "Hello request completed" :data {:name name :greeting greeting}})
       greeting)))
 
 (defn init!
@@ -57,22 +57,23 @@
 
   Telemetry: Logs initialization start and completion"
   []
-  (log/info "Initializing hello tool")
+  (log/log! {:level :info :msg "Initializing hello tool"})
 
   (try
     ;; Register tool definition
    (tools-list/register-tool! hello-tool)
-   (log/info "Hello tool definition registered")
+   (log/log! {:level :info :msg "Hello tool definition registered"})
 
     ;; Register handler function
    (tools-call/register-handler! "hello" hello-handler)
-   (log/info "Hello tool handler registered")
+   (log/log! {:level :info :msg "Hello tool handler registered"})
 
-   (log/info "Hello tool initialization complete")
+   (log/log! {:level :info :msg "Hello tool initialization complete"})
    true
 
    (catch Exception e
-          (log/error e "Hello tool initialization failed"
-                     {:error (ex-message e)
-                      :error-data (ex-data e)})
+          (log/log! {:level :error :msg "Hello tool initialization failed"
+                     :error e
+                     :data {:error (ex-message e)
+                            :error-data (ex-data e)}})
           (throw e))))

@@ -10,7 +10,7 @@
               [bb-mcp-server.handlers.tools-call :as tools-call]
               [bb-mcp-server.tools.hello :as hello]
               [cheshire.core :as json]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 (defn setup!
   "Set up the test environment by registering all handlers and tools.
@@ -22,7 +22,7 @@
   - Initializes the hello tool
   - Resets server state"
   []
-  (log/info "Setting up test harness")
+  (log/log! {:level :info :msg "Setting up test harness"})
 
   ;; Reset server state
   (router/reset-state!)
@@ -37,7 +37,7 @@
   ;; Initialize hello tool
   (hello/init!)
 
-  (log/info "Test harness setup complete"))
+  (log/log! {:level :info :msg "Test harness setup complete"}))
 
 (defn process-json-rpc
   "Process a JSON-RPC request string and return a JSON-RPC response string.
@@ -54,7 +54,7 @@
 
   This is the main entry point for testing - send JSON-RPC, get JSON-RPC back."
   [json-str]
-  (log/info "Processing JSON-RPC request" {:input-length (count json-str)})
+  (log/log! {:level :info :msg "Processing JSON-RPC request" :data {:input-length (count json-str)}})
 
   ;; Parse request
   (let [parse-result (msg/parse-request json-str)]
@@ -72,13 +72,13 @@
       ;; JSON-RPC 2.0: "The Server MUST NOT reply to a Notification"
       (:notification parse-result)
       (do
-        (log/info "Processing notification (no response will be sent)"
-                  {:method (get-in parse-result [:notification :method])
-                   :params (get-in parse-result [:notification :params])})
+       (log/log! {:level :info :msg "Processing notification (no response will be sent)"
+                  :data {:method (get-in parse-result [:notification :method])
+                         :params (get-in parse-result [:notification :params])}})
         ;; TODO: Route and process notification when we need to handle them
         ;; For now, just log full notification details and return nil
-        (log/debug "Notification details" {:notification (:notification parse-result)})
-        nil)
+       (log/log! {:level :debug :msg "Notification details" :data {:notification (:notification parse-result)}})
+       nil)
 
       ;; Regular request - route and respond
       :else
@@ -91,7 +91,7 @@
 
   Returns: Response map"
   []
-  (log/info "Testing initialize method")
+  (log/log! {:level :info :msg "Testing initialize method"})
   (let [request (json/generate-string
                  {:jsonrpc "2.0"
                   :method "initialize"
@@ -101,7 +101,7 @@
                   :id 1})
         response-str (process-json-rpc request)
         response (json/parse-string response-str true)]
-    (log/info "Initialize response" {:response response})
+    (log/log! {:level :info :msg "Initialize response" :data {:response response}})
     response))
 
 (defn test-tools-list
@@ -109,7 +109,7 @@
 
   Returns: Response map"
   []
-  (log/info "Testing tools/list method")
+  (log/log! {:level :info :msg "Testing tools/list method"})
   (let [request (json/generate-string
                  {:jsonrpc "2.0"
                   :method "tools/list"
@@ -117,7 +117,7 @@
                   :id 2})
         response-str (process-json-rpc request)
         response (json/parse-string response-str true)]
-    (log/info "tools/list response" {:response response})
+    (log/log! {:level :info :msg "tools/list response" :data {:response response}})
     response))
 
 (defn test-tools-call
@@ -128,7 +128,7 @@
 
   Returns: Response map"
   [name]
-  (log/info "Testing tools/call method" {:tool "hello" :name name})
+  (log/log! {:level :info :msg "Testing tools/call method" :data {:tool "hello" :name name}})
   (let [request (json/generate-string
                  {:jsonrpc "2.0"
                   :method "tools/call"
@@ -137,7 +137,7 @@
                   :id 3})
         response-str (process-json-rpc request)
         response (json/parse-string response-str true)]
-    (log/info "tools/call response" {:response response})
+    (log/log! {:level :info :msg "tools/call response" :data {:response response}})
     response))
 
 (defn run-full-test!
@@ -150,7 +150,7 @@
 
   Returns: Map with test results and success flag"
   []
-  (log/info "Running full MCP test session")
+  (log/log! {:level :info :msg "Running full MCP test session"})
 
   ;; Setup
   (setup!)
@@ -167,7 +167,7 @@
                           (contains? call-response-1 :result)
                           (contains? call-response-2 :result))]
 
-    (log/info "Full test session complete" {:success all-success?})
+    (log/log! {:level :info :msg "Full test session complete" :data {:success all-success?}})
 
     {:success all-success?
      :initialize init-response
@@ -179,18 +179,18 @@
   ;; Interactive testing from REPL
 
   ;; Setup
-  (setup!)
+ (setup!)
 
   ;; Test each method
-  (test-initialize)
-  (test-tools-list)
-  (test-tools-call "World")
+ (test-initialize)
+ (test-tools-list)
+ (test-tools-call "World")
 
   ;; Run full test
-  (run-full-test!)
+ (run-full-test!)
 
   ;; Test error cases
-  (process-json-rpc "invalid json")
-  (process-json-rpc "{\"jsonrpc\":\"2.0\",\"method\":\"unknown\",\"id\":1}")
-  (process-json-rpc "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"nonexistent\"},\"id\":1}")
-  )
+ (process-json-rpc "invalid json")
+ (process-json-rpc "{\"jsonrpc\":\"2.0\",\"method\":\"unknown\",\"id\":1}")
+ (process-json-rpc "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"nonexistent\"},\"id\":1}"))
+

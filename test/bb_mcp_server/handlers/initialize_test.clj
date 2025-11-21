@@ -2,8 +2,7 @@
     "Tests for initialize handler."
     (:require [clojure.test :refer [deftest is testing use-fixtures]]
               [bb-mcp-server.handlers.initialize :as init]
-              [bb-mcp-server.protocol.router :as router]
-              [bb-mcp-server.protocol.message :as msg]))
+              [bb-mcp-server.protocol.router :as router]))
 
 ;; Reset server state before each test
 (use-fixtures :each

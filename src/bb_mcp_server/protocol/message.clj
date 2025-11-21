@@ -1,7 +1,7 @@
 (ns bb-mcp-server.protocol.message
     "JSON-RPC 2.0 message parsing and formatting."
     (:require [cheshire.core :as json]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 ;; JSON-RPC 2.0 error codes
 (def error-codes
@@ -28,18 +28,18 @@
   - JSON-RPC 2.0 structure
   - Required fields: jsonrpc, method, id"
   [json-str]
-  (log/info "Parsing JSON-RPC request" {:input-length (count json-str)})
+  (log/log! {:level :info :msg "Parsing JSON-RPC request" :data {:input-length (count json-str)}})
   (try
     ;; Parse JSON
    (let [parsed (json/parse-string json-str true)]
-     (log/debug "JSON parsed successfully" {:keys (keys parsed)})
+     (log/log! {:level :debug :msg "JSON parsed successfully" :data {:keys (keys parsed)}})
 
       ;; Validate JSON-RPC 2.0 structure
      (cond
         ;; Check jsonrpc field
        (not (contains? parsed :jsonrpc))
        (do
-        (log/warn "Missing jsonrpc field")
+        (log/log! {:level :warn :msg "Missing jsonrpc field"})
         {:error {:code (:invalid-request error-codes)
                  :message "Invalid Request"
                  :data "Missing 'jsonrpc' field"}})
@@ -47,7 +47,7 @@
         ;; Check version
        (not= "2.0" (:jsonrpc parsed))
        (do
-        (log/warn "Invalid JSON-RPC version" {:version (:jsonrpc parsed)})
+        (log/log! {:level :warn :msg "Invalid JSON-RPC version" :data {:version (:jsonrpc parsed)}})
         {:error {:code (:invalid-request error-codes)
                  :message "Invalid Request"
                  :data "JSON-RPC version must be '2.0'"}})
@@ -55,7 +55,7 @@
         ;; Check method field
        (not (contains? parsed :method))
        (do
-        (log/warn "Missing method field")
+        (log/log! {:level :warn :msg "Missing method field"})
         {:error {:code (:invalid-request error-codes)
                  :message "Invalid Request"
                  :data "Missing 'method' field"}})
@@ -64,20 +64,20 @@
        ;; JSON-RPC 2.0 spec: "The Server MUST NOT reply to a Notification"
        (not (contains? parsed :id))
        (do
-        (log/info "Notification received (no id field)"
-                  {:method (:method parsed)})
+        (log/log! {:level :info :msg "Notification received (no id field)"
+                   :data {:method (:method parsed)}})
         {:notification parsed})
 
         ;; Valid request
        :else
        (do
-        (log/info "Valid JSON-RPC request parsed"
-                  {:method (:method parsed)
-                   :id (:id parsed)})
+        (log/log! {:level :info :msg "Valid JSON-RPC request parsed"
+                   :data {:method (:method parsed)
+                          :id (:id parsed)}})
         {:request parsed})))
 
    (catch Exception e
-          (log/error e "JSON parse error")
+          (log/log! {:level :error :msg "JSON parse error" :error e})
           {:error {:code (:parse-error error-codes)
                    :message "Parse error"
                    :data (ex-message e)}})))
@@ -91,7 +91,7 @@
 
   Returns: JSON-RPC 2.0 response map"
   [id result]
-  (log/debug "Creating success response" {:id id})
+  (log/log! {:level :debug :msg "Creating success response" :data {:id id}})
   {:jsonrpc "2.0"
    :result result
    :id id})
@@ -109,8 +109,8 @@
   ([id error-code message]
    (create-error-response id error-code message nil))
   ([id error-code message data]
-   (log/warn "Creating error response"
-             {:id id :code error-code :message message})
+   (log/log! {:level :warn :msg "Creating error response"
+              :data {:id id :code error-code :message message}})
    {:jsonrpc "2.0"
     :error (cond-> {:code error-code
                     :message message}

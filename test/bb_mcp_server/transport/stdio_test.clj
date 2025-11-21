@@ -8,9 +8,10 @@
   - Telemetry verification"
     (:require [clojure.string :as str]
               [clojure.test :refer [deftest is testing]]
+              [bb-mcp-server.telemetry :as telemetry]
               [bb-mcp-server.test-harness :as test-harness]
               [cheshire.core :as json]
-              [taoensso.timbre :as log]))
+              [taoensso.timbre :as timbre]))
 
 (defn with-stdio-capture
   "Execute function with captured stdin/stdout.
@@ -21,19 +22,20 @@
 
   Returns: Map with :output (vector of output lines) and :result (function return value)"
   [input-lines f]
+  (telemetry/ensure-initialized!)
   (let [input-str (clojure.core/str (str/join "\n" input-lines) "\n")
         input-stream (java.io.ByteArrayInputStream. (.getBytes input-str))
         output-stream (java.io.ByteArrayOutputStream.)
         output-writer (java.io.OutputStreamWriter. output-stream)]
 
     ;; Suppress logging during test by setting min level to :fatal
-    (log/with-min-level :fatal
-                        (binding [*in* (java.io.BufferedReader. (java.io.InputStreamReader. input-stream))
-                                  *out* output-writer]
-                                 (let [result (f)]
-                                   (.flush output-writer)
-                                   {:output (vec (str/split-lines (.toString output-stream)))
-                                    :result result})))))
+    (timbre/with-min-level :fatal
+                           (binding [*in* (java.io.BufferedReader. (java.io.InputStreamReader. input-stream))
+                                     *out* output-writer]
+                                    (let [result (f)]
+                                      (.flush output-writer)
+                                      {:output (vec (str/split-lines (.toString output-stream)))
+                                       :result result})))))
 
 (deftest test-successful-request-response
          (testing "Process valid initialize request"

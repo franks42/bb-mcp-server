@@ -1,5 +1,5 @@
 (ns telemere-lite.core
-  "Unified telemetry for BB and browser with lazy evaluation.
+    "Unified telemetry for BB and browser with lazy evaluation.
 
   Key features:
   - Lazy :let evaluation (3-14x faster when disabled)
@@ -7,55 +7,55 @@
   - Three-sink browser architecture (console, atom, websocket)
   - BB handler infrastructure with async support
   - Compatible with existing Telemere-lite API"
-  #?(:bb  (:require [clojure.string :as str]
-                    [clojure.tools.logging :as log]
-                    [taoensso.timbre :as timbre]
-                    [cheshire.core :as json]
-                    [clojure.java.io :as io])))
+    #?(:bb  (:require [clojure.string :as str]
+                      [clojure.tools.logging :as log]
+                      [taoensso.timbre :as timbre]
+                      [cheshire.core :as json]
+                      [clojure.java.io :as io])))
 
 ;;; ============================================================================
 ;;; Dynamic configuration vars
 ;;; ============================================================================
 
-(def ^:dynamic *telemetry-enabled* false)
+(def ^:dynamic *telemetry-enabled* "Global telemetry switch." false)
 
 #?(:bb
    (do
-     (def ^:dynamic *log-level* :info)
-     (def ^:dynamic *output-file* "logs/telemetry.jsonl")
+    (def ^:dynamic *log-level* :info)
+    (def ^:dynamic *output-file* "logs/telemetry.jsonl")
 
      ;; Namespace and event-id filtering with pre-compiled regexes
-     (def ^:dynamic *ns-filter* {:allow-re [(re-pattern ".*")] :deny-re []})
-     (def ^:dynamic *event-id-filter* {:allow-re [(re-pattern ".*")] :deny-re []})
+    (def ^:dynamic *ns-filter* {:allow-re [(re-pattern ".*")] :deny-re []})
+    (def ^:dynamic *event-id-filter* {:allow-re [(re-pattern ".*")] :deny-re []})
 
      ;; Handler registry
-     (def ^:dynamic *handlers* (atom {}))
+    (def ^:dynamic *handlers* (atom {}))
 
      ;; Shutdown hook tracking
-     (defonce shutdown-hook-installed? (atom false))
+    (defonce shutdown-hook-installed? (atom false))
 
      ;; Error handler
-     (defonce error-handler
-       (atom (fn [error context]
-               "Default error handler: prints full stack trace to stderr"
-               (binding [*out* *err*]
-                 (println "Telemetry error:" context)
-                 (.printStackTrace error *err*)))))))
+    (defonce error-handler
+             (atom (fn [error context]
+                     "Default error handler: prints full stack trace to stderr"
+                     (binding [*out* *err*]
+                              (println "Telemetry error:" context)
+                              (.printStackTrace error *err*)))))))
 
 #?(:cljs
    (do
      ;; THREE-SINK BROWSER ARCHITECTURE
 
      ;; Sink 1: Console (development/debugging) - enabled by default
-     (defonce console-enabled (atom true))
+    (defonce ^{:doc "Atom controlling whether console logging is enabled."} console-enabled (atom true))
 
      ;; Sink 2: Atom (testing/programmatic access) - disabled by default
-     (defonce events (atom []))
-     (defonce atom-sink-enabled (atom false))
+    (defonce ^{:doc "Atom storing collected events for testing."} events (atom []))
+    (defonce ^{:doc "Atom controlling whether event collection is enabled."} atom-sink-enabled (atom false))
 
      ;; Sink 3: WebSocket to server (centralized telemetry) - disabled by default
-     (defonce send-fn (atom nil))  ; Set by sente-lite client
-     (defonce remote-sink-enabled (atom false))))
+    (defonce ^{:doc "Atom storing the function to send events to the server."} send-fn (atom nil))  ; Set by sente-lite client
+    (defonce ^{:doc "Atom controlling whether remote logging is enabled."} remote-sink-enabled (atom false))))
 
 ;;; ============================================================================
 ;;; Platform-specific helpers
@@ -174,12 +174,12 @@
      (let [custom-handlers @*handlers*]
        ;; Send to configured handlers (async-capable)
        (doseq [[handler-id handler-info] custom-handlers]
-         (when (get handler-info :enabled?)
-           (try
-             ((:dispatch-fn (:handler handler-info)) signal)
-             (catch Exception e
-               (binding [*out* *err*]
-                 (println "Handler" handler-id "failed:" (.getMessage e)))))))
+              (when (get handler-info :enabled?)
+                (try
+                 ((:dispatch-fn (:handler handler-info)) signal)
+                 (catch Exception e
+                        (binding [*out* *err*]
+                                 (println "Handler" handler-id "failed:" (.getMessage e)))))))
        ;; Only send to Timbre if NO custom handlers configured (backwards compatibility)
        (when (empty? custom-handlers)
          (let [level (:level signal :info)
@@ -267,25 +267,25 @@
        (let [signal-delay#
              (delay
                ;; INSIDE DELAY: Evaluate :let bindings FIRST
-               (let [~@let-bindings
+              (let [~@let-bindings
 
                      ;; Build context map with location metadata and data
-                     context#
-                     (cond-> {:location {:file ~file
-                                         :line ~line
-                                         :ns   ~ns-str}}
-                       ~data-form (assoc :data ~data-form))
+                    context#
+                    (cond-> {:location {:file ~file
+                                        :line ~line
+                                        :ns   ~ns-str}}
+                            ~data-form (assoc :data ~data-form))
 
                      ;; Build signal map with msg as [message context] vector
-                     signal#
-                     {:timestamp (now)
-                      :level     ~level
-                      :ns        ~ns-str
-                      :msg       [~msg-form context#]}]  ; ← msg is now [message, context]!
+                    signal#
+                    {:timestamp (now)
+                     :level     ~level
+                     :ns        ~ns-str
+                     :msg       [~msg-form context#]}]  ; ← msg is now [message, context]!
 
                  ;; Add event-id if present
-                 (cond-> signal#
-                   ~event-id (assoc :event-id ~event-id))))]
+                (cond-> signal#
+                        ~event-id (assoc :event-id ~event-id))))]
 
          ;; Force delay and dispatch to handlers
          (dispatch-signal! @signal-delay#)))))
@@ -400,77 +400,77 @@
 
 #?(:cljs
    (do
-     (defn enable-console-sink!
-       "Enable console sink (development/debugging)"
-       []
-       (reset! console-enabled true)
+    (defn enable-console-sink!
+      "Enable console sink (development/debugging)"
+      []
+      (reset! console-enabled true)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::console-sink-enabled
-                 :msg "Console sink enabled"}))
+      (signal! {:level :info
+                :event-id ::console-sink-enabled
+                :msg "Console sink enabled"}))
 
-     (defn disable-console-sink!
-       "Disable console sink"
-       []
-       (reset! console-enabled false)
+    (defn disable-console-sink!
+      "Disable console sink"
+      []
+      (reset! console-enabled false)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::console-sink-disabled
-                 :msg "Console sink disabled"}))
+      (signal! {:level :info
+                :event-id ::console-sink-disabled
+                :msg "Console sink disabled"}))
 
-     (defn enable-atom-sink!
-       "Enable atom sink (testing/programmatic access)"
-       []
-       (reset! atom-sink-enabled true)
+    (defn enable-atom-sink!
+      "Enable atom sink (testing/programmatic access)"
+      []
+      (reset! atom-sink-enabled true)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::atom-sink-enabled
-                 :msg "Atom sink enabled"}))
+      (signal! {:level :info
+                :event-id ::atom-sink-enabled
+                :msg "Atom sink enabled"}))
 
-     (defn disable-atom-sink!
-       "Disable atom sink"
-       []
-       (reset! atom-sink-enabled false)
+    (defn disable-atom-sink!
+      "Disable atom sink"
+      []
+      (reset! atom-sink-enabled false)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::atom-sink-disabled
-                 :msg "Atom sink disabled"}))
+      (signal! {:level :info
+                :event-id ::atom-sink-disabled
+                :msg "Atom sink disabled"}))
 
-     (defn get-events
-       "Get all collected events from atom sink"
-       []
-       @events)
+    (defn get-events
+      "Get all collected events from atom sink"
+      []
+      @events)
 
-     (defn clear-events!
-       "Clear all collected events from atom sink"
-       []
-       (let [count (count @events)]
-         (reset! events [])
+    (defn clear-events!
+      "Clear all collected events from atom sink"
+      []
+      (let [count (count @events)]
+        (reset! events [])
          ;; Meta-telemetry: Log events cleared
-         (signal! {:level :info
-                   :event-id ::atom-events-cleared
-                   :msg "Atom sink events cleared"
-                   :data {:count count}})))
+        (signal! {:level :info
+                  :event-id ::atom-events-cleared
+                  :msg "Atom sink events cleared"
+                  :data {:count count}})))
 
-     (defn enable-remote-sink!
-       "Enable remote sink (centralized telemetry to server).
+    (defn enable-remote-sink!
+      "Enable remote sink (centralized telemetry to server).
        send-fn: function that sends events to server via WebSocket"
-       [send-fn-arg]
-       (reset! send-fn send-fn-arg)
-       (reset! remote-sink-enabled true)
+      [send-fn-arg]
+      (reset! send-fn send-fn-arg)
+      (reset! remote-sink-enabled true)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::remote-sink-enabled
-                 :msg "Remote sink enabled"}))
+      (signal! {:level :info
+                :event-id ::remote-sink-enabled
+                :msg "Remote sink enabled"}))
 
-     (defn disable-remote-sink!
-       "Disable remote sink"
-       []
-       (reset! remote-sink-enabled false)
+    (defn disable-remote-sink!
+      "Disable remote sink"
+      []
+      (reset! remote-sink-enabled false)
        ;; Meta-telemetry: Log sink change
-       (signal! {:level :info
-                 :event-id ::remote-sink-disabled
-                 :msg "Remote sink disabled"}))))
+      (signal! {:level :info
+                :event-id ::remote-sink-disabled
+                :msg "Remote sink disabled"}))))
 
 ;;; ============================================================================
 ;;; BB-specific: Handler infrastructure (copied from old core.cljc)
@@ -478,115 +478,115 @@
 
 #?(:bb
    (do
-     (defn configure-timbre!
-       "Configure Timbre for structured JSON logging in BB"
-       []
-       (timbre/merge-config!
-        {:level :debug
-         :appenders {:file {:enabled? true
-                            :fn (fn [data]
-                                  (let [output-str (json/generate-string
-                                                    {:timestamp (:instant data)
-                                                     :level (:level data)
-                                                     :ns (:?ns-str data)
-                                                     :msg (:vargs data)
-                                                     :context (:context data)})]
-                                    (spit *output-file* (str output-str "\n") :append true)))}}}))
+    (defn configure-timbre!
+      "Configure Timbre for structured JSON logging in BB"
+      []
+      (timbre/merge-config!
+       {:level :debug
+        :appenders {:file {:enabled? true
+                           :fn (fn [data]
+                                 (let [output-str (json/generate-string
+                                                   {:timestamp (:instant data)
+                                                    :level (:level data)
+                                                    :ns (:?ns-str data)
+                                                    :msg (:vargs data)
+                                                    :context (:context data)})]
+                                   (spit *output-file* (str output-str "\n") :append true)))}}}))
 
-     (defn ensure-log-dir!
-       "Ensure logs directory exists"
-       []
-       (let [log-dir (io/file "logs")]
-         (when-not (.exists log-dir)
-           (.mkdirs log-dir))))
+    (defn ensure-log-dir!
+      "Ensure logs directory exists"
+      []
+      (let [log-dir (io/file "logs")]
+        (when-not (.exists log-dir)
+          (.mkdirs log-dir))))
 
-     (defn set-error-handler!
-       "Set custom error handler for telemetry errors"
-       [handler-fn]
-       (reset! error-handler handler-fn))
+    (defn set-error-handler!
+      "Set custom error handler for telemetry errors"
+      [handler-fn]
+      (reset! error-handler handler-fn))
 
-     (defn- handle-telemetry-error!
-       "Handle telemetry error using configured error handler"
-       [error context]
-       (try
-         (@error-handler error context)
-         (catch Exception e
+    (defn- handle-telemetry-error!
+      "Handle telemetry error using configured error handler"
+      [error context]
+      (try
+       (@error-handler error context)
+       (catch Exception e
            ;; Fallback if error handler itself fails
-           (binding [*out* *err*]
-             (println "Error handler failed:" (.getMessage e))
-             (.printStackTrace error *err*)))))
+              (binding [*out* *err*]
+                       (println "Error handler failed:" (.getMessage e))
+                       (.printStackTrace error *err*)))))
 
-     (defn set-enabled!
-       "Enable/disable all telemetry (cross-platform)"
-       [enabled?]
-       (let [old-value *telemetry-enabled*]
-         (alter-var-root #'*telemetry-enabled* (constantly enabled?))
+    (defn set-enabled!
+      "Enable/disable all telemetry (cross-platform)"
+      [enabled?]
+      (let [old-value *telemetry-enabled*]
+        (alter-var-root #'*telemetry-enabled* (constantly enabled?))
          ;; Meta-telemetry: Log configuration change (after change so it's captured if enabling)
-         (when enabled?
-           (signal! {:level :info
-                     :event-id ::telemetry-enabled-changed
-                     :msg "Telemetry configuration changed"
-                     :data {:old old-value :new enabled?}}))))
+        (when enabled?
+          (signal! {:level :info
+                    :event-id ::telemetry-enabled-changed
+                    :msg "Telemetry configuration changed"
+                    :data {:old old-value :new enabled?}}))))
 
-     (defn get-enabled?
-       "Check if telemetry is enabled (cross-platform)"
-       []
-       *telemetry-enabled*)
+    (defn get-enabled?
+      "Check if telemetry is enabled (cross-platform)"
+      []
+      *telemetry-enabled*)
 
-     (defn set-ns-filter!
-       "Set namespace-based signal filtering with pre-compiled regexes"
-       [{:keys [allow disallow]}]
-       (let [allow-patterns (if (coll? allow) allow [allow])
-             disallow-patterns (if (coll? disallow) disallow [disallow])
-             allow-re (mapv wildcard->regex allow-patterns)
-             deny-re (mapv wildcard->regex disallow-patterns)]
-         (alter-var-root #'*ns-filter*
-                         (constantly {:allow-re allow-re
-                                      :deny-re deny-re}))
+    (defn set-ns-filter!
+      "Set namespace-based signal filtering with pre-compiled regexes"
+      [{:keys [allow disallow]}]
+      (let [allow-patterns (if (coll? allow) allow [allow])
+            disallow-patterns (if (coll? disallow) disallow [disallow])
+            allow-re (mapv wildcard->regex allow-patterns)
+            deny-re (mapv wildcard->regex disallow-patterns)]
+        (alter-var-root #'*ns-filter*
+                        (constantly {:allow-re allow-re
+                                     :deny-re deny-re}))
          ;; Meta-telemetry: Log filter change (exclude compiled regexes)
-         (signal! {:level :info
-                   :event-id ::ns-filter-changed
-                   :msg "Namespace filter changed"
-                   :data {:allow allow-patterns
-                          :disallow disallow-patterns}})))
+        (signal! {:level :info
+                  :event-id ::ns-filter-changed
+                  :msg "Namespace filter changed"
+                  :data {:allow allow-patterns
+                         :disallow disallow-patterns}})))
 
-     (defn set-id-filter!
-       "Set event-id-based signal filtering with pre-compiled regexes"
-       [{:keys [allow disallow]}]
-       (let [allow-patterns (if (coll? allow) allow [allow])
-             disallow-patterns (if (coll? disallow) disallow [disallow])
-             allow-re (mapv wildcard->regex allow-patterns)
-             deny-re (mapv wildcard->regex disallow-patterns)]
-         (alter-var-root #'*event-id-filter*
-                         (constantly {:allow-re allow-re
-                                      :deny-re deny-re}))
+    (defn set-id-filter!
+      "Set event-id-based signal filtering with pre-compiled regexes"
+      [{:keys [allow disallow]}]
+      (let [allow-patterns (if (coll? allow) allow [allow])
+            disallow-patterns (if (coll? disallow) disallow [disallow])
+            allow-re (mapv wildcard->regex allow-patterns)
+            deny-re (mapv wildcard->regex disallow-patterns)]
+        (alter-var-root #'*event-id-filter*
+                        (constantly {:allow-re allow-re
+                                     :deny-re deny-re}))
          ;; Meta-telemetry: Log filter change (exclude compiled regexes)
-         (signal! {:level :info
-                   :event-id ::event-id-filter-changed
-                   :msg "Event ID filter changed"
-                   :data {:allow allow-patterns
-                          :disallow disallow-patterns}})))
+        (signal! {:level :info
+                  :event-id ::event-id-filter-changed
+                  :msg "Event ID filter changed"
+                  :data {:allow allow-patterns
+                         :disallow disallow-patterns}})))
 
-     (defn get-filters
-       "Get current filter configuration"
-       []
-       {:min-level (get timbre/*config* :min-level :debug)
-        :ns-filter *ns-filter*
-        :event-id-filter *event-id-filter*
-        :ns-min-levels (get timbre/*config* :ns-min-level {})
-        :enabled? *telemetry-enabled*})
+    (defn get-filters
+      "Get current filter configuration"
+      []
+      {:min-level (get timbre/*config* :min-level :debug)
+       :ns-filter *ns-filter*
+       :event-id-filter *event-id-filter*
+       :ns-min-levels (get timbre/*config* :ns-min-level {})
+       :enabled? *telemetry-enabled*})
 
-     (defn clear-filters!
-       "Clear all filters, reverting to defaults"
-       []
-       (timbre/set-min-level! :debug)
-       (alter-var-root #'*ns-filter* (constantly {:allow #{"*"} :deny #{}}))
-       (alter-var-root #'*event-id-filter* (constantly {:allow #{"*"} :deny #{}}))
-       (alter-var-root #'*telemetry-enabled* (constantly true))
+    (defn clear-filters!
+      "Clear all filters, reverting to defaults"
+      []
+      (timbre/set-min-level! :debug)
+      (alter-var-root #'*ns-filter* (constantly {:allow #{"*"} :deny #{}}))
+      (alter-var-root #'*event-id-filter* (constantly {:allow #{"*"} :deny #{}}))
+      (alter-var-root #'*telemetry-enabled* (constantly true))
        ;; Meta-telemetry: Log filter clear
-       (signal! {:level :info
-                 :event-id ::filters-cleared
-                 :msg "All filters cleared - telemetry enabled"}))))
+      (signal! {:level :info
+                :event-id ::filters-cleared
+                :msg "All filters cleared - telemetry enabled"}))))
 
 ;;; ============================================================================
 ;;; BB-specific: Async handler infrastructure
@@ -594,239 +594,239 @@
 
 #?(:bb
    (do
-     (defn- file-handler
-       "Handler that writes to file in JSON Lines format"
-       [file-path]
-       (fn [signal]
-         (try
-           (let [output-str (json/generate-string signal)]
-             (spit file-path (str output-str "\n") :append true))
-           (catch Exception e
-             (binding [*out* *err*]
-               (println "Error writing to log file:" (.getMessage e)))))))
+    (defn- file-handler
+      "Handler that writes to file in JSON Lines format"
+      [file-path]
+      (fn [signal]
+        (try
+         (let [output-str (json/generate-string signal)]
+           (spit file-path (str output-str "\n") :append true))
+         (catch Exception e
+                (binding [*out* *err*]
+                         (println "Error writing to log file:" (.getMessage e)))))))
 
-     (defn- stdout-handler
-       "Handler that writes to stdout"
-       []
-       (fn [signal]
-         (try
-           (println (json/generate-string signal))
-           (catch Exception e
-             (binding [*out* *err*]
-               (println "Error writing to stdout:" (.getMessage e)))))))
+    (defn- stdout-handler
+      "Handler that writes to stdout"
+      []
+      (fn [signal]
+        (try
+         (println (json/generate-string signal))
+         (catch Exception e
+                (binding [*out* *err*]
+                         (println "Error writing to stdout:" (.getMessage e)))))))
 
-     (defn- stderr-handler
-       "Handler that writes to stderr"
-       []
-       (fn [signal]
-         (try
-           (binding [*out* *err*]
-             (println (json/generate-string signal)))
-           (catch Exception e
-             (binding [*out* *err*]
-               (println "Error writing to stderr:" (.getMessage e)))))))
+    (defn- stderr-handler
+      "Handler that writes to stderr"
+      []
+      (fn [signal]
+        (try
+         (binding [*out* *err*]
+                  (println (json/generate-string signal)))
+         (catch Exception e
+                (binding [*out* *err*]
+                         (println "Error writing to stderr:" (.getMessage e)))))))
 
-     (defn- async-handler-wrapper
-       "Wrap any handler function with async dispatch"
-       [handler-fn {:keys [mode buffer-size n-threads]
-                    :or {mode :dropping buffer-size 1024 n-threads 1}}]
-       (let [queue (java.util.concurrent.LinkedBlockingQueue. buffer-size)
-             executor (java.util.concurrent.Executors/newFixedThreadPool n-threads)
-             stats (atom {:queued 0 :processed 0 :dropped 0 :errors 0})
-             running? (atom true)]
+    (defn- async-handler-wrapper
+      "Wrap any handler function with async dispatch"
+      [handler-fn {:keys [mode buffer-size n-threads]
+                   :or {mode :dropping buffer-size 1024 n-threads 1}}]
+      (let [queue (java.util.concurrent.LinkedBlockingQueue. buffer-size)
+            executor (java.util.concurrent.Executors/newFixedThreadPool n-threads)
+            stats (atom {:queued 0 :processed 0 :dropped 0 :errors 0})
+            running? (atom true)]
 
          ;; Background processing threads
-         (dotimes [_ n-threads]
-           (.submit executor
-                    (fn []
-                      (try
-                        (while @running?
-                          (when-let [signal (.poll queue 1000 java.util.concurrent.TimeUnit/MILLISECONDS)]
+        (dotimes [_ n-threads]
+                 (.submit executor
+                          (fn []
                             (try
-                              (handler-fn signal)
-                              (swap! stats update :processed inc)
-                              (catch Exception e
-                                (swap! stats update :errors inc)
-                                (binding [*out* *err*]
-                                  (println "Async handler error:" (.getMessage e)))))))
-                        (catch InterruptedException _)
-                        (catch Exception e
-                          (binding [*out* *err*]
-                            (println "Async handler thread error:" (.getMessage e))))))))
+                             (while @running?
+                                    (when-let [signal (.poll queue 1000 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                                              (try
+                                               (handler-fn signal)
+                                               (swap! stats update :processed inc)
+                                               (catch Exception e
+                                                      (swap! stats update :errors inc)
+                                                      (binding [*out* *err*]
+                                                               (println "Async handler error:" (.getMessage e)))))))
+                             (catch InterruptedException _)
+                             (catch Exception e
+                                    (binding [*out* *err*]
+                                             (println "Async handler thread error:" (.getMessage e))))))))
 
          ;; Return handler interface
-         {:dispatch-fn
-          (fn [signal]
-            (when @running?
-              (case mode
-                :dropping
-                (if (.offer queue signal)
-                  (swap! stats update :queued inc)
+        {:dispatch-fn
+         (fn [signal]
+           (when @running?
+             (case mode
+               :dropping
+               (if (.offer queue signal)
+                 (swap! stats update :queued inc)
+                 (swap! stats update :dropped inc))
+
+               :blocking
+               (try
+                (.put queue signal)
+                (swap! stats update :queued inc)
+                (catch InterruptedException _
+                       (swap! stats update :dropped inc)))
+
+               :sliding
+               (do
+                (when (= (.size queue) buffer-size)
+                  (.poll queue)
                   (swap! stats update :dropped inc))
+                (.offer queue signal)
+                (swap! stats update :queued inc)))))
 
-                :blocking
-                (try
-                  (.put queue signal)
-                  (swap! stats update :queued inc)
-                  (catch InterruptedException _
-                    (swap! stats update :dropped inc)))
-
-                :sliding
-                (do
-                  (when (= (.size queue) buffer-size)
-                    (.poll queue)
-                    (swap! stats update :dropped inc))
-                  (.offer queue signal)
-                  (swap! stats update :queued inc)))))
-
-          :stats-fn #(assoc @stats :queue-size (.size queue) :mode mode)
-          :shutdown-fn
-          (fn []
-            (reset! running? false)
-            (.shutdown executor)
-            (try
-              (.awaitTermination executor 5 java.util.concurrent.TimeUnit/SECONDS)
-              (catch InterruptedException _)))}))
-
-     (declare ensure-shutdown-hook!)
-
-     (defn add-handler!
-       "Add a telemetry handler with optional async dispatch"
-       ([handler-id handler-fn]
-        (add-handler! handler-id handler-fn {}))
-       ([handler-id handler-fn opts]
-        (let [final-handler (if (:async opts)
-                              (async-handler-wrapper handler-fn (:async opts))
-                              {:dispatch-fn handler-fn
-                               :stats-fn (fn [] {:mode :sync :processed 0 :queued 0 :dropped 0 :errors 0})
-                               :shutdown-fn (fn [] nil)})]
-          (when (:async opts)
-            (ensure-shutdown-hook!))
-          (swap! *handlers* assoc handler-id
-                 {:handler final-handler
-                  :opts opts
-                  :enabled? true})
-          ;; Meta-telemetry: Log handler addition
-          (signal! {:level :info
-                    :event-id ::handler-added
-                    :msg "Telemetry handler added"
-                    :data {:handler-id handler-id
-                           :async (boolean (:async opts))
-                           :opts opts}}))))
-
-     (defn remove-handler!
-       "Remove a telemetry handler with proper async cleanup"
-       [handler-id]
-       (when-let [handler-info (get @*handlers* handler-id)]
-         (try
-           ((:shutdown-fn (:handler handler-info)))
-           (catch Exception e
-             (binding [*out* *err*]
-               (println "Error shutting down handler" handler-id ":" (.getMessage e)))))
-         (swap! *handlers* dissoc handler-id)
-         ;; Meta-telemetry: Log handler removal
-         (signal! {:level :info
-                   :event-id ::handler-removed
-                   :msg "Telemetry handler removed"
-                   :data {:handler-id handler-id}})))
-
-     (defn get-handlers
-       "Get current handlers"
-       []
-       @*handlers*)
-
-     (defn clear-handlers!
-       "Clear all handlers with proper async cleanup"
-       []
-       (let [handler-count (count @*handlers*)]
-         (doseq [[handler-id handler-info] @*handlers*]
+         :stats-fn #(assoc @stats :queue-size (.size queue) :mode mode)
+         :shutdown-fn
+         (fn []
+           (reset! running? false)
+           (.shutdown executor)
            (try
-             ((:shutdown-fn (:handler handler-info)))
-             (catch Exception e
-               (binding [*out* *err*]
-                 (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
-         (reset! *handlers* {})
-         ;; Meta-telemetry: Log handlers cleared
+            (.awaitTermination executor 5 java.util.concurrent.TimeUnit/SECONDS)
+            (catch InterruptedException _)))}))
+
+    (declare ensure-shutdown-hook!)
+
+    (defn add-handler!
+      "Add a telemetry handler with optional async dispatch"
+      ([handler-id handler-fn]
+       (add-handler! handler-id handler-fn {}))
+      ([handler-id handler-fn opts]
+       (let [final-handler (if (:async opts)
+                             (async-handler-wrapper handler-fn (:async opts))
+                             {:dispatch-fn handler-fn
+                              :stats-fn (fn [] {:mode :sync :processed 0 :queued 0 :dropped 0 :errors 0})
+                              :shutdown-fn (fn [] nil)})]
+         (when (:async opts)
+           (ensure-shutdown-hook!))
+         (swap! *handlers* assoc handler-id
+                {:handler final-handler
+                 :opts opts
+                 :enabled? true})
+          ;; Meta-telemetry: Log handler addition
          (signal! {:level :info
-                   :event-id ::handlers-cleared
-                   :msg "All telemetry handlers cleared"
-                   :data {:count handler-count}})))
+                   :event-id ::handler-added
+                   :msg "Telemetry handler added"
+                   :data {:handler-id handler-id
+                          :async (boolean (:async opts))
+                          :opts opts}}))))
 
-     (defn get-handler-stats
-       "Get performance statistics for all handlers"
-       []
-       (into {}
-             (map (fn [[handler-id handler-info]]
-                    [handler-id ((:stats-fn (:handler handler-info)))])
-                  @*handlers*)))
+    (defn remove-handler!
+      "Remove a telemetry handler with proper async cleanup"
+      [handler-id]
+      (when-let [handler-info (get @*handlers* handler-id)]
+                (try
+                 ((:shutdown-fn (:handler handler-info)))
+                 (catch Exception e
+                        (binding [*out* *err*]
+                                 (println "Error shutting down handler" handler-id ":" (.getMessage e)))))
+                (swap! *handlers* dissoc handler-id)
+         ;; Meta-telemetry: Log handler removal
+                (signal! {:level :info
+                          :event-id ::handler-removed
+                          :msg "Telemetry handler removed"
+                          :data {:handler-id handler-id}})))
 
-     (defn get-handler-health
-       "Check handler health and queue status"
-       []
-       (let [stats (get-handler-stats)]
-         {:healthy? (every? #(< (get % :errors 0) 10) (vals stats))
-          :total-queued (reduce + 0 (map :queued (vals stats)))
-          :total-dropped (reduce + 0 (map :dropped (vals stats)))
-          :total-processed (reduce + 0 (map :processed (vals stats)))
-          :handlers (count stats)
-          :details stats}))
+    (defn get-handlers
+      "Get current handlers"
+      []
+      @*handlers*)
 
-     (defn shutdown-telemetry!
-       "Gracefully shutdown all async handlers"
-       []
-       (doseq [[handler-id handler-info] @*handlers*]
-         (try
-           ((:shutdown-fn (:handler handler-info)))
-           (catch Exception e
-             (handle-telemetry-error! e {:type :handler-shutdown
-                                         :handler-id handler-id}))))
-       (reset! *handlers* {}))
+    (defn clear-handlers!
+      "Clear all handlers with proper async cleanup"
+      []
+      (let [handler-count (count @*handlers*)]
+        (doseq [[handler-id handler-info] @*handlers*]
+               (try
+                ((:shutdown-fn (:handler handler-info)))
+                (catch Exception e
+                       (binding [*out* *err*]
+                                (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
+        (reset! *handlers* {})
+         ;; Meta-telemetry: Log handlers cleared
+        (signal! {:level :info
+                  :event-id ::handlers-cleared
+                  :msg "All telemetry handlers cleared"
+                  :data {:count handler-count}})))
 
-     (defn- ensure-shutdown-hook!
-       "Add JVM shutdown hook to cleanup async handlers on exit"
-       []
-       (when (compare-and-set! shutdown-hook-installed? false true)
-         (.addShutdownHook (Runtime/getRuntime)
-                           (Thread. ^Runnable shutdown-telemetry!))))
+    (defn get-handler-stats
+      "Get performance statistics for all handlers"
+      []
+      (into {}
+            (map (fn [[handler-id handler-info]]
+                   [handler-id ((:stats-fn (:handler handler-info)))])
+                 @*handlers*)))
 
-     (defn add-file-handler!
-       "Add file output handler with async support"
-       ([file-path]
-        (add-file-handler! :file file-path {}))
-       ([handler-id file-path]
-        (add-file-handler! handler-id file-path {}))
-       ([handler-id file-path opts]
-        (let [default-opts {:async {:mode :dropping :buffer-size 1024 :n-threads 1}}
-              final-opts (if (contains? opts :sync)
-                           (dissoc opts :sync)
-                           (merge default-opts opts))]
-          (add-handler! handler-id (file-handler file-path) final-opts))))
+    (defn get-handler-health
+      "Check handler health and queue status"
+      []
+      (let [stats (get-handler-stats)]
+        {:healthy? (every? #(< (get % :errors 0) 10) (vals stats))
+         :total-queued (reduce + 0 (map :queued (vals stats)))
+         :total-dropped (reduce + 0 (map :dropped (vals stats)))
+         :total-processed (reduce + 0 (map :processed (vals stats)))
+         :handlers (count stats)
+         :details stats}))
 
-     (defn add-stdout-handler!
-       "Add stdout output handler with async support"
-       ([]
-        (add-stdout-handler! :stdout {}))
-       ([handler-id]
-        (add-stdout-handler! handler-id {}))
-       ([handler-id opts]
-        (let [default-opts {:async {:mode :dropping :buffer-size 512 :n-threads 1}}
-              final-opts (if (contains? opts :sync)
-                           (dissoc opts :sync)
-                           (merge default-opts opts))]
-          (add-handler! handler-id (stdout-handler) final-opts))))
+    (defn shutdown-telemetry!
+      "Gracefully shutdown all async handlers"
+      []
+      (doseq [[handler-id handler-info] @*handlers*]
+             (try
+              ((:shutdown-fn (:handler handler-info)))
+              (catch Exception e
+                     (handle-telemetry-error! e {:type :handler-shutdown
+                                                 :handler-id handler-id}))))
+      (reset! *handlers* {}))
 
-     (defn add-stderr-handler!
-       "Add stderr output handler with async support"
-       ([]
-        (add-stderr-handler! :stderr {}))
-       ([handler-id]
-        (add-stderr-handler! handler-id {}))
-       ([handler-id opts]
-        (let [default-opts {:async {:mode :dropping :buffer-size 256 :n-threads 1}}
-              final-opts (if (contains? opts :sync)
-                           (dissoc opts :sync)
-                           (merge default-opts opts))]
-          (add-handler! handler-id (stderr-handler) final-opts))))))
+    (defn- ensure-shutdown-hook!
+      "Add JVM shutdown hook to cleanup async handlers on exit"
+      []
+      (when (compare-and-set! shutdown-hook-installed? false true)
+        (.addShutdownHook (Runtime/getRuntime)
+                          (Thread. ^Runnable shutdown-telemetry!))))
+
+    (defn add-file-handler!
+      "Add file output handler with async support"
+      ([file-path]
+       (add-file-handler! :file file-path {}))
+      ([handler-id file-path]
+       (add-file-handler! handler-id file-path {}))
+      ([handler-id file-path opts]
+       (let [default-opts {:async {:mode :dropping :buffer-size 1024 :n-threads 1}}
+             final-opts (if (contains? opts :sync)
+                          (dissoc opts :sync)
+                          (merge default-opts opts))]
+         (add-handler! handler-id (file-handler file-path) final-opts))))
+
+    (defn add-stdout-handler!
+      "Add stdout output handler with async support"
+      ([]
+       (add-stdout-handler! :stdout {}))
+      ([handler-id]
+       (add-stdout-handler! handler-id {}))
+      ([handler-id opts]
+       (let [default-opts {:async {:mode :dropping :buffer-size 512 :n-threads 1}}
+             final-opts (if (contains? opts :sync)
+                          (dissoc opts :sync)
+                          (merge default-opts opts))]
+         (add-handler! handler-id (stdout-handler) final-opts))))
+
+    (defn add-stderr-handler!
+      "Add stderr output handler with async support"
+      ([]
+       (add-stderr-handler! :stderr {}))
+      ([handler-id]
+       (add-stderr-handler! handler-id {}))
+      ([handler-id opts]
+       (let [default-opts {:async {:mode :dropping :buffer-size 256 :n-threads 1}}
+             final-opts (if (contains? opts :sync)
+                          (dissoc opts :sync)
+                          (merge default-opts opts))]
+         (add-handler! handler-id (stderr-handler) final-opts))))))
 
 ;;; ============================================================================
 ;;; Startup and utility functions
@@ -837,13 +837,13 @@
   []
   #?(:bb
      (do
-       (ensure-log-dir!)
-       (configure-timbre!)
-       (log! :info "BB startup initiated"
-             {:bb-version (System/getProperty "babashka.version")
-              :java-version (System/getProperty "java.version")
-              :os-name (System/getProperty "os.name")
-              :user-dir (System/getProperty "user.dir")}))
+      (ensure-log-dir!)
+      (configure-timbre!)
+      (log! :info "BB startup initiated"
+            {:bb-version (System/getProperty "babashka.version")
+             :java-version (System/getProperty "java.version")
+             :os-name (System/getProperty "os.name")
+             :user-dir (System/getProperty "user.dir")}))
      :cljs
      (log! :info "Scittle startup initiated"
            {:user-agent (.-userAgent js/navigator)
@@ -891,19 +891,19 @@
 
 #?(:cljs
    (do
-     (defn set-enabled!
-       "Enable/disable all telemetry (browser)"
-       [enabled?]
-       (let [old-value *telemetry-enabled*]
-         (set! *telemetry-enabled* enabled?)
+    (defn set-enabled!
+      "Enable/disable all telemetry (browser)"
+      [enabled?]
+      (let [old-value *telemetry-enabled*]
+        (set! *telemetry-enabled* enabled?)
          ;; Meta-telemetry: Log configuration change (after change so it's captured if enabling)
-         (when enabled?
-           (signal! {:level :info
-                     :event-id ::telemetry-enabled-changed
-                     :msg "Telemetry configuration changed"
-                     :data {:old old-value :new enabled?}}))))
+        (when enabled?
+          (signal! {:level :info
+                    :event-id ::telemetry-enabled-changed
+                    :msg "Telemetry configuration changed"
+                    :data {:old old-value :new enabled?}}))))
 
-     (defn get-enabled?
-       "Check if telemetry is enabled (browser)"
-       []
-       *telemetry-enabled*)))
+    (defn get-enabled?
+      "Check if telemetry is enabled (browser)"
+      []
+      *telemetry-enabled*)))

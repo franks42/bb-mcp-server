@@ -5,7 +5,7 @@
   to establish a session with the server."
     (:require [bb-mcp-server.protocol.message :as msg]
               [bb-mcp-server.protocol.router :as router]
-              [taoensso.timbre :as log]))
+              [taoensso.trove :as log]))
 
 (defn handle-initialize
   "Process an initialize request.
@@ -46,16 +46,16 @@
   (let [request-id (:id request)
         params (:params request)]
 
-    (log/info "Processing initialize request"
-              {:request-id request-id
-               :params params})
+    (log/log! {:level :info :msg "Processing initialize request"
+               :data {:request-id request-id
+                      :params params}})
 
     ;; Mark server as initialized
     (router/set-initialized! true)
 
-    (log/info "Initialize successful"
-              {:request-id request-id
-               :server-initialized true})
+    (log/log! {:level :info :msg "Initialize successful"
+               :data {:request-id request-id
+                      :server-initialized true}})
 
     ;; Return fixed response matching MCP spec
     ;; IMPORTANT: "2025-03-26" is a DATE (Mar 26, 2025), NOT a version number!
