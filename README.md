@@ -13,8 +13,14 @@ A production-ready Model Context Protocol (MCP) server implemented in Clojure/Ba
 - stdio transport for Claude Code integration
 - Comprehensive telemetry (structured logging on all paths)
 - Capabilities negotiation (OAuth not required for stdio)
+- JSON-RPC notification handling (per spec: no responses for notifications)
 - **✅ TESTED: Successfully connected and verified with Claude Code**
-- ⚠️ Note: Tests need updating to expect `2025-03-26` protocol version
+- **✅ VERIFIED: All Claude Code integration working (initialize, tools/list, tools/call, notifications)**
+
+**Critical Bug Fixes:**
+- Fixed Timbre logging to stderr (MCP stdio requires ONLY JSON on stdout)
+- Fixed JSON-RPC notification handling (no responses per spec)
+- Enhanced observability with structured logging for notifications
 
 ## Quick Start
 
@@ -185,18 +191,21 @@ Logs are written to stderr and include structured data (maps) for easy parsing.
 
 ## Project Status
 
-**Phase 1.2 - Minimal MCP Server: COMPLETE ✅**
+**Phase 1.2 - Minimal MCP Server: COMPLETE ✅ (VERIFIED WITH CLAUDE CODE)**
 
 - ✅ JSON-RPC 2.0 message protocol
 - ✅ Message parsing and validation
-- ✅ Core handler router
-- ✅ initialize handler
-- ✅ tools/list handler
-- ✅ tools/call dispatcher
+- ✅ JSON-RPC notification handling (per spec)
+- ✅ Core handler router with state management
+- ✅ initialize handler with capabilities negotiation
+- ✅ tools/list handler with dynamic tool registry
+- ✅ tools/call dispatcher with error handling
 - ✅ Example hello tool
-- ✅ Telemetry on all paths
-- ✅ stdio transport
-- ✅ Comprehensive test suite (94 tests, 393 assertions)
+- ✅ Telemetry on all paths (structured logging)
+- ✅ stdio transport (stdout/stderr separation)
+- ✅ MCP protocol version 2025-03-26 (forward-compatible)
+- ✅ Successfully tested with Claude Code
+- ⚠️ Test suite needs updates for protocol version 2025-03-26 (Phase 1.2 cleanup)
 
 **Next Phases:**
 - Phase 2: Tool Registry & Error Handling
