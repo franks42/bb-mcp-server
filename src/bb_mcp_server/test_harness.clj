@@ -58,8 +58,9 @@
 
   ;; Parse request
   (let [parse-result (msg/parse-request json-str)]
-    (if (:error parse-result)
+    (cond
       ;; Parse error - return error response
+      (:error parse-result)
       (let [error-response (msg/create-error-response
                             nil
                             (get-in parse-result [:error :code])
@@ -67,7 +68,18 @@
                             (get-in parse-result [:error :data]))]
         (json/generate-string error-response))
 
-      ;; Route request
+      ;; Notification - process but don't respond
+      ;; JSON-RPC 2.0: "The Server MUST NOT reply to a Notification"
+      (:notification parse-result)
+      (do
+        (log/info "Processing notification (no response will be sent)"
+                  {:method (get-in parse-result [:notification :method])})
+        ;; TODO: Route and process notification when we need to handle them
+        ;; For now, just log and return nil (signals: don't send any response)
+        nil)
+
+      ;; Regular request - route and respond
+      :else
       (let [request (:request parse-result)
             response (router/route-request request)]
         (json/generate-string response)))))

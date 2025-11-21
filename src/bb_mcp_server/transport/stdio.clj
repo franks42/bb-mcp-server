@@ -50,13 +50,15 @@
            (try
           ;; Process request and get response
             (let [response (test-harness/process-json-rpc line)]
-              (log/debug "Sending response" {:length (count response)})
+              ;; Only send response if not nil (nil = notification, don't respond)
+              (when response
+                (log/debug "Sending response" {:length (count response)})
 
-            ;; Write response to stdout
-              (println response)
-              (flush)
+                ;; Write response to stdout
+                (println response)
+                (flush)
 
-              (log/debug "Response sent successfully"))
+                (log/debug "Response sent successfully")))
 
             (catch Exception e
             ;; Handle request processing errors

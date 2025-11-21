@@ -60,13 +60,13 @@
                  :message "Invalid Request"
                  :data "Missing 'method' field"}})
 
-        ;; Check id field
+        ;; Check id field - missing id means it's a notification
+       ;; JSON-RPC 2.0 spec: "The Server MUST NOT reply to a Notification"
        (not (contains? parsed :id))
        (do
-        (log/warn "Missing id field")
-        {:error {:code (:invalid-request error-codes)
-                 :message "Invalid Request"
-                 :data "Missing 'id' field"}})
+        (log/info "Notification received (no id field)"
+                  {:method (:method parsed)})
+        {:notification parsed})
 
         ;; Valid request
        :else
