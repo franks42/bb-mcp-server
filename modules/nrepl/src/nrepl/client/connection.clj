@@ -5,7 +5,8 @@
             [nrepl.state.messages :as messages]
             [nrepl.state.results :as results]
             [clojure.string :as str]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [taoensso.trove :as log])
   (:import [java.net Socket InetSocketAddress]))
 
 ;; =============================================================================
@@ -81,14 +82,18 @@
       (.connect socket (InetSocketAddress. hostname port) 5000)
       ;; Register connection in unified state management
       (let [conn-id (state/register-connection! hostname port socket)]
-        (binding [*out* *err*]
-          (println "[Connection] Successfully connected with ID:" conn-id))
+        (log/log! {:level :info
+                   :id ::connection-success
+                   :msg "Successfully connected"
+                   :data {:connection-id conn-id :hostname hostname :port port}})
         {:status :success :hostname hostname :port port :connection-id conn-id}))
     (catch Exception e
       (let [error-msg (str "Connection failed to " hostname ":" port
                            " - " (.getMessage e))]
-        (binding [*out* *err*]
-          (println "[Connection] Connection failed:" error-msg))
+        (log/log! {:level :error
+                   :id ::connection-failed
+                   :msg "Connection failed"
+                   :data {:hostname hostname :port port :error error-msg}})
         {:status :failed :error error-msg}))))
 
 (defn close-specific-connection!
@@ -97,13 +102,17 @@
   (if-let [conn-details (state/get-connection-by-id connection-id)]
     (let [{:keys [socket]} conn-details]
       ;; Stop connection-specific watchers first to prevent processing stale messages
-      (binding [*out* *err*]
-        (println "[Connection] Stopping watchers for connection:" connection-id))
+      (log/log! {:level :debug
+                 :id ::stopping-watchers
+                 :msg "Stopping watchers for connection"
+                 :data {:connection-id connection-id}})
       (watchers/stop-connection-watchers! connection-id)
 
       ;; Clear message and result queues for this specific connection
-      (binding [*out* *err*]
-        (println "[Connection] Clearing message and result queues for connection:" connection-id))
+      (log/log! {:level :debug
+                 :id ::clearing-queues
+                 :msg "Clearing message and result queues"
+                 :data {:connection-id connection-id}})
       (messages/cleanup-connection-queue! connection-id)
       (results/cleanup-connection-result-queue! connection-id)
 
@@ -111,11 +120,15 @@
       (when socket
         (try
           (.close socket)
-          (binding [*out* *err*]
-            (println "[Connection] Closed socket for connection:" connection-id))
+          (log/log! {:level :debug
+                     :id ::socket-closed
+                     :msg "Closed socket"
+                     :data {:connection-id connection-id}})
           (catch Exception e
-            (binding [*out* *err*]
-              (println "[Connection] Error closing socket:" (.getMessage e))))))
+            (log/log! {:level :error
+                       :id ::socket-close-error
+                       :msg "Error closing socket"
+                       :data {:connection-id connection-id :error (.getMessage e)}}))))
 
       ;; Mark connection as closed in unified state
       (state/mark-connection-closed! connection-id :user-disconnect "User requested disconnect")
@@ -123,14 +136,18 @@
       ;; CRITICAL FIX: Remove closed connection from connections map to prevent accumulation
       (state/cleanup-old-connections! :threshold-ms 0) ; Remove immediately
 
-      (binding [*out* *err*]
-        (println "[Connection] Connection cleanup completed for:" connection-id))
+      (log/log! {:level :info
+                 :id ::connection-cleanup-completed
+                 :msg "Connection cleanup completed"
+                 :data {:connection-id connection-id}})
       {:status :success :connection-id connection-id})
 
     ;; Connection not found
     (do
-      (binding [*out* *err*]
-        (println "[Connection] Connection not found:" connection-id))
+      (log/log! {:level :warn
+                 :id ::connection-not-found
+                 :msg "Connection not found"
+                 :data {:connection-id connection-id}})
       {:status :error :error (str "Connection not found: " connection-id)})))
 
 (defn close-connection!
@@ -139,8 +156,9 @@
   (if-let [active-conn (state/get-active-connection)]
     (close-specific-connection! (:connection-id active-conn))
     (do
-      (binding [*out* *err*]
-        (println "[Connection] No active connection to close"))
+      (log/log! {:level :debug
+                 :id ::no-active-connection
+                 :msg "No active connection to close"})
       {:status :success :message "No active connection"})))
 
 ;; =============================================================================

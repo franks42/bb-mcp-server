@@ -1,6 +1,7 @@
 (ns nrepl.state.results
   "Result queue state management for async nREPL responses"
-  (:require [clojure.set]))
+  (:require [clojure.set]
+            [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Per-Connection Result Queue State Atom
@@ -38,8 +39,10 @@
   "Remove result queue for a connection that has been closed."
   [connection-id]
   (swap! connection-result-queues dissoc connection-id)
-  (binding [*out* *err*]
-    (println "[Results] Cleaned up result queue for connection:" connection-id)))
+  (log/log! {:level :debug
+             :id ::result-queue-cleaned-up
+             :msg "Cleaned up result queue for connection"
+             :data {:connection-id connection-id}}))
 
 (defn find-message-result-connection
   "Find which connection a message-id belongs to for results.
@@ -152,15 +155,18 @@
                            (count (:result-promises queue-state)))
                         0)]
     (swap! connection-result-queues dissoc connection-id)
-    (binding [*out* *err*]
-      (println "[Results] Cleaned up" cleanup-count "results for connection" connection-id))))
+    (log/log! {:level :debug
+               :id ::connection-results-cleared
+               :msg "Cleaned up results for connection"
+               :data {:connection-id connection-id :cleanup-count cleanup-count}})))
 
 (defn clear-all-results!
   "Clear all result queues and promises - used during complete shutdown cleanup"
   []
   (reset! connection-result-queues {})
-  (binding [*out* *err*]
-    (println "[Results] Cleared all connection result queues and promises")))
+  (log/log! {:level :info
+             :id ::all-results-cleared
+             :msg "Cleared all connection result queues and promises"}))
 
 ;; =============================================================================
 ;; Debug Support

@@ -1,6 +1,7 @@
 (ns nrepl.state.connection
   "Unified connection state management for nREPL client connections - SINGLE SOURCE OF TRUTH"
-  (:require [nrepl.utils.uuid-v7 :as uuid])
+  (:require [nrepl.utils.uuid-v7 :as uuid]
+            [taoensso.trove :as log])
   (:import [java.net InetAddress]))
 
 ;; =============================================================================
@@ -57,8 +58,10 @@
         (.getHostAddress inet-addr)))
     (catch Exception e
       ;; Fallback to original hostname if resolution fails
-      (binding [*out* *err*]
-        (println "[Connection] IP resolution failed for" hostname ":" (.getMessage e)))
+      (log/log! {:level :warn
+                 :id ::ip-resolution-failed
+                 :msg "IP resolution failed, using hostname"
+                 :data {:hostname hostname :error (.getMessage e)}})
       hostname)))
 
 ;; =============================================================================
@@ -130,8 +133,10 @@
                  (assoc-in [:connections conn-id] connection-data)
                  (assoc :active-connection conn-id)
                  (update :connection-counter inc))))
-    (binding [*out* *err*]
-      (println "[Connection] Registered connection:" conn-id))
+    (log/log! {:level :info
+               :id ::connection-registered
+               :msg "Registered nREPL connection"
+               :data {:connection-id conn-id :hostname hostname :port port :resolved-ip resolved-ip}})
     conn-id))
 
 (defn update-connection-status!
@@ -144,8 +149,10 @@
                  (assoc-in [:connections connection-id :status] new-status)
                  (cond-> error (assoc-in [:connections connection-id :error] error))
                  (cond-> closed-at (assoc-in [:connections connection-id :closed-at] closed-at)))))
-    (binding [*out* *err*]
-      (println "[Connection] Updated" connection-id "status to" new-status))))
+    (log/log! {:level :debug
+               :id ::connection-status-updated
+               :msg "Connection status updated"
+               :data {:connection-id connection-id :new-status new-status :error error}})))
 
 (defn mark-connection-closed!
   "Mark connection as closed and clear active connection if it matches"
@@ -159,8 +166,10 @@
                  (assoc-in [:connections connection-id :error] {:type error-type :message error-msg})
                  (cond-> (= connection-id (:active-connection state))
                    (assoc :active-connection nil)))))
-    (binding [*out* *err*]
-      (println "[Connection] Marked" connection-id "as closed:" error-type))
+    (log/log! {:level :info
+               :id ::connection-closed
+               :msg "Connection marked closed"
+               :data {:connection-id connection-id :error-type error-type :error-msg error-msg}})
     ;; Return count of failed messages for compatibility
     0))
 
@@ -178,8 +187,10 @@
                                        (and (#{:closed :failed} (:status conn))
                                             (<= (:closed-at conn 0) cutoff)))
                                      conns))))))
-    (binding [*out* *err*]
-      (println "[Connection] Cleaned up old connections older than" threshold-ms "ms"))))
+    (log/log! {:level :debug
+               :id ::connections-cleaned-up
+               :msg "Cleaned up old connections"
+               :data {:threshold-ms threshold-ms}})))
 
 ;; =============================================================================
 ;; Backward Compatibility Functions
@@ -274,15 +285,19 @@
   "Register a nickname for a connection-id. Overwrites existing nickname if present."
   [nickname connection-id]
   (swap! connection-state assoc-in [:nicknames nickname] connection-id)
-  (binding [*out* *err*]
-    (println "[Connection] Registered nickname" (pr-str nickname) "for connection" connection-id)))
+  (log/log! {:level :info
+             :id ::nickname-registered
+             :msg "Registered connection nickname"
+             :data {:nickname nickname :connection-id connection-id}}))
 
 (defn unregister-nickname!
   "Remove a nickname mapping"
   [nickname]
   (swap! connection-state update :nicknames dissoc nickname)
-  (binding [*out* *err*]
-    (println "[Connection] Unregistered nickname" (pr-str nickname))))
+  (log/log! {:level :debug
+             :id ::nickname-unregistered
+             :msg "Unregistered connection nickname"
+             :data {:nickname nickname}}))
 
 (defn get-nickname-for-connection
   "Get nickname for a connection-id if one exists"

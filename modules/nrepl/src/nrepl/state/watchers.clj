@@ -5,7 +5,8 @@
             [nrepl.state.results :as results]
             [nrepl.client.operations :as nrepl-ops]
             [nrepl.client.messaging :as messaging]
-            [bencode.core]))
+            [bencode.core]
+            [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Send Queue Watcher - Phase 2b.2
@@ -24,8 +25,10 @@
                                           :sent-at (System/currentTimeMillis))
 
         ;; Fire-and-forget send - don't wait for responses
-        (binding [*out* *err*]
-          (println "[Send-Watcher] Fire-and-forget sending READY message:" message-id))
+        (log/log! {:level :debug
+                   :id ::send-fire-and-forget
+                   :msg "Fire-and-forget sending READY message"
+                   :data {:message-id message-id}})
 
         ;; Use fire-and-forget send (receive-watcher will handle responses)
         (nrepl-ops/send-message-fire-and-forget connection message)
@@ -34,8 +37,10 @@
         (msg-state/update-message-status! message-id :sent
                                           :sent-at (System/currentTimeMillis))
 
-        (binding [*out* *err*]
-          (println "[Send-Watcher] READY message sent (fire-and-forget):" message-id))
+        (log/log! {:level :debug
+                   :id ::send-message-sent
+                   :msg "READY message sent (fire-and-forget)"
+                   :data {:message-id message-id}})
 
         (catch Exception e
           ;; Handle fire-and-forget send errors
@@ -46,9 +51,10 @@
             (msg-state/update-message-status! message-id :error
                                               :error error-msg)
             (results/deliver-error! message-id error-msg)
-            (binding [*out* *err*]
-              (println "[Send-Watcher] Fire-and-forget error for message" message-id ":" error-msg)
-              (println "[Send-Watcher] Exception details:" e))))))))
+            (log/log! {:level :error
+                       :id ::send-error
+                       :msg "Fire-and-forget send error"
+                       :data {:message-id message-id :error error-msg :exception (str e)}})))))))
 
 (defn- send-queue-watcher
   "Watcher function that processes connection send queues when they change.
@@ -60,8 +66,10 @@
           new-queue-count (count (:send-queue queue-state))]
       ;; Only process if this connection's send queue has grown (new messages added)
       (when (> new-queue-count old-queue-count)
-        (binding [*out* *err*]
-          (println "[Watcher] Send queue changed for connection" connection-id ", processing..."))
+        (log/log! {:level :debug
+                   :id ::send-queue-changed
+                   :msg "Send queue changed, processing"
+                   :data {:connection-id connection-id}})
         ;; Process all available messages in this connection's queue
         (while (> (count (:send-queue (get @msg-state/connection-message-queues connection-id))) 0)
           (process-send-queue! connection-id))))))
@@ -76,15 +84,17 @@
   ;; Remove any existing watcher first to prevent duplicates
   (msg-state/remove-message-watcher :send-queue-watcher)
   (msg-state/add-message-watcher :send-queue-watcher send-queue-watcher)
-  (binding [*out* *err*]
-    (println "[Watcher] Send queue watcher started")))
+  (log/log! {:level :info
+             :id ::send-queue-watcher-started
+             :msg "Send queue watcher started"}))
 
 (defn stop-send-queue-watcher!
   "Stop the send queue watcher"
   []
   (msg-state/remove-message-watcher :send-queue-watcher)
-  (binding [*out* *err*]
-    (println "[Watcher] Send queue watcher stopped")))
+  (log/log! {:level :info
+             :id ::send-queue-watcher-stopped
+             :msg "Send queue watcher stopped"}))
 
 ;; =============================================================================
 ;; Receive Watcher - Phase 2b.3 Implementation
@@ -105,8 +115,10 @@
    Accumulates responses per message-id and merges them when 'done' status received."
   [response]
   (let [message-id (:id response)]
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Processing response for message:" message-id))
+    (log/log! {:level :debug
+               :id ::receive-processing-response
+               :msg "Processing response for message"
+               :data {:message-id message-id}})
 
     (if message-id
       ;; Try to find the pending message
@@ -124,38 +136,50 @@
                    (some #(= "done" %) (:status response)))
             ;; Final response - merge all accumulated responses and deliver
             (let [merged-response (#'messaging/merge-responses updated-responses)]
-              (binding [*out* *err*]
-                (println "[Receive-Watcher] Merging" (count updated-responses) "responses for:" message-id)
-                (println "[Receive-Watcher] Merged response:" merged-response))
+              (log/log! {:level :debug
+                         :id ::receive-merging-responses
+                         :msg "Merging responses"
+                         :data {:message-id message-id
+                                :response-count (count updated-responses)
+                                :merged-response merged-response}})
 
               (msg-state/update-message-status! message-id :completed
                                                 :completed-at (System/currentTimeMillis))
               (results/deliver-result! message-id {:status :success :response merged-response})
               (msg-state/remove-pending-message! message-id)
-              (binding [*out* *err*]
-                (println "[Receive-Watcher] Final merged response delivered for:" message-id)))
+              (log/log! {:level :debug
+                         :id ::receive-final-delivered
+                         :msg "Final merged response delivered"
+                         :data {:message-id message-id}}))
 
             ;; Partial response - just log and continue accumulating
-            (binding [*out* *err*]
-              (println "[Receive-Watcher] Accumulated partial response for:" message-id
-                       "(total:" (count updated-responses) "responses)"))))
+            (log/log! {:level :debug
+                       :id ::receive-accumulated-partial
+                       :msg "Accumulated partial response"
+                       :data {:message-id message-id :response-count (count updated-responses)}})))
 
         ;; No pending message found - orphaned response
-        (binding [*out* *err*]
-          (println "[Receive-Watcher] Orphaned response (no pending message):" message-id)))
+        (log/log! {:level :warn
+                   :id ::receive-orphaned-response
+                   :msg "Orphaned response (no pending message)"
+                   :data {:message-id message-id}}))
 
       ;; No message ID in response
-      (binding [*out* *err*]
-        (println "[Receive-Watcher] Response missing :id field:" response)))))
+      (log/log! {:level :warn
+                 :id ::receive-missing-id
+                 :msg "Response missing :id field"
+                 :data {:response response}}))))
 
 (defn- receive-loop!
   "Background receive loop that listens for nREPL responses.
-   
+
    Uses surgically extracted bencode reading logic from messaging.clj
    instead of duplicating the conversion logic."
   [connection-id connection]
-  (binding [*out* *err*]
-    (println "[Receive-Watcher] Starting receive loop for connection:" connection-id))
+  (log/log! {:level :info
+             :id ::receive-loop-starting
+             :msg "Starting receive loop"
+             :data {:connection-id connection-id}})
 
   (try
     (let [input-stream (:in connection)]
@@ -166,32 +190,41 @@
           (let [raw-response (bencode.core/read-bencode input-stream)
                 ;; Use the same conversion logic as the extracted result-processing-async
                 converted-response (#'messaging/convert-bencode-response raw-response)]
-            (binding [*out* *err*]
-              (println "[Receive-Watcher] 📥 Raw response received:" converted-response))
+            (log/log! {:level :debug
+                       :id ::receive-raw-response
+                       :msg "Raw response received"
+                       :data {:response converted-response}})
 
             ;; Process the response
             (process-nrepl-response! converted-response))
 
           (catch java.io.EOFException _e
-            (binding [*out* *err*]
-              (println "[Receive-Watcher] EOF - connection" connection-id "closed"))
+            (log/log! {:level :info
+                       :id ::receive-eof
+                       :msg "EOF - connection closed"
+                       :data {:connection-id connection-id}})
             (swap! receive-watcher-state assoc-in [connection-id :running] false))
 
           (catch Exception e
-            (binding [*out* *err*]
-              (println "[Receive-Watcher] Error reading response:" (.getMessage e))
-              (println "[Receive-Watcher] Exception details:" e))
+            (log/log! {:level :error
+                       :id ::receive-read-error
+                       :msg "Error reading response"
+                       :data {:connection-id connection-id :error (.getMessage e) :exception (str e)}})
             ;; Continue the loop unless it's a fatal error
             (Thread/sleep 100)))))
 
     (catch Exception e
-      (binding [*out* *err*]
-        (println "[Receive-Watcher] Fatal error in receive loop for connection" connection-id ":" (.getMessage e)))
+      (log/log! {:level :error
+                 :id ::receive-fatal-error
+                 :msg "Fatal error in receive loop"
+                 :data {:connection-id connection-id :error (.getMessage e)}})
       (swap! receive-watcher-state assoc-in [connection-id :running] false))
 
     (finally
-      (binding [*out* *err*]
-        (println "[Receive-Watcher] Receive loop terminated")))))
+      (log/log! {:level :info
+                 :id ::receive-loop-terminated
+                 :msg "Receive loop terminated"
+                 :data {:connection-id connection-id}}))))
 
 (defn start-receive-watcher!
   "Start the receive watcher for a specific connection.
@@ -199,8 +232,10 @@
   [connection-id]
   ;; Always stop any existing watcher for this connection first
   (when (get-in @receive-watcher-state [connection-id :running])
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Stopping existing watcher for connection" connection-id))
+    (log/log! {:level :debug
+               :id ::receive-stopping-existing
+               :msg "Stopping existing watcher for connection"
+               :data {:connection-id connection-id}})
     (stop-receive-watcher! connection-id))
 
   (if-let [raw-connection (conn-state/get-connection-by-id connection-id)]
@@ -213,21 +248,29 @@
           (.setName receive-thread (str "nREPL-Receive-Watcher-" connection-id))
           (.start receive-thread)
           (swap! receive-watcher-state assoc-in [connection-id :thread] receive-thread)
-          (binding [*out* *err*]
-            (println "[Receive-Watcher] Started background receive thread for connection:" connection-id))))
+          (log/log! {:level :info
+                     :id ::receive-watcher-started
+                     :msg "Started background receive thread"
+                     :data {:connection-id connection-id}})))
 
-      (binding [*out* *err*]
-        (println "[Receive-Watcher] Error: Failed to adapt connection" connection-id)))
+      (log/log! {:level :error
+                 :id ::receive-adapt-failed
+                 :msg "Failed to adapt connection"
+                 :data {:connection-id connection-id}}))
 
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Error: Connection not found:" connection-id))))
+    (log/log! {:level :error
+               :id ::receive-connection-not-found
+               :msg "Connection not found"
+               :data {:connection-id connection-id}})))
 
 (defn stop-receive-watcher!
   "Stop the receive watcher background thread for a specific connection"
   [connection-id]
   (when (get-in @receive-watcher-state [connection-id :running])
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Stopping background receive thread for connection:" connection-id))
+    (log/log! {:level :info
+               :id ::receive-stopping
+               :msg "Stopping background receive thread"
+               :data {:connection-id connection-id}})
 
     ;; Signal stop
     (swap! receive-watcher-state assoc-in [connection-id :running] false)
@@ -237,17 +280,23 @@
       (try
         (.join thread 5000)  ; Wait up to 5 seconds
         (when (.isAlive thread)
-          (binding [*out* *err*]
-            (println "[Receive-Watcher] Thread for connection" connection-id "didn't stop gracefully, interrupting"))
+          (log/log! {:level :warn
+                     :id ::receive-thread-interrupt
+                     :msg "Thread didn't stop gracefully, interrupting"
+                     :data {:connection-id connection-id}})
           (.interrupt thread))
         (catch Exception e
-          (binding [*out* *err*]
-            (println "[Receive-Watcher] Error stopping thread for connection" connection-id ":" (.getMessage e))))))
+          (log/log! {:level :error
+                     :id ::receive-stop-error
+                     :msg "Error stopping thread"
+                     :data {:connection-id connection-id :error (.getMessage e)}}))))
 
     ;; Remove connection from state
     (swap! receive-watcher-state dissoc connection-id)
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Stopped watcher for connection:" connection-id))))
+    (log/log! {:level :info
+               :id ::receive-watcher-stopped
+               :msg "Stopped watcher for connection"
+               :data {:connection-id connection-id}})))
 
 (defn stop-all-receive-watchers!
   "Stop all receive watchers for all connections"
@@ -255,8 +304,9 @@
   (let [connection-ids (keys @receive-watcher-state)]
     (doseq [connection-id connection-ids]
       (stop-receive-watcher! connection-id))
-    (binding [*out* *err*]
-      (println "[Receive-Watcher] Stopped all receive watchers"))))
+    (log/log! {:level :info
+               :id ::receive-all-stopped
+               :msg "Stopped all receive watchers"})))
 
 ;; =============================================================================
 ;; Combined Watcher Management
@@ -266,15 +316,19 @@
   "Start watchers for a specific connection (typically called after successful connection)"
   [connection-id]
   (start-receive-watcher! connection-id)
-  (binding [*out* *err*]
-    (println "[Watcher] Started watchers for connection:" connection-id)))
+  (log/log! {:level :info
+             :id ::connection-watchers-started
+             :msg "Started watchers for connection"
+             :data {:connection-id connection-id}}))
 
 (defn stop-connection-watchers!
   "Stop watchers for a specific connection (typically called before disconnection)"
   [connection-id]
   (stop-receive-watcher! connection-id)
-  (binding [*out* *err*]
-    (println "[Watcher] Stopped watchers for connection:" connection-id)))
+  (log/log! {:level :info
+             :id ::connection-watchers-stopped
+             :msg "Stopped watchers for connection"
+             :data {:connection-id connection-id}}))
 
 (defn start-all-watchers!
   "Start all global message processing watchers.
@@ -282,13 +336,15 @@
    Per-connection receive-watchers are started when connections are established."
   []
   (start-send-queue-watcher!)
-  (binding [*out* *err*]
-    (println "[Watcher] Started global send queue watcher")))
+  (log/log! {:level :info
+             :id ::global-watchers-started
+             :msg "Started global send queue watcher"}))
 
 (defn stop-all-watchers!
   "Stop all message processing watchers"
   []
   (stop-send-queue-watcher!)
   (stop-all-receive-watchers!)
-  (binding [*out* *err*]
-    (println "[Watcher] Stopped all watchers")))
+  (log/log! {:level :info
+             :id ::all-watchers-stopped
+             :msg "Stopped all watchers"}))

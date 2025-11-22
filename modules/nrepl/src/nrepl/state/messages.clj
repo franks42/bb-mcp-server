@@ -2,7 +2,8 @@
   "Message queue state management for async nREPL operations"
   (:require [nrepl.utils.uuid-v7 :as uuid]
             [nrepl.state.results :as results]
-            [nrepl.state.connection :as conn-state]))
+            [nrepl.state.connection :as conn-state]
+            [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Per-Connection Message Queue State Atom
@@ -55,8 +56,10 @@
   "Remove message queue for a connection that has been closed."
   [connection-id]
   (swap! connection-message-queues dissoc connection-id)
-  (binding [*out* *err*]
-    (println "[Messages] Cleaned up message queue for connection:" connection-id)))
+  (log/log! {:level :debug
+             :id ::queue-cleaned-up
+             :msg "Cleaned up message queue for connection"
+             :data {:connection-id connection-id}}))
 
 ;; =============================================================================
 ;; Queue Operations - Phase 4 Multi-Connection Implementation
@@ -111,20 +114,26 @@
                                     (update :message-counter inc))))))
 
           ;; Log for debugging
-          (binding [*out* *err*]
-            (println "[Queue] Enqueued READY-TO-SEND message:" message-id "for connection:" connection-id "status: :pending"))
+          (log/log! {:level :debug
+                     :id ::message-enqueued
+                     :msg "Enqueued message"
+                     :data {:message-id message-id :connection-id connection-id :status :pending}})
           message-id))
 
       ;; Connection adaptation failed
       (do
-        (binding [*out* *err*]
-          (println "[Queue] Error: Failed to adapt connection" connection-id "for message"))
+        (log/log! {:level :error
+                   :id ::connection-adapt-failed
+                   :msg "Failed to adapt connection for message"
+                   :data {:connection-id connection-id}})
         nil))
 
     ;; Connection not found
     (do
-      (binding [*out* *err*]
-        (println "[Queue] Error: Connection not found:" connection-id))
+      (log/log! {:level :error
+                 :id ::connection-not-found
+                 :msg "Connection not found for enqueue"
+                 :data {:connection-id connection-id}})
       nil)))
 
 (defn dequeue-message!
@@ -184,8 +193,10 @@
                               accumulated-responses (assoc :accumulated-responses accumulated-responses))))
                queues)))
     ;; Log status change
-    (binding [*out* *err*]
-      (println "[Queue] Message" message-id "status:" new-status))))
+    (log/log! {:level :debug
+               :id ::message-status-updated
+               :msg "Message status updated"
+               :data {:message-id message-id :new-status new-status :error error}})))
 
 ;; =============================================================================
 ;; Watcher Management
@@ -209,8 +220,9 @@
   "Clear all message queues and pending messages - used during complete system cleanup"
   []
   (reset! connection-message-queues {})
-  (binding [*out* *err*]
-    (println "[Messages] Cleared all connection message queues and pending messages")))
+  (log/log! {:level :info
+             :id ::all-messages-cleared
+             :msg "Cleared all connection message queues and pending messages"}))
 
 (defn clear-connection-messages!
   "Clear message queues for a specific connection"
@@ -223,8 +235,10 @@
                         :pending-messages {}
                         :message-counter 0})
              queues)))
-  (binding [*out* *err*]
-    (println "[Messages] Cleared message queue for connection:" connection-id)))
+  (log/log! {:level :debug
+             :id ::connection-messages-cleared
+             :msg "Cleared message queue for connection"
+             :data {:connection-id connection-id}}))
 
 ;; =============================================================================
 ;; Debug Support
@@ -259,6 +273,7 @@
   (if-let [active-connection (conn-state/get-active-connection)]
     (enqueue-message! (:connection-id active-connection) message)
     (do
-      (binding [*out* *err*]
-        (println "[Queue] Error: No active connection available for message"))
+      (log/log! {:level :error
+                 :id ::no-active-connection
+                 :msg "No active connection available for message"})
       nil)))
