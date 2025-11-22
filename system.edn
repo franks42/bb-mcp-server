@@ -1,0 +1,15 @@
+;; BB MCP Server System Configuration
+;;
+;; This file controls which modules are loaded at startup.
+;; Only modules listed in :modules will be loaded - no auto-discovery.
+
+{;; Base directory for modules (relative to project root)
+ :modules-dir "modules"
+
+ ;; Explicit list of modules to load (by name)
+ ;; Only these modules will be loaded, in this order if no dependencies
+ :modules ["hello" "echo" "math" "strings"]
+
+ ;; Module-specific configuration (optional)
+ ;; Keys match module names, values are passed to module's start function
+ :config {"hello" {:greeting "Hi"}}}

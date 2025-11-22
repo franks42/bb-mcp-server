@@ -12,6 +12,8 @@
     (:require [bb-mcp-server.module.deps :as deps]
               [bb-mcp-server.module.loader :as loader]
               [bb-mcp-server.module.protocol :as proto]
+              [clojure.edn :as edn]
+              [clojure.java.io :as io]
               [taoensso.trove :as log]))
 
 ;; -----------------------------------------------------------------------------
@@ -146,6 +148,47 @@
        (into {})))
 
 ;; -----------------------------------------------------------------------------
+;; Config File Loading
+;; -----------------------------------------------------------------------------
+
+(def default-config-file
+     "Default system configuration file path."
+     "system.edn")
+
+(defn- read-config-file
+  "Read and parse system configuration file.
+
+  Args:
+    config-path - Path to system.edn file
+
+  Returns:
+    {:success config-map} or {:error error-info}"
+  [config-path]
+  (try
+   (let [file (io/file config-path)]
+     (if (.exists file)
+       (let [config (edn/read-string (slurp file))]
+         (log/log! {:level :info
+                    :id ::config-loaded
+                    :msg "System configuration loaded"
+                    :data {:path config-path
+                           :modules-dir (:modules-dir config)
+                           :module-count (count (:modules config))}})
+         {:success config})
+       {:error {:type :config-not-found
+                :path config-path
+                :message (str "Config file not found: " config-path)}}))
+   (catch Exception e
+          (log/log! {:level :error
+                     :id ::config-read-error
+                     :msg "Failed to read config file"
+                     :error e
+                     :data {:path config-path}})
+          {:error {:type :config-read-error
+                   :path config-path
+                   :message (ex-message e)}})))
+
+;; -----------------------------------------------------------------------------
 ;; System Lifecycle
 ;; -----------------------------------------------------------------------------
 
@@ -153,21 +196,28 @@
   "Create a system from modules in a directory.
 
   Args:
-    modules-dir - Path to modules directory (default: 'modules')
-    config      - Optional configuration map for modules
+    modules-dir  - Path to modules directory (default: 'modules')
+    config       - Optional configuration map for modules
+    module-names - Optional seq of module names to load (loads all if nil)
 
   Returns:
     {:success system-data} or {:error error-info}"
   ([]
-   (create-system "modules" {}))
+   (create-system "modules" {} nil))
   ([modules-dir]
-   (create-system modules-dir {}))
+   (create-system modules-dir {} nil))
   ([modules-dir config]
+   (create-system modules-dir config nil))
+  ([modules-dir config module-names]
    (log/log! {:level :info
               :id ::create-system
               :msg "Creating system"
-              :data {:modules-dir modules-dir}})
-   (let [loaded (loader/load-all-modules modules-dir)
+              :data {:modules-dir modules-dir
+                     :explicit-modules (some? module-names)
+                     :module-count (when module-names (count module-names))}})
+   (let [loaded (if module-names
+                  (loader/load-modules modules-dir module-names)
+                  (loader/load-all-modules modules-dir))
          successful (loader/loaded-module-names loaded)
          failed (loader/failed-module-names loaded)]
 
@@ -208,6 +258,38 @@
                                   :start-order (:success order-result)}})
                 {:success {:modules successful
                            :start-order (:success order-result)}})))))))))
+
+(defn create-system-from-config
+  "Create a system from a configuration file.
+
+  Args:
+    config-path - Path to system.edn file (default: 'system.edn')
+
+  Config file format:
+    {:modules-dir \"modules\"
+     :modules [\"hello\" \"math\"]
+     :config {\"hello\" {:greeting \"Hi\"}}}
+
+  Returns:
+    {:success system-data} or {:error error-info}"
+  ([]
+   (create-system-from-config default-config-file))
+  ([config-path]
+   (log/log! {:level :info
+              :id ::create-from-config
+              :msg "Creating system from config file"
+              :data {:config-path config-path}})
+   (let [config-result (read-config-file config-path)]
+     (if (:error config-result)
+       config-result
+       (let [{:keys [modules-dir modules config]} (:success config-result)
+             dir (or modules-dir "modules")
+             module-config (or config {})]
+         (if (empty? modules)
+           {:error {:type :no-modules-configured
+                    :message "No modules specified in config file"
+                    :config-path config-path}}
+           (create-system dir module-config modules)))))))
 
 (defn- start-module-with-deps
   "Start a single module with its dependencies available.

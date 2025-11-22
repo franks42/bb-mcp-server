@@ -6,27 +6,27 @@
          '[bb-mcp-server.module.system :as sys])
 
 (def port
-  "HTTP server port from CLI args or default 3000."
-  (or (some-> (first *command-line-args*) parse-long) 3000))
+     "HTTP server port from CLI args or default 3000."
+     (or (some-> (first *command-line-args*) parse-long) 3000))
 
 (println "=== BB MCP Server with Module System ===")
 
-;; Initialize module system
-(println "\n[1/3] Loading modules...")
-(let [create-result (sys/create-system)]
+;; Initialize module system from config file
+(println "\n[1/3] Loading modules from system.edn...")
+(let [create-result (sys/create-system-from-config)]
   (if (:error create-result)
     (do
-      (println "ERROR: Failed to create system:" (:error create-result))
-      (System/exit 1))
-    (println "  Modules found:" (get-in create-result [:success :modules]))))
+     (println "ERROR: Failed to create system:" (:error create-result))
+     (System/exit 1))
+    (println "  Modules configured:" (get-in create-result [:success :modules]))))
 
 ;; Start module system
 (println "\n[2/3] Starting module system...")
 (let [start-result (sys/start-system!)]
   (if (:error start-result)
     (do
-      (println "ERROR: Failed to start system:" (:error start-result))
-      (System/exit 1))
+     (println "ERROR: Failed to start system:" (:error start-result))
+     (System/exit 1))
     (println "  Started:" (get-in start-result [:success :started]))))
 
 ;; Start HTTP server

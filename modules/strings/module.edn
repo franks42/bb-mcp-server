@@ -1,0 +1,5 @@
+{:name "strings"
+ :version "1.0.0"
+ :description "String tools module - string manipulation"
+ :entry-ns strings.core
+ :deps []}

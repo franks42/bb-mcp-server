@@ -1,0 +1,5 @@
+{:name "math"
+ :version "1.0.0"
+ :description "Math tools module - arithmetic operations"
+ :entry-ns math.core
+ :deps []}

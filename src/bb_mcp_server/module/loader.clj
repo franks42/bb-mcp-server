@@ -389,6 +389,61 @@
                        :failed (:modules-failed metrics)}})
      result-map)))
 
+(defn load-modules
+  "Load specific modules by name from a directory.
+
+  Args:
+    modules-dir  - Path to modules directory
+    module-names - Sequence of module names to load
+
+  Returns:
+    Map of module-name -> {:manifest ... :module ...} or {:error ...}
+
+  Only loads modules whose directory names match the given list.
+  Modules not in the list are ignored even if they exist."
+  [modules-dir module-names]
+  (reset-metrics!)
+  (let [start-time (System/currentTimeMillis)
+        name-set (set module-names)
+        _ (log/log! {:level :info
+                     :id ::load-modules-start
+                     :msg "Loading specified modules"
+                     :data {:modules-dir modules-dir
+                            :requested module-names}})
+        ;; Only load modules in the name set
+        module-dirs (filter
+                     (fn [dir]
+                       (let [dir-name (.getName (io/file dir))]
+                         (contains? name-set dir-name)))
+                     (discover-modules modules-dir))
+        _ (record-discovery! (count module-dirs))
+        results (for [dir module-dirs]
+                     (let [result (load-module dir)]
+                       (if (:success result)
+                         [(:name (:manifest (:success result))) (:success result)]
+                         [(.getName (io/file dir)) {:error (:error result)}])))
+        result-map (into {} results)
+        ;; Track modules that were requested but not found
+        loaded-names (set (keys result-map))
+        not-found (remove loaded-names module-names)
+        total-time (- (System/currentTimeMillis) start-time)
+        metrics (get-metrics)]
+    (when (seq not-found)
+      (log/log! {:level :warn
+                 :id ::modules-not-found
+                 :msg "Some requested modules not found"
+                 :data {:not-found (vec not-found)}}))
+    (log/log! {:level :info
+               :id ::load-modules-complete
+               :msg "Module loading complete"
+               :data {:total-time-ms total-time
+                      :requested (count module-names)
+                      :found (count module-dirs)
+                      :loaded (:modules-loaded metrics)
+                      :failed (:modules-failed metrics)
+                      :not-found (vec not-found)}})
+    result-map))
+
 (defn loaded-module-names
   "Get names of successfully loaded modules.
 
