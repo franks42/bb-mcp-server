@@ -1,0 +1,5 @@
+{:name "local-eval"
+ :version "1.0.0"
+ :description "Local code execution tools - eval code and load files within MCP server runtime"
+ :entry-ns local-eval.core
+ :deps []}

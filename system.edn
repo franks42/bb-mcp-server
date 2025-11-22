@@ -8,7 +8,7 @@
 
  ;; Explicit list of modules to load (by name)
  ;; Only these modules will be loaded, in this order if no dependencies
- :modules ["hello" "echo" "math" "strings" "calculate"]
+ :modules ["hello" "echo" "math" "strings" "calculate" "local-eval"]
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
