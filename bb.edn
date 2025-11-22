@@ -1,4 +1,5 @@
 {:deps {org.babashka/http-client {:mvn/version "0.4.23"}
+        http-kit/http-kit {:mvn/version "2.8.0"}
         cheshire/cheshire {:mvn/version "6.1.0"}
         metosin/malli {:mvn/version "0.20.0"}
         com.taoensso/trove {:mvn/version "1.0.0"}
@@ -18,7 +19,21 @@
         :task (clojure "-M:test" "-m" "cognitect.test-runner")}
 
   check {:doc "Run all checks (lint + format + test)"
-         :task (do (run 'lint) (run 'format) (run 'test))}}
+         :task (do (run 'lint) (run 'format) (run 'test))}
+
+  server:stdio {:doc "Run MCP server over stdio"
+                :task (do
+                       (require '[bb-mcp-server.transport.stdio :as stdio])
+                       (stdio/run-stdio-server!))}
+
+  server:http {:doc "Run MCP server over HTTP (default port 3000)"
+               :task (let [port (or (some-> (first *command-line-args*) parse-long) 3000)]
+                      (require '[bb-mcp-server.transport.http :as http])
+                      (http/start! {:port port})
+                      (println (str "MCP HTTP server running on http://localhost:" port))
+                      (println "Endpoints: POST /mcp, GET /health")
+                      (println "Press Ctrl+C to stop")
+                      (deref (promise)))}}
 
  :aliases
  {:test {:extra-paths ["test"]
