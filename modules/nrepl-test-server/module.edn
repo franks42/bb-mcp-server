@@ -1,5 +1,20 @@
+;; nREPL Test Server module configuration
+;;
+;; Auto-starts a Babashka nREPL server for testing.
+
 {:name "nrepl-test-server"
- :version "1.0.0"
- :description "Auto-starts a Babashka nREPL server for testing nrepl client tools"
- :entry-ns nrepl-test-server.core
- :deps []}
+ :version "0.1.0"
+ :description "Auto-starting Babashka nREPL server for testing"
+ 
+ ;; No module dependencies (but does use bb nrepl)
+ :requires []
+ 
+ ;; Single file module
+ :load-order ["src/nrepl_test_server/core.clj"]
+ 
+ ;; Entry point
+ :entry "nrepl-test-server.core/module"
+ 
+ ;; Default configuration (can be overridden in system.edn)
+ :defaults {:port 7888
+            :host "localhost"}}

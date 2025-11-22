@@ -1,5 +1,55 @@
+;; nREPL module configuration
+;;
+;; Connect, evaluate, and manage remote Clojure REPLs.
+;; Complex module with many files - load order is critical.
+
 {:name "nrepl"
- :version "1.0.0"
- :description "nREPL client tools - connect, evaluate, and manage remote Clojure REPLs"
- :entry-ns nrepl.core
- :deps []}
+ :version "0.1.0"
+ :description "nREPL client tools for remote Clojure REPL interaction"
+ 
+ ;; No module dependencies (uses bb-mcp-server.registry from core)
+ :requires []
+ 
+ ;; Files to load in order (relative to module root)
+ ;; Order: utils -> state -> client -> tools -> core
+ :load-order [;; Utilities
+              "src/nrepl/utils/uuid_v7.clj"
+              
+              ;; State management
+              "src/nrepl/state/connection.clj"
+              "src/nrepl/state/messages.clj"
+              "src/nrepl/state/results.clj"
+              "src/nrepl/state/watchers.clj"
+              "src/nrepl/state/local_nrepl_server.clj"
+              
+              ;; Client layer
+              "src/nrepl/client/socket_connection.clj"
+              "src/nrepl/client/handlers.clj"
+              "src/nrepl/client/messaging.clj"
+              "src/nrepl/client/operations.clj"
+              "src/nrepl/client/connection.clj"
+              
+              ;; Tool implementations
+              "src/nrepl/tools/tool_delegation.clj"
+              "src/nrepl/tools/load_file_shared.clj"
+              "src/nrepl/tools/must_read_mcp_nrepl_context.clj"
+              "src/nrepl/tools/nrepl_connection.clj"
+              "src/nrepl/tools/nrepl_eval.clj"
+              "src/nrepl/tools/nrepl_send_message.clj"
+              "src/nrepl/tools/nrepl_send_message_async.clj"
+              "src/nrepl/tools/nrepl_get_result_async.clj"
+              "src/nrepl/tools/nrepl_load_file.clj"
+              "src/nrepl/tools/nrepl_eval_local_file.clj"
+              "src/nrepl/tools/local_nrepl_server.clj"
+              
+              ;; Module entry point (requires all tools)
+              "src/nrepl/core.clj"]
+ 
+ ;; Entry point
+ :entry "nrepl.core/module"
+ 
+ ;; Default configuration
+ :defaults {:timeout 30000}
+ 
+ ;; Test runner
+ :test-runner "test/run_tests.clj"}

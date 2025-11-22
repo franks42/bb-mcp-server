@@ -1,5 +1,8 @@
+;; Strings module configuration
 {:name "strings"
- :version "1.0.0"
- :description "String tools module - string manipulation"
- :entry-ns strings.core
- :deps []}
+ :version "0.1.0"
+ :description "String manipulation MCP tool module"
+ :requires []
+ :load-order ["src/strings/core.clj"]
+ :entry "strings.core/module"
+ :defaults {}}

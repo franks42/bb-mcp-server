@@ -1,5 +1,27 @@
+;; Calculate module configuration
+;;
+;; Mathematical expression evaluation with SCI sandbox.
+;; Multiple files with dependencies.
+
 {:name "calculate"
- :version "1.0.0"
- :description "Mathematical expression evaluation tool with 100+ pre-loaded functions"
- :entry-ns calculate.core
- :deps []}
+ :version "0.1.0"
+ :description "Mathematical expression evaluation with SCI sandbox"
+ 
+ ;; No dependencies on other modules
+ :requires []
+ 
+ ;; Files to load in order (relative to module root)
+ ;; engine.clj must be loaded before core.clj (core requires engine)
+ ;; analytics.clj is used by core.clj
+ :load-order ["src/calculate/analytics.clj"
+              "src/calculate/engine.clj"
+              "src/calculate/core.clj"]
+ 
+ ;; Entry point: namespace/var that exports {:start :stop :status}
+ :entry "calculate.core/module"
+ 
+ ;; Default configuration
+ :defaults {}
+ 
+ ;; Test runner (relative to module root)
+ :test-runner "test/run_tests.clj"}
