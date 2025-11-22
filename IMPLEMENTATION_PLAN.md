@@ -227,28 +227,42 @@
 ### 4.3 Module Loading (Component-Style)
 **Goal:** Load external tool modules with Component-style lifecycle management
 
-**Design Principles (from Stuart Sierra's Component):**
-- Modules declare dependencies explicitly
-- Dependencies injected at construction time
-- Start in dependency order, stop in reverse order
-- System map holds all modules as data
-- Idempotent start/stop operations
+**📖 Design Document:** `docs/design/module-system-design.md`
+
+**Architecture (Directory-per-Module):**
+```
+modules/
+├── hello/
+│   ├── module.edn        ; Manifest: name, version, depends-on, entry-ns
+│   ├── README.md         ; Documentation
+│   └── src/hello/
+│       └── core.clj      ; Implements IModule (start/stop/status)
+```
+
+**Design Principles:**
+- Each module is self-contained directory with manifest
+- Modules declare dependencies via `:depends-on` in module.edn
+- Topological sort determines load order
+- Dependencies injected at start time
+- Start in dependency order, stop in reverse
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 4.3.1 | Design module system | 🎯 | ⏸️ | Orchestrator | Component-style: ILifecycle protocol, dependency declaration, system map |
-| 4.3.2 | Implement ILifecycle protocol | 🤖 | ⏸️ | Agent | `start`, `stop` with dependency injection. Idempotent operations |
-| 4.3.3 | Implement system map | 🤖 | ⏸️ | Agent | Data structure holding all modules, supports `start-system`/`stop-system` |
-| 4.3.4 | Add dependency resolution | 🤖 | ⏸️ | Agent | Topological sort, cycle detection, clear error on missing deps |
-| 4.3.5 | Implement module loader | 🤖 | ⏸️ | Agent | Safe loading with validation, constructs modules with deps |
-| 4.3.6 | Add module configuration | 🤖 | ⏸️ | Agent | modules.edn with signing, declares dependencies |
-| 4.3.7 | Add reload support | 🤖 | ⏸️ | Agent | Stop → reconstruct → start for changed modules |
-| 4.3.8 | Write module loading tests | 🤖 | ⏸️ | Agent | Test lifecycle, deps, errors, reload |
-| 4.3.9 | Review module system | 🎯 | ⏸️ | Orchestrator | Secure, flexible, well-tested, Component patterns followed |
+| 4.3.1 | Design module system | 🎯 | ✅ | Orchestrator | See `docs/design/module-system-design.md` |
+| 4.3.2 | Implement IModule protocol | 🤖 | ⏸️ | Agent | `start`, `stop`, `status` with dependency injection |
+| 4.3.3 | Implement module loader | 🤖 | ⏸️ | Agent | Discover, validate, load modules from modules/ |
+| 4.3.4 | Add dependency resolution | 🤖 | ⏸️ | Agent | Topological sort, cycle detection, optional deps |
+| 4.3.5 | Implement system map | 🤖 | ⏸️ | Agent | `start-system!`/`stop-system!`/`status` |
+| 4.3.6 | Add module.edn validation | 🤖 | ⏸️ | Agent | Malli schema for manifest, version constraints |
+| 4.3.7 | Add configuration hierarchy | 🤖 | ⏸️ | Agent | defaults → modules.edn → env → runtime |
+| 4.3.8 | Add reload support | 🤖 | ⏸️ | Agent | Hot reload changed modules |
+| 4.3.9 | Migrate hello to module | 🤖 | ⏸️ | Agent | Reference implementation in modules/hello/ |
+| 4.3.10 | Write module system tests | 🤖 | ⏸️ | Agent | Test lifecycle, deps, errors, reload |
+| 4.3.11 | Review module system | 🎯 | ⏸️ | Orchestrator | Secure, third-party ready, well-documented |
 
 **Dependencies:** 4.2 (Rate Limiting)
-**Estimated LOC:** ~500-600
-**Deliverable:** External modules with Component-style lifecycle management
+**Estimated LOC:** ~600-800
+**Deliverable:** Self-contained modules with dependency injection and lifecycle management
 
 ---
 
