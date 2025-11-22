@@ -126,7 +126,11 @@ bb-mcp-server/
 │   │   │   ├── stdio.clj      # stdio server
 │   │   │   ├── http.clj       # HTTP server
 │   │   │   └── triple.clj     # All three
-│   │   └── loader.clj         # Dynamic module loading
+│   │   └── module/
+│   │       ├── ns_loader.clj  # Elegant module loading (add-classpath + require)
+│   │       ├── protocol.clj   # Module protocol definition
+│   │       ├── deps.clj       # Dependency resolution
+│   │       └── system.clj     # System lifecycle management
 │   └── modules/
 │       ├── nrepl.clj          # nREPL module (loadable)
 │       ├── filesystem.clj     # File operations module
@@ -258,14 +262,16 @@ Each transport is a **thin adapter** over core handlers:
   (= :failed (-> module status :state)))
 ```
 
-### 4. Module System with Lifecycle (core/loader.clj)
+### 4. Module System with Lifecycle (module/ns_loader.clj)
 
 ```clojure
-(ns bb-mcp-server.loader
-  (:require [bb-mcp-server.registry :as registry]
-            [bb-mcp-server.lifecycle :as lc]
-            [bb-mcp-server.telemetry :as tel]
-            [clojure.java.io :as io]))
+(ns bb-mcp-server.module.ns-loader
+  "Elegant module loader using babashka's native require mechanism.
+   Uses add-classpath + require - no manual load order needed."
+  (:require [babashka.classpath :refer [add-classpath]]
+            [bb-mcp-server.module.protocol :as proto]
+            [clojure.edn :as edn]
+            [taoensso.trove :as log]))
 
 ;; Module registry: path -> module instance
 (defonce loaded-modules (atom {}))
@@ -1588,10 +1594,15 @@ bb triple  # Validates signature before loading config
 
 ## Module Dependencies and Loading Order
 
-> **UPDATE (Nov 2025):** This section describes the original planned approach with topological sort.
-> The **implemented solution** is much simpler - see `docs/dynamic-module-loading.md` for the
-> elegant `ns_loader.clj` that uses `babashka.classpath/add-classpath` + `require`.
-> Babashka auto-resolves namespace dependencies; only module-level deps need explicit checking.
+> ⚠️ **DEPRECATED (Nov 2025):** This section is kept for historical reference only.
+> The code described below was **never implemented** and has been superseded by the elegant
+> `ns_loader.clj` approach. See `docs/dynamic-module-loading.md` for the actual implementation.
+>
+> **What we do instead:**
+> - Use `babashka.classpath/add-classpath` + `require` (babashka-idiomatic)
+> - No manual load order needed - babashka auto-resolves namespace dependencies
+> - Module-level dependencies (`:requires` in `module.edn`) are checked before loading
+> - No topological sort, no `:load-order` field, much simpler code
 
 ### Overview
 

@@ -426,16 +426,17 @@ Only use `:requires` when you need another module's *running instance*.
 
 ## Why This Approach?
 
-### Before (manual load order)
+### Before (manual load order) - REMOVED
 ```clojure
 ;; Old module.edn required explicit ordering:
 {:load-order ["utils" "helpers" "core"]}
 
-;; ns_loader had to:
+;; The old loader.clj had to:
 ;; 1. Parse each file to find ns dependencies
 ;; 2. Build dependency graph
 ;; 3. Topologically sort
 ;; 4. Load in correct order
+;; This code has been deleted - it was redundant complexity.
 ```
 
 ### After (elegant approach)

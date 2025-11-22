@@ -33,7 +33,8 @@ bb-mcp-server/
     └── bb_mcp_server/
         └── module/
             ├── protocol.clj      ; IModule protocol
-            ├── loader.clj        ; Module discovery & loading
+            ├── ns_loader.clj     ; Elegant module loading (add-classpath + require)
+            ├── deps.clj          ; Dependency resolution
             └── system.clj        ; System lifecycle management
 ```
 
@@ -178,24 +179,31 @@ Every module's entry namespace must implement:
 
 ---
 
-## Module Loader
+## Module Loader (ns_loader.clj)
 
-The loader discovers and manages modules:
+The elegant module loader leverages Babashka's native classpath and namespace resolution:
 
 ```clojure
-;; Discovery
-(loader/discover-modules "modules/")
-;; => [{:name "hello" :path "modules/hello" :manifest {...}}
-;;     {:name "crypto-tools" :path "modules/crypto-tools" :manifest {...}}]
+(require '[bb-mcp-server.module.ns-loader :as loader])
 
-;; Load single module (adds to classpath, requires entry-ns)
+;; Load single module (adds src/ to classpath, requires entry namespace)
 (loader/load-module "modules/hello")
-;; => {:name "hello" :entry-ns hello.core :module hello.core/module}
+;; => {:success {:manifest {...} :module {...} :load-time-ms 102}}
 
-;; Validate module
-(loader/validate-module "modules/hello")
-;; => {:valid true} or {:valid false :errors [...]}
+;; Start module with dependencies and config
+(loader/start-module! "hello" {} {:greeting "Hi"})
+;; => {:success <instance>}
+
+;; Get module status
+(loader/get-module-status "hello")
+;; => {:name "hello" :version "1.0.0" :loaded true :running true :status {...}}
+
+;; Hot-reload after code changes (no restart needed!)
+(loader/reload-module "hello")
 ```
+
+**Key insight:** Babashka's `require` already handles namespace dependency resolution automatically.
+We just add the module's `src/` to classpath and require the entry namespace.
 
 ---
 
@@ -319,8 +327,11 @@ Processes input.
 
 ```bash
 bb -e '
-(require (quote [bb-mcp-server.module.loader :as loader]))
-(loader/validate-module "modules/my-tool")
+(require (quote [bb-mcp-server.module.ns-loader :as loader]))
+(let [result (loader/load-module "modules/my-tool")]
+  (if (:success result)
+    (println "✅ Module loaded successfully")
+    (println "❌ Error:" (:error result))))
 '
 ```
 
@@ -364,13 +375,19 @@ Modules declare dependencies via `:depends-on` in module.edn:
 
 ### Topological Sort
 
-The loader performs topological sort to determine load order:
+The system's dependency resolver handles load order automatically:
 
 ```clojure
-(loader/resolve-load-order ["dashboard" "api-client" "auth" "http-utils"])
-;; => ["http-utils" "auth" "api-client" "dashboard"]
-;;     ^-- no deps    ^-- no deps  ^-- needs auth,http  ^-- needs api-client,auth
+;; Module dependencies declared in :requires are checked before loading
+;; The system sorts modules by dependencies automatically
+
+;; Example: If dashboard requires api-client which requires auth:
+;; Load order: auth → api-client → dashboard
+;; Stop order: dashboard → api-client → auth (reverse)
 ```
+
+**Note:** Namespace-level dependencies within a module are resolved automatically
+by Babashka's `require` - no manual ordering needed!
 
 ### Start Order vs Stop Order
 
