@@ -169,8 +169,8 @@
 | 3.1.8 | Review transport architecture | 🎯 | ✅ | Orchestrator | Clean abstraction, no duplication |
 
 **Dependencies:** 2.2 (Error Handling) ✅ COMPLETE
-**Actual LOC:** ~350 (http.clj + protocol.clj + bb.edn)
-**Deliverable:** ✅ Server runs on stdio OR HTTP
+**Actual LOC:** ~550 (http.clj + protocol.clj + scripts/*.clj + bb.edn)
+**Deliverable:** ✅ Server runs on stdio OR HTTP with comprehensive bb task interface
 
 **Phase 3.1 Achievements:**
 - Transport protocol abstraction (map-based for Babashka)
@@ -178,8 +178,30 @@
 - CORS support for browser clients
 - JSON-RPC error → HTTP status mapping
 - Health endpoint at GET /health
-- bb tasks: server:stdio, server:http [port]
 - Design doc: `docs/design/transport-design.md`
+
+**bb Task Interface (v0.2.0):**
+- `bb server:stdio` - Start stdio server
+- `bb server:http [port]` - Start HTTP server (default 3000)
+- `bb http:test` - Run all HTTP tests (6 tests)
+- `bb http:health` - Check server health
+- `bb http:init` - Test MCP initialize
+- `bb http:tools` - List available tools
+- `bb http:hello <name>` - Test hello tool
+- `bb http:add <a> <b>` - Test add tool
+- `bb http:concat <str>...` - Test concat tool
+- `bb http:call <tool> <json>` - Generic tool caller
+
+**Scripts:**
+- `scripts/http_server.clj` - HTTP server startup
+- `scripts/http_test.clj` - Comprehensive HTTP test suite
+- `scripts/stdio_server.clj` - Stdio server startup
+
+**Claude Code Integration:**
+- `bb-mcp-stdio` - Stdio transport (spawned by Claude)
+- `bb-mcp-http` - HTTP transport (requires running server)
+
+**Tagged:** v0.2.0-http-transport
 
 ---
 
@@ -387,5 +409,5 @@ After each agent task:
 
 ---
 
-*Last Updated: 2025-11-20*
-*Status: Ready to begin Phase 1.1*
+*Last Updated: 2025-11-21*
+*Status: Phase 3.1 complete (v0.2.0-http-transport). Ready for Phase 3.2 or 4.3*
