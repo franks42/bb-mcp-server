@@ -1,12 +1,10 @@
 ;; Echo module configuration
 ;;
 ;; Simple echo tool that returns input unchanged.
-;; No dependencies, single file.
 
 {:name "echo"
  :version "0.1.0"
  :description "Echo MCP tool module"
  :requires []
- :load-order ["src/echo/core.clj"]
  :entry "echo.core/module"
  :defaults {}}

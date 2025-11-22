@@ -1588,11 +1588,18 @@ bb triple  # Validates signature before loading config
 
 ## Module Dependencies and Loading Order
 
+> **UPDATE (Nov 2025):** This section describes the original planned approach with topological sort.
+> The **implemented solution** is much simpler - see `docs/dynamic-module-loading.md` for the
+> elegant `ns_loader.clj` that uses `babashka.classpath/add-classpath` + `require`.
+> Babashka auto-resolves namespace dependencies; only module-level deps need explicit checking.
+
 ### Overview
 
 **Problem**: Modules may depend on other modules being loaded first. For example, a "data-analysis" module might require the "nrepl" module to be available, or a "dashboard" module might need both "blockchain" and "nrepl" modules.
 
-**Solution**: Dependency declaration in module metadata with topological sort for load order resolution.
+**Solution (Original Plan)**: Dependency declaration in module metadata with topological sort for load order resolution.
+
+**Solution (Implemented)**: Elegant loading via `babashka.classpath/add-classpath` + `require`. No manual load order needed - Babashka handles namespace dependencies automatically. Module-level dependencies (`:requires` in `module.edn`) are checked before loading.
 
 ### Module Metadata Format
 

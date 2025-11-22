@@ -1,20 +1,10 @@
 ;; Hello module configuration
 ;;
 ;; Simple module demonstrating the module system.
-;; No dependencies, single file.
 
 {:name "hello"
  :version "0.1.0"
  :description "Hello world MCP tool module"
-
- ;; No dependencies on other modules
  :requires []
-
- ;; Files to load in order (relative to module root)
- :load-order ["src/hello/core.clj"]
-
- ;; Entry point: namespace/var that exports {:start :stop :status}
  :entry "hello.core/module"
-
- ;; Default configuration (can be overridden in system.edn)
  :defaults {:greeting "Hello"}}

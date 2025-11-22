@@ -1,8 +1,8 @@
 ;; Math module configuration
+
 {:name "math"
  :version "0.1.0"
  :description "Basic math operations MCP tool module"
  :requires []
- :load-order ["src/math/core.clj"]
  :entry "math.core/module"
  :defaults {}}

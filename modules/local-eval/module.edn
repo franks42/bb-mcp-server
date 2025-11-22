@@ -1,23 +1,14 @@
 ;; Local-eval module configuration
 ;;
 ;; Local code evaluation tools using SCI sandbox.
-;; Multiple files with internal dependencies.
 
 {:name "local-eval"
  :version "0.1.0"
  :description "Local code evaluation tools using SCI sandbox"
- 
- ;; No dependencies on other modules
+
  :requires []
- 
- ;; Files to load in order (relative to module root)
- ;; shared.clj first (utilities), then specific tools, finally core
- :load-order ["src/local_eval/shared.clj"
-              "src/local_eval/eval.clj"
-              "src/local_eval/load_file.clj"
-              "src/local_eval/core.clj"]
- 
+
  ;; Entry point
  :entry "local-eval.core/module"
- 
+
  :defaults {}}

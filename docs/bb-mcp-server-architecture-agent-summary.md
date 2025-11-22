@@ -10,7 +10,7 @@
 | --- | --- |
 | **Core Runtime** | Registry of tools, transport adapters, request routing, lifecycle management, telemetry hooks. |
 | **Transports** | STDIO (Claude Code subprocess), HTTP `/mcp`, REST `/api/*`. All share the same core handlers. |
-| **Module Loader** | Dynamically loads Babashka/Clojure files, tracks metadata, enforces lifecycle (`ILifecycle` protocol), supports start/stop/restart/health. |
+| **Module Loader** | Elegant dynamic loading via `babashka.classpath/add-classpath` + `require`. No manual load order needed - Babashka auto-resolves namespace dependencies. Module-level deps checked before loading. See `docs/dynamic-module-loading.md`. |
 | **Modules** | Self-contained tool packs (e.g., nREPL, filesystem, blockchain) that register handlers with the core and optionally manage state (connections). |
 
 ## Configuration Model
@@ -59,6 +59,7 @@
 
 ## References
 - Full architecture spec: `docs/bb-mcp-server-architecture.md`
+- **Dynamic module loading: `docs/dynamic-module-loading.md`** (elegant ns_loader approach)
 - Review guide & questions: `docs/bb-mcp-server-review-guide.md`
 - **Telemetry guide: `docs/AI_TELEMETRY_GUIDE.md`** (mandatory for all code)
 - Module templates & examples: `templates/` directory
