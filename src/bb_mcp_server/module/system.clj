@@ -8,9 +8,12 @@
     (def system (create-system \"modules\"))
     (start-system! system)
     (stop-system! system)
-    (system-status system)"
+    (system-status system)
+
+  NOTE: Uses ns_loader for elegant module loading via babashka's
+        native classpath + require mechanism."
     (:require [bb-mcp-server.module.deps :as deps]
-              [bb-mcp-server.module.loader :as loader]
+              [bb-mcp-server.module.ns-loader :as ns-loader]
               [bb-mcp-server.module.protocol :as proto]
               [clojure.edn :as edn]
               [clojure.java.io :as io]
@@ -189,6 +192,51 @@
                    :message (ex-message e)}})))
 
 ;; -----------------------------------------------------------------------------
+;; Module Discovery & Loading (using ns_loader)
+;; -----------------------------------------------------------------------------
+
+(defn- discover-module-dirs
+  "Discover module directories in the given path.
+
+  Args:
+    modules-dir  - Path to modules directory
+    module-names - Optional seq of module names to filter
+
+  Returns:
+    Seq of module directory paths"
+  [modules-dir module-names]
+  (let [dir (io/file modules-dir)]
+    (if (.exists dir)
+      (let [subdirs (->> (.listFiles dir)
+                         (filter #(.isDirectory %))
+                         (filter #(.exists (io/file % "module.edn")))
+                         (map #(.getPath %)))]
+        (if module-names
+          (let [name-set (set module-names)]
+            (filter #(contains? name-set (.getName (io/file %))) subdirs))
+          subdirs))
+      [])))
+
+(defn- load-modules-with-ns-loader
+  "Load modules using the elegant ns_loader.
+
+  Args:
+    modules-dir  - Path to modules directory
+    module-names - Optional seq of module names to load
+
+  Returns:
+    Map of module-name -> {:manifest ... :module ...} or {:error ...}"
+  [modules-dir module-names]
+  (let [module-dirs (discover-module-dirs modules-dir module-names)]
+    (into {}
+          (for [dir module-dirs]
+               (let [result (ns-loader/load-module dir)
+                     dir-name (.getName (io/file dir))]
+                 (if (:success result)
+                   [(get-in result [:success :manifest :name]) (:success result)]
+                   [dir-name {:error (:error result)}]))))))
+
+;; -----------------------------------------------------------------------------
 ;; System Lifecycle
 ;; -----------------------------------------------------------------------------
 
@@ -201,7 +249,10 @@
     module-names - Optional seq of module names to load (loads all if nil)
 
   Returns:
-    {:success system-data} or {:error error-info}"
+    {:success system-data} or {:error error-info}
+
+  NOTE: Uses ns_loader for elegant module loading via babashka's
+        native classpath + require mechanism."
   ([]
    (create-system "modules" {} nil))
   ([modules-dir]
@@ -211,15 +262,21 @@
   ([modules-dir config module-names]
    (log/log! {:level :info
               :id ::create-system
-              :msg "Creating system"
+              :msg "Creating system (using ns_loader)"
               :data {:modules-dir modules-dir
                      :explicit-modules (some? module-names)
                      :module-count (when module-names (count module-names))}})
-   (let [loaded (if module-names
-                  (loader/load-modules modules-dir module-names)
-                  (loader/load-all-modules modules-dir))
-         successful (loader/loaded-module-names loaded)
-         failed (loader/failed-module-names loaded)]
+
+   ;; Reset ns_loader state for clean loading
+   (ns-loader/reset-state!)
+
+   (let [loaded (load-modules-with-ns-loader modules-dir module-names)
+         successful (->> loaded
+                         (filter (fn [[_name data]] (not (:error data))))
+                         (mapv first))
+         failed (->> loaded
+                     (filter (fn [[_name data]] (:error data)))
+                     (mapv first))]
 
      (when (seq failed)
        (log/log! {:level :warn
@@ -534,31 +591,37 @@
                 (proto/stop-module module instance)
                 (swap! system-state update :instances dissoc module-name)))
 
-    ;; Reload the module
-    (let [module-dir (get-in state [:modules module-name :manifest :module-dir])
-          reload-result (loader/load-module module-dir)]
+    ;; Reload the module using ns_loader's hot-reload
+    (let [reload-result (ns-loader/reload-module module-name)]
       (if (:success reload-result)
-        (do
-         (swap! system-state assoc-in [:modules module-name] (:success reload-result))
-          ;; Restart the module
-         (let [start-result (start-module-with-deps
-                             module-name
-                             (:success reload-result)
-                             (:config state))]
-           (if (:success start-result)
-             (do
-              (swap! system-state assoc-in [:instances module-name]
-                     {:instance (:success start-result)
-                      :started-at (System/currentTimeMillis)})
-                ;; Restart dependents
-              (doseq [dep dependents]
-                     (let [dep-data (get (:modules state) dep)
-                           dep-result (start-module-with-deps dep dep-data (:config state))]
-                       (when (:success dep-result)
-                         (swap! system-state assoc-in [:instances dep]
-                                {:instance (:success dep-result)
-                                 :started-at (System/currentTimeMillis)}))))
-              {:success {:reloaded module-name
-                         :restarted-dependents (vec dependents)}})
-             {:error (:error start-result)})))
+        ;; Get updated module data from ns-loader's registry
+        (let [ns-loader-modules (ns-loader/get-loaded-modules)
+              updated-module-data (get ns-loader-modules module-name)]
+          (if updated-module-data
+            (do
+             ;; Sync updated module to system-state
+             (swap! system-state assoc-in [:modules module-name] updated-module-data)
+              ;; Restart the module
+             (let [start-result (start-module-with-deps
+                                 module-name
+                                 updated-module-data
+                                 (:config state))]
+               (if (:success start-result)
+                 (do
+                  (swap! system-state assoc-in [:instances module-name]
+                         {:instance (:success start-result)
+                          :started-at (System/currentTimeMillis)})
+                    ;; Restart dependents
+                  (doseq [dep dependents]
+                         (let [dep-data (get (:modules @system-state) dep)
+                               dep-result (start-module-with-deps dep dep-data (:config @system-state))]
+                           (when (:success dep-result)
+                             (swap! system-state assoc-in [:instances dep]
+                                    {:instance (:success dep-result)
+                                     :started-at (System/currentTimeMillis)}))))
+                  {:success {:reloaded module-name
+                             :restarted-dependents (vec dependents)}})
+                 {:error (:error start-result)})))
+            {:error {:type :reload-sync-failed
+                     :message "Module not found in ns-loader after reload"}}))
         {:error (:error reload-result)}))))
