@@ -1,0 +1,5 @@
+{:name "calculate"
+ :version "1.0.0"
+ :description "Mathematical expression evaluation tool with 100+ pre-loaded functions"
+ :entry-ns calculate.core
+ :deps []}
