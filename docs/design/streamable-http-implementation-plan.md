@@ -2,11 +2,29 @@
 
 ## Overview
 
-This document outlines the implementation plan for the MCP Streamable HTTP transport as a **modular, self-contained component** that can be:
+This document outlines the implementation plan for **streamable-http** - a **generic HTTP streaming library for Babashka** that provides:
 
-1. Used within bb-mcp-server
-2. Extracted to its own repository later
-3. Reused in other Babashka MCP projects
+1. **Session management** - UUID-based sessions with configurable headers
+2. **Server-Sent Events (SSE)** - Server-to-client push notifications
+3. **Structured lifecycle** - Start/stop with cleanup
+4. **Ring middleware** - CORS, auth, rate-limiting, logging
+
+### Broader Vision
+
+This is an **upgrade to bb's HTTP server stack**, providing an alternative to WebSocket-based solutions:
+
+| | WebSocket | streamable-http (SSE) |
+|--|-----------|----------------------|
+| Direction | Bidirectional | Request/Response + Server Push |
+| Complexity | More complex | Simpler, standard HTTP |
+| Firewalls | Sometimes blocked | Always works |
+| Reconnection | Manual | Built into EventSource |
+
+### Use Cases
+
+1. **MCP Transport** - Primary use case, implements MCP spec 2025-03-26
+2. **REST APIs** - Same tools exposed via REST with real-time features
+3. **Any bb project** - Reusable session/SSE infrastructure
 
 **Status:** Phase 3 Complete
 **Date:** 2025-11-22
@@ -34,13 +52,67 @@ Current location:
   bb-mcp-server/modules/streamable-http/
 
 Future standalone repo:
-  bb-mcp-streamable-http/
+  bb-streamable-http/              # Generic library (NOT MCP-specific)
   ├── src/
+  │   └── streamable_http/
+  │       ├── core.clj             # Generic API
+  │       ├── session.clj          # Session management
+  │       ├── sse.clj              # SSE utilities
+  │       └── middleware.clj       # Ring middleware
   ├── test/
   ├── bb.edn
-  ├── README.md
-  └── module.edn  (for bb-mcp-server integration)
+  └── README.md
 ```
+
+---
+
+## Dual-Interface Architecture
+
+The library supports multiple protocol adapters on a shared transport:
+
+```
+┌─────────────────────────────────────────────────────┐
+│              streamable-http (generic)              │
+│     Sessions │ SSE │ Middleware │ Lifecycle         │
+├─────────────────┬───────────────────────────────────┤
+│   /mcp          │          /api                     │
+│   JSON-RPC 2.0  │          REST                     │
+│   MCP Protocol  │          REST conventions         │
+├─────────────────┴───────────────────────────────────┤
+│                 Tool Registry                       │
+│           (same tools, two interfaces)              │
+└─────────────────────────────────────────────────────┘
+```
+
+### Configuration for Different Use Cases
+
+```clojure
+;; MCP Transport (current default)
+{:session-header "Mcp-Session-Id"
+ :path "/mcp"
+ :protocol :json-rpc}
+
+;; REST API
+{:session-header "X-Session-Id"
+ :path "/api"
+ :protocol :rest}
+
+;; Generic (custom)
+{:session-header "X-My-Session"
+ :path "/stream"
+ :protocol :custom}
+```
+
+### Shared Features Across Protocols
+
+| Feature | Available to All |
+|---------|------------------|
+| Session management | ✅ |
+| SSE notifications | ✅ |
+| CORS middleware | ✅ |
+| Rate limiting | ✅ |
+| Basic auth | ✅ |
+| Request logging | ✅ |
 
 ---
 
