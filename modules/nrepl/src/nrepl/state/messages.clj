@@ -1,23 +1,23 @@
 (ns nrepl.state.messages
-  "Message queue state management for async nREPL operations"
-  (:require [nrepl.utils.uuid-v7 :as uuid]
-            [nrepl.state.results :as results]
-            [nrepl.state.connection :as conn-state]
-            [taoensso.trove :as log]))
+    "Message queue state management for async nREPL operations"
+    (:require [nrepl.utils.uuid-v7 :as uuid]
+              [nrepl.state.results :as results]
+              [nrepl.state.connection :as conn-state]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Per-Connection Message Queue State Atom
 ;; =============================================================================
 
 (def connection-message-queues
-  "Per-connection message send queues for async operations.
+     "Per-connection message send queues for async operations.
    
    Structure:
    {connection-id {:send-queue PersistentQueue ; FIFO queue of messages waiting to be sent
                    :pending-messages {}         ; Map of message-id -> detailed message record
                    :message-counter 0}          ; Counter for debugging/metrics
     ...}"
-  (atom {}))
+     (atom {}))
 
 ;; =============================================================================
 ;; Connection Adapter - moved from watchers for cleaner separation
@@ -79,62 +79,62 @@
   [connection-id message]
   ;; Get and validate specific connection by connection-id
   (if-let [raw-connection (conn-state/get-connection-by-id connection-id)]
-    (if-let [formatted-connection (adapt-connection-for-messaging raw-connection)]
-      (do
+          (if-let [formatted-connection (adapt-connection-for-messaging raw-connection)]
+                  (do
         ;; Ensure connection queue exists
-        (ensure-connection-queue! connection-id)
-        (let [message-id (uuid/uuid-v7-with-tag :tag "msg")
-              timestamp (System/currentTimeMillis)
+                   (ensure-connection-queue! connection-id)
+                   (let [message-id (uuid/uuid-v7-with-tag :tag "msg")
+                         timestamp (System/currentTimeMillis)
               ;; Create READY-TO-SEND entry - everything formatted for watcher
-              ready-to-send {:message-id message-id
-                             :connection-id connection-id  ; ← Store connection-id
-                             :connection formatted-connection  ; ← Pre-formatted connection 
-                             :message (assoc message :id message-id)  ; ← Original message with ID
-                             :timestamp timestamp
-                             :attempts 0
-                             :status :pending}]
+                         ready-to-send {:message-id message-id
+                                        :connection-id connection-id  ; ← Store connection-id
+                                        :connection formatted-connection  ; ← Pre-formatted connection 
+                                        :message (assoc message :id message-id)  ; ← Original message with ID
+                                        :timestamp timestamp
+                                        :attempts 0
+                                        :status :pending}]
 
           ;; Create result promise first
-          (results/create-result-promise! connection-id message-id)
+                     (results/create-result-promise! connection-id message-id)
 
           ;; Add to connection-specific queue and pending messages
-          (swap! connection-message-queues
-                 (fn [queues]
-                   (update-in queues [connection-id]
-                              (fn [queue-state]
-                                (-> queue-state
+                     (swap! connection-message-queues
+                            (fn [queues]
+                              (update-in queues [connection-id]
+                                         (fn [queue-state]
+                                           (-> queue-state
                                     ;; Add to FIFO send queue using PersistentQueue conj
-                                    (update :send-queue conj ready-to-send)
+                                               (update :send-queue conj ready-to-send)
                                     ;; Create pending entry in messages map with status
-                                    (assoc-in [:pending-messages message-id]
-                                              (assoc ready-to-send
-                                                     :created-at timestamp
-                                                     :status :pending))
+                                               (assoc-in [:pending-messages message-id]
+                                                         (assoc ready-to-send
+                                                                :created-at timestamp
+                                                                :status :pending))
                                     ;; Increment counter for metrics
-                                    (update :message-counter inc))))))
+                                               (update :message-counter inc))))))
 
           ;; Log for debugging
-          (log/log! {:level :debug
-                     :id ::message-enqueued
-                     :msg "Enqueued message"
-                     :data {:message-id message-id :connection-id connection-id :status :pending}})
-          message-id))
+                     (log/log! {:level :debug
+                                :id ::message-enqueued
+                                :msg "Enqueued message"
+                                :data {:message-id message-id :connection-id connection-id :status :pending}})
+                     message-id))
 
       ;; Connection adaptation failed
-      (do
-        (log/log! {:level :error
-                   :id ::connection-adapt-failed
-                   :msg "Failed to adapt connection for message"
-                   :data {:connection-id connection-id}})
-        nil))
+                  (do
+                   (log/log! {:level :error
+                              :id ::connection-adapt-failed
+                              :msg "Failed to adapt connection for message"
+                              :data {:connection-id connection-id}})
+                   nil))
 
     ;; Connection not found
-    (do
-      (log/log! {:level :error
-                 :id ::connection-not-found
-                 :msg "Connection not found for enqueue"
-                 :data {:connection-id connection-id}})
-      nil)))
+          (do
+           (log/log! {:level :error
+                      :id ::connection-not-found
+                      :msg "Connection not found for enqueue"
+                      :data {:connection-id connection-id}})
+           nil)))
 
 (defn dequeue-message!
   "Remove and return the next message from the connection-specific send queue (FIFO).
@@ -144,12 +144,12 @@
     (swap! connection-message-queues
            (fn [queues]
              (if-let [queue-state (get queues connection-id)]
-               (if-let [queue-entry (peek (:send-queue queue-state))]  ; peek gets first from PersistentQueue
-                 (do
-                   (reset! result queue-entry)
-                   (update-in queues [connection-id :send-queue] pop))  ; pop removes first from PersistentQueue
-                 queues)
-               queues)))
+                     (if-let [queue-entry (peek (:send-queue queue-state))]  ; peek gets first from PersistentQueue
+                             (do
+                              (reset! result queue-entry)
+                              (update-in queues [connection-id :send-queue] pop))  ; pop removes first from PersistentQueue
+                             queues)
+                     queues)))
     @result))
 
 (defn find-message-connection
@@ -167,36 +167,36 @@
   "Get a pending message by ID without removing it."
   [message-id]
   (when-let [connection-id (find-message-connection message-id)]
-    (get-in @connection-message-queues [connection-id :pending-messages message-id])))
+            (get-in @connection-message-queues [connection-id :pending-messages message-id])))
 
 (defn remove-pending-message!
   "Remove a pending message from the tracking map."
   [message-id]
   (when-let [connection-id (find-message-connection message-id)]
-    (swap! connection-message-queues update-in [connection-id :pending-messages] dissoc message-id)))
+            (swap! connection-message-queues update-in [connection-id :pending-messages] dissoc message-id)))
 
 (defn update-message-status!
   "Update the status of a pending message.
    Status can be :pending, :sending, :sent, :partial, :done, :failed, :timeout, :error"
   [message-id new-status & {:keys [error bencode-sent sent-at completed-at accumulated-responses]}]
   (when-let [connection-id (find-message-connection message-id)]
-    (swap! connection-message-queues
-           (fn [queues]
-             (if-let [_msg (get-in queues [connection-id :pending-messages message-id])]
-               (update-in queues [connection-id :pending-messages message-id]
-                          (fn [entry]
-                            (cond-> (assoc entry :status new-status)
-                              error (assoc :error error)
-                              bencode-sent (assoc :bencode-sent bencode-sent)
-                              sent-at (assoc :sent-at sent-at)
-                              completed-at (assoc :completed-at completed-at)
-                              accumulated-responses (assoc :accumulated-responses accumulated-responses))))
-               queues)))
+            (swap! connection-message-queues
+                   (fn [queues]
+                     (if-let [_msg (get-in queues [connection-id :pending-messages message-id])]
+                             (update-in queues [connection-id :pending-messages message-id]
+                                        (fn [entry]
+                                          (cond-> (assoc entry :status new-status)
+                                                  error (assoc :error error)
+                                                  bencode-sent (assoc :bencode-sent bencode-sent)
+                                                  sent-at (assoc :sent-at sent-at)
+                                                  completed-at (assoc :completed-at completed-at)
+                                                  accumulated-responses (assoc :accumulated-responses accumulated-responses))))
+                             queues)))
     ;; Log status change
-    (log/log! {:level :debug
-               :id ::message-status-updated
-               :msg "Message status updated"
-               :data {:message-id message-id :new-status new-status :error error}})))
+            (log/log! {:level :debug
+                       :id ::message-status-updated
+                       :msg "Message status updated"
+                       :data {:message-id message-id :new-status new-status :error error}})))
 
 ;; =============================================================================
 ;; Watcher Management
@@ -271,9 +271,9 @@
    Used during Phase 4 transition to maintain compatibility with existing callers."
   [message]
   (if-let [active-connection (conn-state/get-active-connection)]
-    (enqueue-message! (:connection-id active-connection) message)
-    (do
-      (log/log! {:level :error
-                 :id ::no-active-connection
-                 :msg "No active connection available for message"})
-      nil)))
+          (enqueue-message! (:connection-id active-connection) message)
+          (do
+           (log/log! {:level :error
+                      :id ::no-active-connection
+                      :msg "No active connection available for message"})
+           nil)))

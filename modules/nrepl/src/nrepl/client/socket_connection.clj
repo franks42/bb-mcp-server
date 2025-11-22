@@ -1,9 +1,9 @@
 (ns nrepl.client.socket-connection
-  "Low-level nREPL connection lifecycle management - uses unified state management"
-  (:require [nrepl.state.connection :as conn-state]
-            [taoensso.trove :as log])
-  (:import [java.net Socket]
-           [java.io PushbackInputStream]))
+    "Low-level nREPL connection lifecycle management - uses unified state management"
+    (:require [nrepl.state.connection :as conn-state]
+              [taoensso.trove :as log])
+    (:import [java.net Socket]
+             [java.io PushbackInputStream]))
 
 (defn connect
   "Connect to nREPL server and return connection map with unified state tracking"

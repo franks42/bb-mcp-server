@@ -1,7 +1,7 @@
 (ns nrepl.client.handlers
-  "State watchers and reactive handlers for nREPL client"
-  (:require [nrepl.state.connection :as state]
-            [nrepl.client.connection :as conn]))
+    "State watchers and reactive handlers for nREPL client"
+    (:require [nrepl.state.connection :as state]
+              [nrepl.client.connection :as conn]))
 
 ;; =============================================================================
 ;; Connection State Handlers
@@ -16,11 +16,11 @@
       (case new-status
         :pending-connect
         (future
-          (conn/attempt-connection! (select-keys new-state [:hostname :port])))
+         (conn/attempt-connection! (select-keys new-state [:hostname :port])))
 
         :pending-disconnect
         (future
-          (conn/close-connection!))
+         (conn/close-connection!))
 
         nil))))
 

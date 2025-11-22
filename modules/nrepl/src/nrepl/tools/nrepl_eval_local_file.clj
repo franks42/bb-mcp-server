@@ -1,7 +1,7 @@
 (ns nrepl.tools.nrepl-eval-local-file
-  "MCP tool for evaluating local Clojure files via nREPL"
-  (:require [nrepl.tools.nrepl-eval :as nrepl-eval]
-            [nrepl.tools.load-file-shared :as shared]))
+    "MCP tool for evaluating local Clojure files via nREPL"
+    (:require [nrepl.tools.nrepl-eval :as nrepl-eval]
+              [nrepl.tools.load-file-shared :as shared]))
 
 ;; =============================================================================
 ;; Main Handler
@@ -24,23 +24,23 @@
   [{:keys [file-path connection ns session timeout] :or {timeout 30000}}]
   (try
     ;; Validate parameters using shared utilities
-    (shared/validate-parameters {:file-path file-path} ["file-path"])
-    (shared/validate-file-path file-path)
+   (shared/validate-parameters {:file-path file-path} ["file-path"])
+   (shared/validate-file-path file-path)
 
     ;; Read file content
-    (let [file-content (slurp file-path)
+   (let [file-content (slurp file-path)
           ;; Delegate to nrepl-eval with file content as code
-          eval-args (cond-> {:code file-content :timeout timeout}
-                      connection (assoc :connection connection)
-                      ns (assoc :ns ns)
-                      session (assoc :session session))
-          result (nrepl-eval/handle eval-args)]
+         eval-args (cond-> {:code file-content :timeout timeout}
+                           connection (assoc :connection connection)
+                           ns (assoc :ns ns)
+                           session (assoc :session session))
+         result (nrepl-eval/handle eval-args)]
 
       ;; Format response using shared utilities
-      (shared/format-load-file-response result "nrepl-eval-local-file" file-path))
+     (shared/format-load-file-response result "nrepl-eval-local-file" file-path))
 
-    (catch Exception e
-      (shared/handle-load-file-error e "nrepl-eval-local-file" file-path))))
+   (catch Exception e
+          (shared/handle-load-file-error e "nrepl-eval-local-file" file-path))))
 
 ;; =============================================================================
 ;; Tool Metadata
@@ -49,18 +49,18 @@
 (def tool-name "nrepl-eval-local-file")
 
 (def metadata
-  {:description "📂 FILE EVALUATOR: Evaluate a local Clojure file via nREPL by reading and sending its content as code. Useful for nREPL servers without filesystem access."
-   :inputSchema {:type "object"
-                 :properties {:file-path {:type "string"
-                                          :description "Absolute path to local Clojure file"}
-                              :connection {:type "string"
-                                           :description "Optional nREPL connection nickname"}
-                              :ns {:type "string"
-                                   :description "Optional namespace to evaluate in"}
-                              :session {:type "string"
-                                        :description "Optional nREPL session ID"}
-                              :timeout {:type "integer"
-                                        :description "Timeout in milliseconds (default: 30000)"
-                                        :minimum 1000
-                                        :maximum 300000}}
-                 :required ["file-path"]}})
+     {:description "📂 FILE EVALUATOR: Evaluate a local Clojure file via nREPL by reading and sending its content as code. Useful for nREPL servers without filesystem access."
+      :inputSchema {:type "object"
+                    :properties {:file-path {:type "string"
+                                             :description "Absolute path to local Clojure file"}
+                                 :connection {:type "string"
+                                              :description "Optional nREPL connection nickname"}
+                                 :ns {:type "string"
+                                      :description "Optional namespace to evaluate in"}
+                                 :session {:type "string"
+                                           :description "Optional nREPL session ID"}
+                                 :timeout {:type "integer"
+                                           :description "Timeout in milliseconds (default: 30000)"
+                                           :minimum 1000
+                                           :maximum 300000}}
+                    :required ["file-path"]}})

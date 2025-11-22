@@ -49,11 +49,11 @@
    (catch Exception e
       ;; Silently ignore logging failures - calculator should work even if logging fails
       ;; This handles read-only file systems (Claude Desktop, sandboxed environments)
-      (log/log! {:level :warn
-                 :id ::analytics-write-failed
-                 :msg "Failed to write analytics log"
-                 :data {:error (.getMessage e)}})
-      nil)))
+          (log/log! {:level :warn
+                     :id ::analytics-write-failed
+                     :msg "Failed to write analytics log"
+                     :data {:error (.getMessage e)}})
+          nil)))
 
 (defn generate-usage-report
   "Analyze log file and generate summary statistics"

@@ -1,13 +1,13 @@
 (ns nrepl.state.local-nrepl-server
-  "State management for embedded local babashka nREPL server lifecycle"
-  (:require [babashka.nrepl.server :as nrepl-server]))
+    "State management for embedded local babashka nREPL server lifecycle"
+    (:require [babashka.nrepl.server :as nrepl-server]))
 
 ;; =============================================================================
 ;; nREPL Server State Atom
 ;; =============================================================================
 
 (def nrepl-server-state
-  "State atom for babashka nREPL server lifecycle management.
+     "State atom for babashka nREPL server lifecycle management.
    
    Structure:
    {:server-map nil          ; Complete map from babashka.nrepl.server/start-server!
@@ -19,15 +19,15 @@
     :stopped-at nil         ; Stop timestamp
     :config {}              ; Server configuration used for start
     :error nil}             ; Last error message if any"
-  (atom {:server-map nil
-         :status :stopped
-         :host "localhost"
-         :port nil
-         :connection nil
-         :started-at nil
-         :stopped-at nil
-         :config {}
-         :error nil}))
+     (atom {:server-map nil
+            :status :stopped
+            :host "localhost"
+            :port nil
+            :connection nil
+            :started-at nil
+            :stopped-at nil
+            :config {}
+            :error nil}))
 
 ;; =============================================================================
 ;; Port Extraction Utilities
@@ -38,7 +38,7 @@
    Handles auto-assigned ports (port 0) properly."
   [server-map]
   (when-let [socket (:socket server-map)]
-    (.getLocalPort socket)))
+            (.getLocalPort socket)))
 
 (defn extract-server-host
   "Extract host from server configuration or default to localhost"
@@ -85,8 +85,8 @@
   "Get server uptime in milliseconds, or nil if not running"
   []
   (when-let [started-at (:started-at @nrepl-server-state)]
-    (when (running?)
-      (- (System/currentTimeMillis) started-at))))
+            (when (running?)
+              (- (System/currentTimeMillis) started-at))))
 
 ;; =============================================================================
 ;; State Management Functions
@@ -100,87 +100,87 @@
   [config]
   (try
     ;; Check if already running
-    (when (running?)
-      (throw (ex-info "nREPL server already running"
-                      {:status (:status @nrepl-server-state)
-                       :port (:port @nrepl-server-state)})))
+   (when (running?)
+     (throw (ex-info "nREPL server already running"
+                     {:status (:status @nrepl-server-state)
+                      :port (:port @nrepl-server-state)})))
 
     ;; Set starting status
-    (swap! nrepl-server-state assoc
-           :status :starting
-           :config config
-           :error nil)
+   (swap! nrepl-server-state assoc
+          :status :starting
+          :config config
+          :error nil)
 
     ;; Start server
-    (let [server-map (nrepl-server/start-server! config)
-          host (extract-server-host config)
-          port (extract-server-port server-map)
-          connection (format-connection host port)
-          started-at (System/currentTimeMillis)]
+   (let [server-map (nrepl-server/start-server! config)
+         host (extract-server-host config)
+         port (extract-server-port server-map)
+         connection (format-connection host port)
+         started-at (System/currentTimeMillis)]
 
       ;; Update state with running server
-      (swap! nrepl-server-state assoc
-             :server-map server-map
-             :status :running
-             :host host
-             :port port
-             :connection connection
-             :started-at started-at
-             :stopped-at nil
-             :error nil)
+     (swap! nrepl-server-state assoc
+            :server-map server-map
+            :status :running
+            :host host
+            :port port
+            :connection connection
+            :started-at started-at
+            :stopped-at nil
+            :error nil)
 
       ;; Return connection info
-      {:status :running
-       :host host
-       :port port
-       :connection connection
-       :started-at started-at})
+     {:status :running
+      :host host
+      :port port
+      :connection connection
+      :started-at started-at})
 
-    (catch Exception e
+   (catch Exception e
       ;; Update state with error
-      (swap! nrepl-server-state assoc
-             :status :error
-             :error (.getMessage e))
-      (throw e))))
+          (swap! nrepl-server-state assoc
+                 :status :error
+                 :error (.getMessage e))
+          (throw e))))
 
 (defn stop-server!
   "Stop babashka nREPL server and update state"
   []
   (try
     ;; Check if running
-    (when-not (running?)
-      (throw (ex-info "nREPL server not running"
-                      {:status (:status @nrepl-server-state)})))
+   (when-not (running?)
+     (throw (ex-info "nREPL server not running"
+                     {:status (:status @nrepl-server-state)})))
 
     ;; Get server map before setting stopping status
-    (let [server-map (get-server-map)
-          connection-info (get-connection-info)]
+   (let [server-map (get-server-map)
+         connection-info (get-connection-info)]
 
       ;; Set stopping status
-      (swap! nrepl-server-state assoc :status :stopping)
+     (swap! nrepl-server-state assoc :status :stopping)
 
       ;; Stop server using stored server map
-      (nrepl-server/stop-server! server-map)
+     (nrepl-server/stop-server! server-map)
 
       ;; Update state to stopped
-      (let [stopped-at (System/currentTimeMillis)]
-        (swap! nrepl-server-state assoc
-               :server-map nil
-               :status :stopped
-               :stopped-at stopped-at
-               :error nil)
+     (let [stopped-at (System/currentTimeMillis)]
+       (swap! nrepl-server-state assoc
+              :server-map nil
+              :status :stopped
+              :stopped-at stopped-at
+              :error nil)
 
         ;; Return info about stopped server
-        (assoc connection-info
-               :status :stopped
-               :stopped-at stopped-at)))
+       (assoc connection-info
+              :status :stopped
+              :stopped-at stopped-at)))
 
-    (catch Exception e
+   (catch Exception e
       ;; Update state with error
-      (swap! nrepl-server-state assoc
-             :status :error
-             :error (.getMessage e))
-      (throw e))))
+          (swap! nrepl-server-state assoc
+                 :status :error
+                 :error (.getMessage e))
+          (throw e))))
 
 (defn restart-server!
   "Restart nREPL server with given config"

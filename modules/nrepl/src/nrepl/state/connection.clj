@@ -1,15 +1,15 @@
 (ns nrepl.state.connection
-  "Unified connection state management for nREPL client connections - SINGLE SOURCE OF TRUTH"
-  (:require [nrepl.utils.uuid-v7 :as uuid]
-            [taoensso.trove :as log])
-  (:import [java.net InetAddress]))
+    "Unified connection state management for nREPL client connections - SINGLE SOURCE OF TRUTH"
+    (:require [nrepl.utils.uuid-v7 :as uuid]
+              [taoensso.trove :as log])
+    (:import [java.net InetAddress]))
 
 ;; =============================================================================
 ;; Connection State Atom - SINGLE SOURCE OF TRUTH
 ;; =============================================================================
 
 (def connection-state
-  "Unified nREPL connection state with registry and active connection tracking.
+     "Unified nREPL connection state with registry and active connection tracking.
    
    This is the SINGLE SOURCE OF TRUTH for all connection state - eliminates 
    duplication between application layer and transport layer.
@@ -35,10 +35,10 @@
                    :error nil}}                 ; Error information
     :nicknames {}                              ; NEW: nickname -> connection-id mapping
     :connection-counter 0}                      ; Counter for unique connection IDs"
-  (atom {:active-connection nil
-         :connections {}
-         :nicknames {}
-         :connection-counter 0}))
+     (atom {:active-connection nil
+            :connections {}
+            :nicknames {}
+            :connection-counter 0}))
 
 ;; =============================================================================
 ;; IP Address Resolution Utilities
@@ -49,20 +49,20 @@
    Converts 'localhost' to actual local IP address."
   [hostname]
   (try
-    (if (= "localhost" hostname)
+   (if (= "localhost" hostname)
       ;; Get actual local IP address instead of 127.0.0.1
-      (let [local-host (InetAddress/getLocalHost)]
-        (.getHostAddress local-host))
+     (let [local-host (InetAddress/getLocalHost)]
+       (.getHostAddress local-host))
       ;; Resolve other hostnames to IP
-      (let [inet-addr (InetAddress/getByName hostname)]
-        (.getHostAddress inet-addr)))
-    (catch Exception e
+     (let [inet-addr (InetAddress/getByName hostname)]
+       (.getHostAddress inet-addr)))
+   (catch Exception e
       ;; Fallback to original hostname if resolution fails
-      (log/log! {:level :warn
-                 :id ::ip-resolution-failed
-                 :msg "IP resolution failed, using hostname"
-                 :data {:hostname hostname :error (.getMessage e)}})
-      hostname)))
+          (log/log! {:level :warn
+                     :id ::ip-resolution-failed
+                     :msg "IP resolution failed, using hostname"
+                     :data {:hostname hostname :error (.getMessage e)}})
+          hostname)))
 
 ;; =============================================================================
 ;; Human-Readable Connection ID Generation
@@ -84,13 +84,13 @@
   "Get current active connection details, or nil if no active connection"
   []
   (when-let [active-id (:active-connection @connection-state)]
-    (get-in @connection-state [:connections active-id])))
+            (get-in @connection-state [:connections active-id])))
 
 (defn connected?
   "Check if there is an active connected connection"
   []
   (when-let [active-conn (get-active-connection)]
-    (= :connected (:status active-conn))))
+            (= :connected (:status active-conn))))
 
 (defn can-connect?
   "Check if a new connection attempt is allowed.
@@ -105,8 +105,8 @@
   "Get current connection status - backward compatibility"
   []
   (if-let [active-conn (get-active-connection)]
-    (:status active-conn)
-    :disconnected))
+          (:status active-conn)
+          :disconnected))
 
 ;; =============================================================================
 ;; Connection Management API for Socket Layer
@@ -165,7 +165,7 @@
                  (assoc-in [:connections connection-id :closed-at] closed-at)
                  (assoc-in [:connections connection-id :error] {:type error-type :message error-msg})
                  (cond-> (= connection-id (:active-connection state))
-                   (assoc :active-connection nil)))))
+                         (assoc :active-connection nil)))))
     (log/log! {:level :info
                :id ::connection-closed
                :msg "Connection marked closed"
@@ -211,13 +211,13 @@
   "Mark connection as failed - backward compatibility"
   [error-msg]
   (when-let [active-id (:active-connection @connection-state)]
-    (update-connection-status! active-id :failed :error error-msg)))
+            (update-connection-status! active-id :failed :error error-msg)))
 
 (defn mark-disconnected!
   "Mark connection as disconnected - backward compatibility"
   []
   (when-let [active-id (:active-connection @connection-state)]
-    (mark-connection-closed! active-id :user-disconnect "User requested disconnect")))
+            (mark-connection-closed! active-id :user-disconnect "User requested disconnect")))
 
 ;; =============================================================================
 ;; Watcher Management

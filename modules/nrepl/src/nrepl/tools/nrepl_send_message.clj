@@ -1,7 +1,7 @@
 (ns nrepl.tools.nrepl-send-message
-  "Synchronous nREPL message sending tool for MCP - Phase 2b.5 (SYNC WRAPPER)"
-  (:require [nrepl.tools.tool-delegation :as delegate]
-            [cheshire.core :as json]))
+    "Synchronous nREPL message sending tool for MCP - Phase 2b.5 (SYNC WRAPPER)"
+    (:require [nrepl.tools.tool-delegation :as delegate]
+              [cheshire.core :as json]))
 
 ;; =============================================================================
 ;; Main Handler
@@ -77,18 +77,18 @@
 (def tool-name "nrepl-send-message")
 
 (def metadata
-  {:description "⚠️ LOW-LEVEL nREPL: Raw nREPL protocol access for advanced users only. Most users should use nrepl-eval for code evaluation instead. This tool provides direct protocol operations (info, completions, sessions) but requires nREPL protocol knowledge. Use nrepl-eval for all code execution tasks."
-   :inputSchema {:type "object"
-                 :properties {:message {:type "object"
-                                        :description "nREPL message map. Examples: {\"op\":\"eval\",\"code\":\"(+ 1 2 3)\"}, {\"op\":\"info\",\"symbol\":\"map\"}, {\"op\":\"completions\",\"prefix\":\"ma\"}"
-                                        :additionalProperties true}
-                              :connection {:type "string"
-                                           :description "Connection identifier (nickname, connection-id, or host:port). Optional - uses single connection if not specified."}
-                              :message-id {:type "string"
-                                           :description "Message ID for timeout recovery. Use this to check for delayed results after timeout. Optional - omit for normal send+wait operation."}
-                              :timeout-ms {:type "integer"
-                                           :description "Timeout in milliseconds (default: 30000)"
-                                           :minimum 1000
-                                           :maximum 300000}}
-                 :required []}})
+     {:description "⚠️ LOW-LEVEL nREPL: Raw nREPL protocol access for advanced users only. Most users should use nrepl-eval for code evaluation instead. This tool provides direct protocol operations (info, completions, sessions) but requires nREPL protocol knowledge. Use nrepl-eval for all code execution tasks."
+      :inputSchema {:type "object"
+                    :properties {:message {:type "object"
+                                           :description "nREPL message map. Examples: {\"op\":\"eval\",\"code\":\"(+ 1 2 3)\"}, {\"op\":\"info\",\"symbol\":\"map\"}, {\"op\":\"completions\",\"prefix\":\"ma\"}"
+                                           :additionalProperties true}
+                                 :connection {:type "string"
+                                              :description "Connection identifier (nickname, connection-id, or host:port). Optional - uses single connection if not specified."}
+                                 :message-id {:type "string"
+                                              :description "Message ID for timeout recovery. Use this to check for delayed results after timeout. Optional - omit for normal send+wait operation."}
+                                 :timeout-ms {:type "integer"
+                                              :description "Timeout in milliseconds (default: 30000)"
+                                              :minimum 1000
+                                              :maximum 300000}}
+                    :required []}})
 

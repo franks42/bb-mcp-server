@@ -1,6 +1,6 @@
 (ns nrepl.tools.must-read-mcp-nrepl-context
-  "🎯 MUST-READ Context Tool: Essential AI Agent Onboarding for MCP-nREPL System"
-  (:require [cheshire.core :as json]))
+    "🎯 MUST-READ Context Tool: Essential AI Agent Onboarding for MCP-nREPL System"
+    (:require [cheshire.core :as json]))
 
 (defn handle
   "🎯 ESSENTIAL AI AGENT ONBOARDING: Read this FIRST before using any other tools!
@@ -275,7 +275,7 @@ You now understand the MCP-nREPL system architecture, capabilities, and usage pa
 (def tool-name "must-read-mcp-nrepl-context")
 
 (def metadata
-  {:description "🎯 MUST-READ FIRST: Essential AI agent onboarding guide for MCP-nREPL system. Provides comprehensive overview of architecture, tool selection, base64 enhancements, VS Code integration, and usage patterns. READ THIS BEFORE using any other tools!"
-   :inputSchema {:type "object"
-                 :properties {}
-                 :required []}})
+     {:description "🎯 MUST-READ FIRST: Essential AI agent onboarding guide for MCP-nREPL system. Provides comprehensive overview of architecture, tool selection, base64 enhancements, VS Code integration, and usage patterns. READ THIS BEFORE using any other tools!"
+      :inputSchema {:type "object"
+                    :properties {}
+                    :required []}})

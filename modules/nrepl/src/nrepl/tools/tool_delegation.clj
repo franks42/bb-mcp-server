@@ -1,8 +1,8 @@
 (ns nrepl.tools.tool-delegation
-  "Tool delegation helper - enables calling MCP tools from within other tools"
-  (:require [bb-mcp-server.registry :as registry]
-            [cheshire.core :as json]
-            [clojure.string]))
+    "Tool delegation helper - enables calling MCP tools from within other tools"
+    (:require [bb-mcp-server.registry :as registry]
+              [cheshire.core :as json]
+              [clojure.string]))
 
 ;; =============================================================================
 ;; Tool Delegation Infrastructure
@@ -17,16 +17,16 @@
    Returns the full MCP tool response with :content, :isError, etc."
   [tool-name args]
   (if-let [handle-fn (registry/get-handler tool-name)]
-    (handle-fn args)
-    {:content [{:type "text"
-                :text (json/generate-string
-                       {:status "error"
-                        :operation "tool-delegation"
-                        :error (str "Tool not found in registry: " tool-name)
-                        :tool-name tool-name
-                        :available-tools (registry/tool-names)}
-                       {:pretty true})}]
-     :isError true}))
+          (handle-fn args)
+          {:content [{:type "text"
+                      :text (json/generate-string
+                             {:status "error"
+                              :operation "tool-delegation"
+                              :error (str "Tool not found in registry: " tool-name)
+                              :tool-name tool-name
+                              :available-tools (registry/tool-names)}
+                             {:pretty true})}]
+           :isError true}))
 
 (defn extract-result-status
   "Extract status from MCP tool result for decision making.
@@ -35,13 +35,13 @@
    (extract-result-status tool-result) => 'success' | 'error' | 'timeout'"
   [tool-result]
   (try
-    (let [text-content (get-in tool-result [:content 0 :text])
-          parsed (if (string? text-content)
-                   (json/parse-string text-content true)
-                   text-content)]
-      (:status parsed))
-    (catch Exception _
-      "error")))
+   (let [text-content (get-in tool-result [:content 0 :text])
+         parsed (if (string? text-content)
+                  (json/parse-string text-content true)
+                  text-content)]
+     (:status parsed))
+   (catch Exception _
+          "error")))
 
 (defn extract-result-data
   "Extract data field from successful MCP tool result.
@@ -51,13 +51,13 @@
    (extract-result-data tool-result :result) => {...nrepl-response...}"
   [tool-result key]
   (try
-    (let [text-content (get-in tool-result [:content 0 :text])
-          parsed (if (string? text-content)
-                   (json/parse-string text-content true)
-                   text-content)]
-      (get parsed key))
-    (catch Exception _
-      nil)))
+   (let [text-content (get-in tool-result [:content 0 :text])
+         parsed (if (string? text-content)
+                  (json/parse-string text-content true)
+                  text-content)]
+     (get parsed key))
+   (catch Exception _
+          nil)))
 
 (defn is-error-result?
   "Check if MCP tool result indicates an error condition."

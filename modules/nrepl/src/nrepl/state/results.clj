@@ -1,21 +1,21 @@
 (ns nrepl.state.results
-  "Result queue state management for async nREPL responses"
-  (:require [clojure.set]
-            [taoensso.trove :as log]))
+    "Result queue state management for async nREPL responses"
+    (:require [clojure.set]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Per-Connection Result Queue State Atom
 ;; =============================================================================
 
 (def connection-result-queues
-  "Per-connection result queues for async nREPL responses.
+     "Per-connection result queues for async nREPL responses.
    
    Structure:
    {connection-id {:result-promises {}      ; Map of message-id -> promise
                    :completed-results {}    ; Map of message-id -> {:result data}
                    :error-results {}}       ; Map of message-id -> {:error data}
     ...}"
-  (atom {}))
+     (atom {}))
 
 ;; =============================================================================
 ;; Connection Result Queue Management
@@ -75,56 +75,56 @@
   "Deliver a successful result for a message."
   [message-id result]
   (when-let [connection-id (find-message-result-connection message-id)]
-    (when-let [result-promise (get-in @connection-result-queues [connection-id :result-promises message-id])]
+            (when-let [result-promise (get-in @connection-result-queues [connection-id :result-promises message-id])]
       ;; Deliver to waiting promise
-      (deliver result-promise {:status :success :result result})
+                      (deliver result-promise {:status :success :result result})
       ;; Store in completed results and remove promise
-      (swap! connection-result-queues
-             (fn [queues]
-               (-> queues
-                   (assoc-in [connection-id :completed-results message-id]
-                             {:result result})
-                   (update-in [connection-id :result-promises] dissoc message-id))))
-      true)))
+                      (swap! connection-result-queues
+                             (fn [queues]
+                               (-> queues
+                                   (assoc-in [connection-id :completed-results message-id]
+                                             {:result result})
+                                   (update-in [connection-id :result-promises] dissoc message-id))))
+                      true)))
 
 (defn deliver-error!
   "Deliver an error for a message."
   [message-id error]
   (when-let [connection-id (find-message-result-connection message-id)]
-    (when-let [result-promise (get-in @connection-result-queues [connection-id :result-promises message-id])]
+            (when-let [result-promise (get-in @connection-result-queues [connection-id :result-promises message-id])]
       ;; Deliver error to waiting promise
-      (deliver result-promise {:status :error :error error})
+                      (deliver result-promise {:status :error :error error})
       ;; Store in error results and remove promise
-      (swap! connection-result-queues
-             (fn [queues]
-               (-> queues
-                   (assoc-in [connection-id :error-results message-id]
-                             {:error error})
-                   (update-in [connection-id :result-promises] dissoc message-id))))
-      true)))
+                      (swap! connection-result-queues
+                             (fn [queues]
+                               (-> queues
+                                   (assoc-in [connection-id :error-results message-id]
+                                             {:error error})
+                                   (update-in [connection-id :result-promises] dissoc message-id))))
+                      true)))
 
 (defn get-result
   "Get a result for a message, waiting if necessary.
    Returns {:status :success/:error/:timeout ...}"
   [message-id timeout-ms]
   (if-let [connection-id (find-message-result-connection message-id)]
-    (let [queue-state (get @connection-result-queues connection-id)]
+          (let [queue-state (get @connection-result-queues connection-id)]
       ;; Check if already completed
-      (if-let [completed-record (get-in queue-state [:completed-results message-id])]
-        {:status :success :result (:result completed-record)}
+            (if-let [completed-record (get-in queue-state [:completed-results message-id])]
+                    {:status :success :result (:result completed-record)}
         ;; Check if errored
-        (if-let [error-record (get-in queue-state [:error-results message-id])]
-          {:status :error :error (:error error-record)}
+                    (if-let [error-record (get-in queue-state [:error-results message-id])]
+                            {:status :error :error (:error error-record)}
           ;; Wait on promise if exists
-          (if-let [result-promise (get-in queue-state [:result-promises message-id])]
-            (let [result (deref result-promise timeout-ms :timeout)]
-              (if (= result :timeout)
-                {:status :timeout :message-id message-id :timeout-ms timeout-ms}
-                result))
+                            (if-let [result-promise (get-in queue-state [:result-promises message-id])]
+                                    (let [result (deref result-promise timeout-ms :timeout)]
+                                      (if (= result :timeout)
+                                        {:status :timeout :message-id message-id :timeout-ms timeout-ms}
+                                        result))
             ;; No record of this message
-            {:status :error :error "Unknown message-id"}))))
+                                    {:status :error :error "Unknown message-id"}))))
     ;; Connection not found for this message
-    {:status :error :error "Unknown message-id"}))
+          {:status :error :error "Unknown message-id"}))
 
 ;; =============================================================================
 ;; Watcher Management

@@ -1,17 +1,17 @@
 (ns nrepl.utils.uuid-v7
-  "RFC 9562 compliant UUID v7 implementation for Babashka/Clojure.
+    "RFC 9562 compliant UUID v7 implementation for Babashka/Clojure.
 
    UUID v7 provides time-based UUIDs with lexicographic ordering.
    This implementation follows RFC 9562 exactly without dependencies.
 
    CRITICAL: Uses synchronized generation to prevent uniqueness clashes
    when multiple UUIDs are generated within the same millisecond."
-  (:require [clojure.string :as str]))
+    (:require [clojure.string :as str]))
 
 ;; Global state for synchronized UUID v7 generation
 (defonce ^:private uuid-v7-state
-  (atom {:last-timestamp 0
-         :sequence-counter 0}))
+         (atom {:last-timestamp 0
+                :sequence-counter 0}))
 
 (defn uuid-v7
   "Generate RFC 9562 compliant UUID v7 with guaranteed temporal ordering.
@@ -46,33 +46,33 @@
   []
   (let [;; Atomic state update for uniqueness with overflow protection
         state (loop []
-                (let [current-state @uuid-v7-state
-                      {:keys [last-timestamp sequence-counter]} current-state
-                      current-ts (System/currentTimeMillis)]
-                  (cond
+                    (let [current-state @uuid-v7-state
+                          {:keys [last-timestamp sequence-counter]} current-state
+                          current-ts (System/currentTimeMillis)]
+                      (cond
                     ;; New millisecond: reset sequence
-                    (not= current-ts last-timestamp)
-                    (if (compare-and-set! uuid-v7-state current-state
-                                          {:last-timestamp current-ts
-                                           :sequence-counter 0})
-                      {:last-timestamp current-ts :sequence-counter 0}
-                      (recur)) ; CAS failed, retry
+                        (not= current-ts last-timestamp)
+                        (if (compare-and-set! uuid-v7-state current-state
+                                              {:last-timestamp current-ts
+                                               :sequence-counter 0})
+                          {:last-timestamp current-ts :sequence-counter 0}
+                          (recur)) ; CAS failed, retry
 
                     ;; Same millisecond but sequence overflow: wait for next millisecond
-                    (>= sequence-counter 67108864) ; 2^26
-                    (do
+                        (>= sequence-counter 67108864) ; 2^26
+                        (do
                       ;; Busy wait for next millisecond (typically 0-1ms)
-                      (while (= (System/currentTimeMillis) current-ts)
-                        (Thread/sleep 0 1000)) ; Sleep 1 microsecond to avoid busy loop
-                      (recur)) ; Try again with new timestamp
+                         (while (= (System/currentTimeMillis) current-ts)
+                                (Thread/sleep 0 1000)) ; Sleep 1 microsecond to avoid busy loop
+                         (recur)) ; Try again with new timestamp
 
                     ;; Same millisecond: increment sequence
-                    :else
-                    (if (compare-and-set! uuid-v7-state current-state
-                                          {:last-timestamp current-ts
-                                           :sequence-counter (inc sequence-counter)})
-                      {:last-timestamp current-ts :sequence-counter (inc sequence-counter)}
-                      (recur))))) ; CAS failed, retry
+                        :else
+                        (if (compare-and-set! uuid-v7-state current-state
+                                              {:last-timestamp current-ts
+                                               :sequence-counter (inc sequence-counter)})
+                          {:last-timestamp current-ts :sequence-counter (inc sequence-counter)}
+                          (recur))))) ; CAS failed, retry
 
         unix-ts-ms (:last-timestamp state)
         sequence (:sequence-counter state)

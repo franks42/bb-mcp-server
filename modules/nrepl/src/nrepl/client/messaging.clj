@@ -1,9 +1,9 @@
 (ns nrepl.client.messaging
-  "nREPL message handling and bencode protocol implementation integrated with reactive state management"
-  (:require [bencode.core :as bencode]
-            [nrepl.utils.uuid-v7 :as uuid]
-            [clojure.set :as set]
-            [taoensso.trove :as log]))
+    "nREPL message handling and bencode protocol implementation integrated with reactive state management"
+    (:require [bencode.core :as bencode]
+              [nrepl.utils.uuid-v7 :as uuid]
+              [clojure.set :as set]
+              [taoensso.trove :as log]))
 
 (defn generate-id
   "Generate RFC 9562 compliant UUID v7 with operation tag suffix."
@@ -46,43 +46,43 @@
   [in _message-id timeout-ms]
   (let [result-promise (promise)
         worker-future (future
-                        (try
-                          (let [responses (loop [responses []]
-                                            (let [read-result (try
-                                                                (let [raw-response (bencode/read-bencode in)
-                                                                      converted-response (convert-bencode-response raw-response)]
-                                                                  (log/log! {:level :debug
-                                                                             :id ::async-response-received
-                                                                             :msg "Async received response"
-                                                                             :data {:response converted-response}})
-                                                                  {:success true :response converted-response})
-                                                                (catch Exception e
-                                                                  (log/log! {:level :error
-                                                                             :id ::async-read-error
-                                                                             :msg "Async error reading response"
-                                                                             :data {:error (.getMessage e)}})
-                                                                  {:success false :error e}))]
-                                              (if (:success read-result)
-                                                (let [response (:response read-result)
-                                                      new-responses (conj responses response)
-                                                      status (:status response)]
+                       (try
+                        (let [responses (loop [responses []]
+                                              (let [read-result (try
+                                                                 (let [raw-response (bencode/read-bencode in)
+                                                                       converted-response (convert-bencode-response raw-response)]
+                                                                   (log/log! {:level :debug
+                                                                              :id ::async-response-received
+                                                                              :msg "Async received response"
+                                                                              :data {:response converted-response}})
+                                                                   {:success true :response converted-response})
+                                                                 (catch Exception e
+                                                                        (log/log! {:level :error
+                                                                                   :id ::async-read-error
+                                                                                   :msg "Async error reading response"
+                                                                                   :data {:error (.getMessage e)}})
+                                                                        {:success false :error e}))]
+                                                (if (:success read-result)
+                                                  (let [response (:response read-result)
+                                                        new-responses (conj responses response)
+                                                        status (:status response)]
                                                   ;; Continue reading until we get a "done" status
-                                                  (if (and status (some #(= "done" %) status))
-                                                    new-responses
-                                                    (recur new-responses)))
+                                                    (if (and status (some #(= "done" %) status))
+                                                      new-responses
+                                                      (recur new-responses)))
                                                 ;; Error case - return what we have so far with error
-                                                (do
-                                                  (deliver result-promise {:status :error
-                                                                           :responses responses
-                                                                           :error (:error read-result)})
-                                                  responses))))]
-                            (deliver result-promise {:status :success :responses responses}))
-                          (catch Exception e
-                            (log/log! {:level :error
-                                       :id ::async-worker-error
-                                       :msg "Async worker error"
-                                       :data {:error (.getMessage e)}})
-                            (deliver result-promise {:status :error :responses [] :error e}))))]
+                                                  (do
+                                                   (deliver result-promise {:status :error
+                                                                            :responses responses
+                                                                            :error (:error read-result)})
+                                                   responses))))]
+                          (deliver result-promise {:status :success :responses responses}))
+                        (catch Exception e
+                               (log/log! {:level :error
+                                          :id ::async-worker-error
+                                          :msg "Async worker error"
+                                          :data {:error (.getMessage e)}})
+                               (deliver result-promise {:status :error :responses [] :error e}))))]
 
     ;; Use promise-based timeout as verified in Babashka
     #_:clj-kondo/ignore
@@ -90,12 +90,12 @@
       (if (= result :timeout)
         (do
           ;; Cancel the worker future and return timeout result
-          (future-cancel worker-future)
-          (log/log! {:level :warn
-                     :id ::async-timeout
-                     :msg "Async timeout"
-                     :data {:timeout-ms timeout-ms}})
-          {:status :timeout :responses [] :timeout-ms timeout-ms})
+         (future-cancel worker-future)
+         (log/log! {:level :warn
+                    :id ::async-timeout
+                    :msg "Async timeout"
+                    :data {:timeout-ms timeout-ms}})
+         {:status :timeout :responses [] :timeout-ms timeout-ms})
         result))))
 
 (defn- merge-responses
@@ -135,20 +135,20 @@
 
           ;; Build merged response starting with special fields
           base-merged (cond-> {}
-                        (not-empty all-out) (assoc :out all-out)
-                        (not-empty all-err) (assoc :err all-err)
-                        final-value (assoc :value final-value)
-                        final-ex (assoc :ex final-ex)
-                        final-ns (assoc :ns final-ns)
-                        final-session (assoc :session final-session)
-                        final-status (assoc :status final-status))
+                              (not-empty all-out) (assoc :out all-out)
+                              (not-empty all-err) (assoc :err all-err)
+                              final-value (assoc :value final-value)
+                              final-ex (assoc :ex final-ex)
+                              final-ns (assoc :ns final-ns)
+                              final-session (assoc :session final-session)
+                              final-status (assoc :status final-status))
 
           ;; Add all generic fields using first non-nil value
           full-merged (reduce
                        (fn [merged-map field-key]
                          (if-let [field-value (some field-key responses)]
-                           (assoc merged-map field-key field-value)
-                           merged-map))
+                                 (assoc merged-map field-key field-value)
+                                 merged-map))
                        base-merged
                        generic-fields)]
 
@@ -226,30 +226,30 @@
         :timeout
         (do
           ;; Log timeout (simplified for now)
-          (when id
-            (log/log! {:level :warn
-                       :id ::tracking-message-timeout
-                       :msg "Message timeout"
-                       :data {:message-id message-id :timeout-ms timeout-ms}}))
-          (log/log! {:level :warn
-                     :id ::async-send-timeout
-                     :msg "Async send-message timeout"
-                     :data {:timeout-ms timeout-ms}})
-          async-result)
+         (when id
+           (log/log! {:level :warn
+                      :id ::tracking-message-timeout
+                      :msg "Message timeout"
+                      :data {:message-id message-id :timeout-ms timeout-ms}}))
+         (log/log! {:level :warn
+                    :id ::async-send-timeout
+                    :msg "Async send-message timeout"
+                    :data {:timeout-ms timeout-ms}})
+         async-result)
 
         :error
         (do
           ;; Log error (simplified for now)
-          (when id
-            (log/log! {:level :error
-                       :id ::tracking-message-failed
-                       :msg "Message failed"
-                       :data {:message-id message-id :error (:error async-result)}}))
-          (log/log! {:level :error
-                     :id ::async-send-error
-                     :msg "Async send-message error"
-                     :data {:error (str (:error async-result))}})
-          async-result)))))
+         (when id
+           (log/log! {:level :error
+                      :id ::tracking-message-failed
+                      :msg "Message failed"
+                      :data {:message-id message-id :error (:error async-result)}}))
+         (log/log! {:level :error
+                    :id ::async-send-error
+                    :msg "Async send-message error"
+                    :data {:error (str (:error async-result))}})
+         async-result)))))
 
 (defn send-message-fire-and-forget
   "Send a message to nREPL without waiting for response.
@@ -326,27 +326,27 @@
       :timeout
       (do
         ;; Log timeout (simplified for now)
-        (when id
-          (log/log! {:level :warn
-                     :id ::result-processing-timeout-tracked
-                     :msg "Message timeout"
-                     :data {:message-id message-id :timeout-ms timeout-ms}}))
-        (log/log! {:level :warn
-                   :id ::result-processing-timeout
-                   :msg "Result-processing timeout"
-                   :data {:timeout-ms timeout-ms}})
-        async-result)
+       (when id
+         (log/log! {:level :warn
+                    :id ::result-processing-timeout-tracked
+                    :msg "Message timeout"
+                    :data {:message-id message-id :timeout-ms timeout-ms}}))
+       (log/log! {:level :warn
+                  :id ::result-processing-timeout
+                  :msg "Result-processing timeout"
+                  :data {:timeout-ms timeout-ms}})
+       async-result)
 
       :error
       (do
         ;; Log error (simplified for now)
-        (when id
-          (log/log! {:level :error
-                     :id ::result-processing-failed-tracked
-                     :msg "Message failed"
-                     :data {:message-id message-id :error (:error async-result)}}))
-        (log/log! {:level :error
-                   :id ::result-processing-error
-                   :msg "Result-processing error"
-                   :data {:error (str (:error async-result))}})
-        async-result))))
+       (when id
+         (log/log! {:level :error
+                    :id ::result-processing-failed-tracked
+                    :msg "Message failed"
+                    :data {:message-id message-id :error (:error async-result)}}))
+       (log/log! {:level :error
+                  :id ::result-processing-error
+                  :msg "Result-processing error"
+                  :data {:error (str (:error async-result))}})
+       async-result))))

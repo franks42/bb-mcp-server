@@ -1,13 +1,13 @@
 (ns nrepl.client.connection
-  "nREPL client TCP connection management"
-  (:require [nrepl.state.connection :as state]
-            [nrepl.state.watchers :as watchers]
-            [nrepl.state.messages :as messages]
-            [nrepl.state.results :as results]
-            [clojure.string :as str]
-            [clojure.java.io :as io]
-            [taoensso.trove :as log])
-  (:import [java.net Socket InetSocketAddress]))
+    "nREPL client TCP connection management"
+    (:require [nrepl.state.connection :as state]
+              [nrepl.state.watchers :as watchers]
+              [nrepl.state.messages :as messages]
+              [nrepl.state.results :as results]
+              [clojure.string :as str]
+              [clojure.java.io :as io]
+              [taoensso.trove :as log])
+    (:import [java.net Socket InetSocketAddress]))
 
 ;; =============================================================================
 ;; Connection Parameter Resolution
@@ -22,18 +22,18 @@
       (str/includes? s ":")
       (let [[host port-str] (str/split s #":" 2)]
         (try
-          {:hostname host
-           :port (Integer/parseInt port-str)}
-          (catch NumberFormatException _
-            {:error (str "Invalid port number: " port-str)})))
+         {:hostname host
+          :port (Integer/parseInt port-str)}
+         (catch NumberFormatException _
+                {:error (str "Invalid port number: " port-str)})))
 
       ;; Just port number
       (re-matches #"\d+" s)
       (try
-        {:hostname "localhost"
-         :port (Integer/parseInt s)}
-        (catch NumberFormatException _
-          {:error (str "Invalid port number: " s)}))
+       {:hostname "localhost"
+        :port (Integer/parseInt s)}
+       (catch NumberFormatException _
+              {:error (str "Invalid port number: " s)}))
 
       ;; Unknown format
       :else
@@ -44,11 +44,11 @@
   "Read connection info from file"
   [file-path]
   (try
-    (let [content (str/trim (slurp file-path))]
-      (parse-host-port content))
-    (catch Exception e
-      {:error (str "Cannot read file: " file-path
-                   " - " (.getMessage e))})))
+   (let [content (str/trim (slurp file-path))]
+     (parse-host-port content))
+   (catch Exception e
+          {:error (str "Cannot read file: " file-path
+                       " - " (.getMessage e))})))
 
 (defn resolve-connection-params
   "Resolve connection parameters from various sources"
@@ -65,10 +65,10 @@
     ;; No argument - check environment variable
     :else
     (if-let [env-value (System/getenv "NREPL_CONNECT")]
-      (if (.exists (io/file env-value))
-        (read-connection-file env-value)
-        (parse-host-port env-value))
-      {:error "No connection info provided. Use connection parameter or set NREPL_CONNECT environment variable"})))
+            (if (.exists (io/file env-value))
+              (read-connection-file env-value)
+              (parse-host-port env-value))
+            {:error "No connection info provided. Use connection parameter or set NREPL_CONNECT environment variable"})))
 
 ;; =============================================================================
 ;; Connection Operations
@@ -78,88 +78,88 @@
   "Attempt to connect to nREPL server using unified state management"
   [{:keys [hostname port]}]
   (try
-    (let [socket (Socket.)]
-      (.connect socket (InetSocketAddress. hostname port) 5000)
+   (let [socket (Socket.)]
+     (.connect socket (InetSocketAddress. hostname port) 5000)
       ;; Register connection in unified state management
-      (let [conn-id (state/register-connection! hostname port socket)]
-        (log/log! {:level :info
-                   :id ::connection-success
-                   :msg "Successfully connected"
-                   :data {:connection-id conn-id :hostname hostname :port port}})
-        {:status :success :hostname hostname :port port :connection-id conn-id}))
-    (catch Exception e
-      (let [error-msg (str "Connection failed to " hostname ":" port
-                           " - " (.getMessage e))]
-        (log/log! {:level :error
-                   :id ::connection-failed
-                   :msg "Connection failed"
-                   :data {:hostname hostname :port port :error error-msg}})
-        {:status :failed :error error-msg}))))
+     (let [conn-id (state/register-connection! hostname port socket)]
+       (log/log! {:level :info
+                  :id ::connection-success
+                  :msg "Successfully connected"
+                  :data {:connection-id conn-id :hostname hostname :port port}})
+       {:status :success :hostname hostname :port port :connection-id conn-id}))
+   (catch Exception e
+          (let [error-msg (str "Connection failed to " hostname ":" port
+                               " - " (.getMessage e))]
+            (log/log! {:level :error
+                       :id ::connection-failed
+                       :msg "Connection failed"
+                       :data {:hostname hostname :port port :error error-msg}})
+            {:status :failed :error error-msg}))))
 
 (defn close-specific-connection!
   "Close a specific connection by connection-id"
   [connection-id]
   (if-let [conn-details (state/get-connection-by-id connection-id)]
-    (let [{:keys [socket]} conn-details]
+          (let [{:keys [socket]} conn-details]
       ;; Stop connection-specific watchers first to prevent processing stale messages
-      (log/log! {:level :debug
-                 :id ::stopping-watchers
-                 :msg "Stopping watchers for connection"
-                 :data {:connection-id connection-id}})
-      (watchers/stop-connection-watchers! connection-id)
+            (log/log! {:level :debug
+                       :id ::stopping-watchers
+                       :msg "Stopping watchers for connection"
+                       :data {:connection-id connection-id}})
+            (watchers/stop-connection-watchers! connection-id)
 
       ;; Clear message and result queues for this specific connection
-      (log/log! {:level :debug
-                 :id ::clearing-queues
-                 :msg "Clearing message and result queues"
-                 :data {:connection-id connection-id}})
-      (messages/cleanup-connection-queue! connection-id)
-      (results/cleanup-connection-result-queue! connection-id)
+            (log/log! {:level :debug
+                       :id ::clearing-queues
+                       :msg "Clearing message and result queues"
+                       :data {:connection-id connection-id}})
+            (messages/cleanup-connection-queue! connection-id)
+            (results/cleanup-connection-result-queue! connection-id)
 
       ;; Close the socket
-      (when socket
-        (try
-          (.close socket)
-          (log/log! {:level :debug
-                     :id ::socket-closed
-                     :msg "Closed socket"
-                     :data {:connection-id connection-id}})
-          (catch Exception e
-            (log/log! {:level :error
-                       :id ::socket-close-error
-                       :msg "Error closing socket"
-                       :data {:connection-id connection-id :error (.getMessage e)}}))))
+            (when socket
+              (try
+               (.close socket)
+               (log/log! {:level :debug
+                          :id ::socket-closed
+                          :msg "Closed socket"
+                          :data {:connection-id connection-id}})
+               (catch Exception e
+                      (log/log! {:level :error
+                                 :id ::socket-close-error
+                                 :msg "Error closing socket"
+                                 :data {:connection-id connection-id :error (.getMessage e)}}))))
 
       ;; Mark connection as closed in unified state
-      (state/mark-connection-closed! connection-id :user-disconnect "User requested disconnect")
+            (state/mark-connection-closed! connection-id :user-disconnect "User requested disconnect")
 
       ;; CRITICAL FIX: Remove closed connection from connections map to prevent accumulation
-      (state/cleanup-old-connections! :threshold-ms 0) ; Remove immediately
+            (state/cleanup-old-connections! :threshold-ms 0) ; Remove immediately
 
-      (log/log! {:level :info
-                 :id ::connection-cleanup-completed
-                 :msg "Connection cleanup completed"
-                 :data {:connection-id connection-id}})
-      {:status :success :connection-id connection-id})
+            (log/log! {:level :info
+                       :id ::connection-cleanup-completed
+                       :msg "Connection cleanup completed"
+                       :data {:connection-id connection-id}})
+            {:status :success :connection-id connection-id})
 
     ;; Connection not found
-    (do
-      (log/log! {:level :warn
-                 :id ::connection-not-found
-                 :msg "Connection not found"
-                 :data {:connection-id connection-id}})
-      {:status :error :error (str "Connection not found: " connection-id)})))
+          (do
+           (log/log! {:level :warn
+                      :id ::connection-not-found
+                      :msg "Connection not found"
+                      :data {:connection-id connection-id}})
+           {:status :error :error (str "Connection not found: " connection-id)})))
 
 (defn close-connection!
   "Close the active connection using unified state management (legacy compatibility)"
   []
   (if-let [active-conn (state/get-active-connection)]
-    (close-specific-connection! (:connection-id active-conn))
-    (do
-      (log/log! {:level :debug
-                 :id ::no-active-connection
-                 :msg "No active connection to close"})
-      {:status :success :message "No active connection"})))
+          (close-specific-connection! (:connection-id active-conn))
+          (do
+           (log/log! {:level :debug
+                      :id ::no-active-connection
+                      :msg "No active connection to close"})
+           {:status :success :message "No active connection"})))
 
 ;; =============================================================================
 ;; Utility Functions
@@ -171,18 +171,18 @@
   (let [start-time (System/currentTimeMillis)
         end-time (+ start-time timeout-ms)]
     (loop []
-      (let [current-status (state/get-connection-status)]
-        (cond
+          (let [current-status (state/get-connection-status)]
+            (cond
           ;; State changed
-          (not= current-status initial-status)
-          current-status
+              (not= current-status initial-status)
+              current-status
 
           ;; Timeout
-          (> (System/currentTimeMillis) end-time)
-          :timeout
+              (> (System/currentTimeMillis) end-time)
+              :timeout
 
           ;; Keep waiting
-          :else
-          (do
-            (Thread/sleep 50)
-            (recur)))))))
+              :else
+              (do
+               (Thread/sleep 50)
+               (recur)))))))

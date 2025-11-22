@@ -1,13 +1,13 @@
 (ns nrepl.client.operations
-  "nREPL operation functions - pure nREPL protocol implementations integrated with reactive state"
-  (:require [nrepl.client.messaging :as msg]))
+    "nREPL operation functions - pure nREPL protocol implementations integrated with reactive state"
+    (:require [nrepl.client.messaging :as msg]))
 
 (defn eval-code
   "Evaluate code in nREPL session"
   [conn code & {:keys [session ns timeout-ms] :or {timeout-ms 5000}}]
   (let [message (cond-> {:op "eval" :code code}
-                  session (assoc :session session)
-                  ns (assoc :ns ns))]
+                        session (assoc :session session)
+                        ns (assoc :ns ns))]
     (msg/send-message-async conn message timeout-ms)))
 
 ;; High-level convenience functions

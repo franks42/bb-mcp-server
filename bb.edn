@@ -6,7 +6,10 @@
         com.taoensso/timbre {:mvn/version "6.6.1"}
         org.clojure/tools.logging {:mvn/version "1.3.0"}}
 
- :paths ["src" "scripts"]
+ :paths ["src" "scripts" "test"
+         "modules/nrepl/src" "modules/nrepl/test"
+         "modules/calculate/src" "modules/calculate/test"
+         "modules/local-eval/src"]
 
  :tasks
  {;; ==========================================================================
@@ -61,7 +64,28 @@
                :task (apply shell "bb" "scripts/http_test.clj" "concat" *command-line-args*)}
 
   http:call {:doc "Call any tool: http:call <tool> <json-args>"
-             :task (apply shell "bb" "scripts/http_test.clj" "call" *command-line-args*)}}
+             :task (apply shell "bb" "scripts/http_test.clj" "call" *command-line-args*)}
+
+  ;; ==========================================================================
+  ;; Module Test Tasks
+  ;; ==========================================================================
+
+  test:nrepl {:doc "Run nrepl module unit tests"
+              :task (load-file "modules/nrepl/test/run_tests.clj")}
+
+  test:stdio {:doc "Run stdio transport tests"
+              :task (load-file "test/run_stdio_tests.clj")}
+
+  test:modules {:doc "Run all module tests"
+                :task (do (run 'test:nrepl)
+                          (run 'test:stdio))}
+
+  test:http {:doc "Run HTTP integration tests (server must be running)"
+             :task (load-file "scripts/http_integration_test.clj")}
+
+  test:all {:doc "Run all tests (main + modules)"
+            :task (do (run 'test:modules)
+                      (run 'test))}}
 
  :aliases
  {:test {:extra-paths ["test"]

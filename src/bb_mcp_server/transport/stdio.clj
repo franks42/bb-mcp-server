@@ -33,43 +33,43 @@
   (log/log! {:level :info :msg "Starting stdio request loop"})
   (try
     ;; Main request/response loop
-    (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-      (log/log! {:level :debug :msg "Received request line" :data {:length (count line)}})
+   (doseq [line (line-seq (java.io.BufferedReader. *in*))]
+          (log/log! {:level :debug :msg "Received request line" :data {:length (count line)}})
 
-      (try
+          (try
         ;; Process request and get response
-        (let [response (test-harness/process-json-rpc line)]
+           (let [response (test-harness/process-json-rpc line)]
           ;; Only send response if not nil (nil = notification, don't respond)
-          (when response
-            (log/log! {:level :debug :msg "Sending response" :data {:length (count response)}})
+             (when response
+               (log/log! {:level :debug :msg "Sending response" :data {:length (count response)}})
             ;; Write response to stdout
-            (println response)
-            (flush)
-            (log/log! {:level :debug :msg "Response sent successfully"})))
+               (println response)
+               (flush)
+               (log/log! {:level :debug :msg "Response sent successfully"})))
 
-        (catch Exception e
+           (catch Exception e
           ;; Handle request processing errors
-          (log/log! {:level :error :msg "Error processing request" :error e :data {:line line}})
+                  (log/log! {:level :error :msg "Error processing request" :error e :data {:line line}})
           ;; Send error response
-          (let [error-response (msg/create-error-response
-                                nil
-                                (:internal-error msg/error-codes)
-                                "Internal error"
-                                (ex-message e))
-                response-json (json/generate-string error-response)]
-            (println response-json)
-            (flush)
-            (log/log! {:level :debug :msg "Error response sent"})))))
+                  (let [error-response (msg/create-error-response
+                                        nil
+                                        (:internal-error msg/error-codes)
+                                        "Internal error"
+                                        (ex-message e))
+                        response-json (json/generate-string error-response)]
+                    (println response-json)
+                    (flush)
+                    (log/log! {:level :debug :msg "Error response sent"})))))
 
-    (catch java.io.IOException _e
+   (catch java.io.IOException _e
       ;; EOF or I/O error - normal shutdown
-      (log/log! {:level :info :msg "Stdio stream closed"}))
+          (log/log! {:level :info :msg "Stdio stream closed"}))
 
-    (catch Exception e
+   (catch Exception e
       ;; Unexpected error in main loop
-      (log/log! {:level :error :msg "Fatal error in stdio server main loop" :error e}))
+          (log/log! {:level :error :msg "Fatal error in stdio server main loop" :error e}))
 
-    (finally
-      (log/log! {:level :info :msg "Stdio MCP server shutdown complete"}))))
+   (finally
+    (log/log! {:level :info :msg "Stdio MCP server shutdown complete"}))))
 
 

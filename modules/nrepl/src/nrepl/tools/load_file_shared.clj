@@ -1,8 +1,8 @@
 (ns nrepl.tools.load-file-shared
-  "Shared utilities for load-file tool implementations"
-  (:require [cheshire.core :as json]
-            [clojure.string :as str])
-  (:import [java.io File]))
+    "Shared utilities for load-file tool implementations"
+    (:require [cheshire.core :as json]
+              [clojure.string :as str])
+    (:import [java.io File]))
 
 ;; =============================================================================
 ;; File Path Utilities
@@ -55,13 +55,13 @@
    Throws exception if required parameters are missing."
   [params required-keys]
   (doseq [key required-keys]
-    (when (or (nil? (get params (keyword key)))
-              (and (string? (get params (keyword key)))
-                   (empty? (get params (keyword key)))))
-      (throw (ex-info (str key " parameter is required")
-                      {:status :validation-error
-                       :missing-parameter key
-                       :provided-parameters (keys params)}))))
+         (when (or (nil? (get params (keyword key)))
+                   (and (string? (get params (keyword key)))
+                        (empty? (get params (keyword key)))))
+           (throw (ex-info (str key " parameter is required")
+                           {:status :validation-error
+                            :missing-parameter key
+                            :provided-parameters (keys params)}))))
   params)
 
 ;; =============================================================================

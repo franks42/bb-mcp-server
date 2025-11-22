@@ -1,8 +1,8 @@
 (ns nrepl.tools.nrepl-get-result-async
-  "Async result retrieval tool for MCP - Phase 2b.4"
-  (:require [nrepl.state.results :as results]
-            [nrepl.state.messages :as msg-state]
-            [cheshire.core :as json]))
+    "Async result retrieval tool for MCP - Phase 2b.4"
+    (:require [nrepl.state.results :as results]
+              [nrepl.state.messages :as msg-state]
+              [cheshire.core :as json]))
 
 ;; =============================================================================
 ;; Main Handler
@@ -27,14 +27,14 @@
         :success
         (do
           ;; Clean up the pending message
-          (msg-state/remove-pending-message! message-id)
-          {:content [{:type "text"
-                      :text (json/generate-string
-                             {:status "success"
-                              :operation "nrepl-get-result-async"
-                              :message-id message-id
-                              :result (:result result)}
-                             {:pretty true})}]})
+         (msg-state/remove-pending-message! message-id)
+         {:content [{:type "text"
+                     :text (json/generate-string
+                            {:status "success"
+                             :operation "nrepl-get-result-async"
+                             :message-id message-id
+                             :result (:result result)}
+                            {:pretty true})}]})
 
         :timeout
         {:content [{:type "text"
@@ -50,15 +50,15 @@
         :error
         (do
           ;; Clean up the pending message on error
-          (msg-state/remove-pending-message! message-id)
-          {:content [{:type "text"
-                      :text (json/generate-string
-                             {:status "error"
-                              :operation "nrepl-get-result-async"
-                              :message-id message-id
-                              :error (:error result)}
-                             {:pretty true})}]
-           :isError true})
+         (msg-state/remove-pending-message! message-id)
+         {:content [{:type "text"
+                     :text (json/generate-string
+                            {:status "error"
+                             :operation "nrepl-get-result-async"
+                             :message-id message-id
+                             :error (:error result)}
+                            {:pretty true})}]
+          :isError true})
 
         ;; Unexpected status
         {:content [{:type "text"
@@ -73,11 +73,11 @@
 (def tool-name "nrepl-get-result-async")
 
 (def metadata
-  {:description "⚠️ INTERNAL TOOL: Low-level async result retrieval used internally by other tools. DO NOT USE DIRECTLY - this is part of the async infrastructure. Use nrepl-eval for automatic result handling or nrepl-send-message for synchronous operations."
-   :inputSchema {:type "object"
-                 :properties {:message-id {:type "string"
-                                           :description "Message ID returned from send-message-async"}
-                              :timeout {:type "integer"
-                                        :description "Timeout in milliseconds (default 30000)"}}
-                 :required ["message-id"]}})
+     {:description "⚠️ INTERNAL TOOL: Low-level async result retrieval used internally by other tools. DO NOT USE DIRECTLY - this is part of the async infrastructure. Use nrepl-eval for automatic result handling or nrepl-send-message for synchronous operations."
+      :inputSchema {:type "object"
+                    :properties {:message-id {:type "string"
+                                              :description "Message ID returned from send-message-async"}
+                                 :timeout {:type "integer"
+                                           :description "Timeout in milliseconds (default 30000)"}}
+                    :required ["message-id"]}})
 
