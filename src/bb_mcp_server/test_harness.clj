@@ -8,7 +8,9 @@
               [bb-mcp-server.handlers.initialize :as init-handler]
               [bb-mcp-server.handlers.tools-list :as tools-list]
               [bb-mcp-server.handlers.tools-call :as tools-call]
+              [bb-mcp-server.registry :as registry]
               [bb-mcp-server.tools.hello :as hello]
+              [bb-mcp-server.tools.examples :as examples]
               [cheshire.core :as json]
               [taoensso.trove :as log]))
 
@@ -18,26 +20,31 @@
   This should be called once before testing to initialize the server state.
 
   Side effects:
+  - Resets server state (router, registry)
   - Registers MCP method handlers with the router
-  - Initializes the hello tool
-  - Resets server state"
+  - Initializes all tools (hello + examples)"
   []
-  (log/log! {:level :info :msg "Setting up test harness"})
+  (log/log! {:level :info
+             :id ::setup-start
+             :msg "Setting up test harness"})
 
   ;; Reset server state
   (router/reset-state!)
-  (tools-list/reset-registry!)
-  (tools-call/reset-handlers!)
+  (registry/clear!)
 
   ;; Register MCP method handlers
   (router/register-handler! "initialize" init-handler/handle-initialize)
   (router/register-handler! "tools/list" tools-list/handle-tools-list)
   (router/register-handler! "tools/call" tools-call/handle-tools-call)
 
-  ;; Initialize hello tool
+  ;; Initialize tools
   (hello/init!)
+  (examples/init!)
 
-  (log/log! {:level :info :msg "Test harness setup complete"}))
+  (log/log! {:level :info
+             :id ::setup-complete
+             :msg "Test harness setup complete"
+             :data {:tool-count (registry/tool-count)}}))
 
 (defn process-json-rpc
   "Process a JSON-RPC request string and return a JSON-RPC response string.

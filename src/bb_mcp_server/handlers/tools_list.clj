@@ -1,59 +1,30 @@
 (ns bb-mcp-server.handlers.tools-list
     "Handler for tools/list JSON-RPC method.
 
-  Manages a registry of available tools and returns them to clients.
-  Tools are registered with register-tool! and retrieved via handle-tools-list."
+  Returns the list of available tools from the unified registry.
+  Tool registration is handled by bb-mcp-server.registry."
     (:require [bb-mcp-server.protocol.message :as msg]
+              [bb-mcp-server.registry :as registry]
               [taoensso.trove :as log]))
 
-;; Atom containing vector of registered tool definitions.
-;; Each tool is a map with :name, :description, and :inputSchema keys.
-(defonce ^{:doc "Global registry of available tool definitions."}
- tool-registry
-         (atom []))
-
+;; DEPRECATED: Use bb-mcp-server.registry/register! instead
+;; Keeping for backwards compatibility during migration
 (defn register-tool!
-  "Register a tool definition in the global registry.
+  "DEPRECATED: Use bb-mcp-server.registry/register! instead.
 
-  Args:
-  - tool-def: Map with required keys:
-    - :name (string): Tool identifier
-    - :description (string): Human-readable description
-    - :inputSchema (map): JSON Schema defining tool parameters
-
-  Returns: The registered tool definition
-
-  Throws: ex-info if required fields are missing
-
-  Side effects: Adds tool to tool-registry atom"
+  This function is kept for backwards compatibility but will be removed
+  in a future version. It does NOT register handlers - use the unified
+  registry API instead."
   [tool-def]
-  (log/log! {:level :info :msg "Registering tool" :data {:name (:name tool-def)}})
-
-  ;; Validate required fields
-  (when-not (:name tool-def)
-    (log/log! {:level :error :msg "Tool registration failed: missing :name" :data {:tool tool-def}})
-    (throw (ex-info "Tool definition missing :name field"
-                    {:type :invalid-tool-definition
-                     :tool tool-def})))
-
-  (when-not (:description tool-def)
-    (log/log! {:level :error :msg "Tool registration failed: missing :description" :data {:tool tool-def}})
-    (throw (ex-info "Tool definition missing :description field"
-                    {:type :invalid-tool-definition
-                     :tool tool-def})))
-
-  (when-not (:inputSchema tool-def)
-    (log/log! {:level :error :msg "Tool registration failed: missing :inputSchema" :data {:tool tool-def}})
-    (throw (ex-info "Tool definition missing :inputSchema field"
-                    {:type :invalid-tool-definition
-                     :tool tool-def})))
-
-  ;; Add to registry
-  (swap! tool-registry conj tool-def)
-  (log/log! {:level :info :msg "Tool registered successfully"
-             :data {:name (:name tool-def)
-                    :total-tools (count @tool-registry)}})
-  tool-def)
+  (log/log! {:level :warn
+             :id ::deprecated-register-tool
+             :msg "register-tool! is deprecated, use registry/register!"
+             :data {:tool-name (:name tool-def)}})
+  ;; Delegate to new registry (without handler - this is the old API)
+  ;; Note: This won't work fully since old API doesn't include handlers
+  (throw (ex-info "register-tool! is deprecated. Use bb-mcp-server.registry/register! with :handler"
+                  {:type :deprecated-api
+                   :tool-name (:name tool-def)})))
 
 (defn handle-tools-list
   "Handle tools/list JSON-RPC request.
@@ -66,25 +37,28 @@
   The result contains {:tools [...]} with all registered tools."
   [request]
   (let [request-id (:id request)
-        tools @tool-registry
+        tools (registry/list-tools)
         tool-count (count tools)]
-    (log/log! {:level :info :msg "Processing tools/list request"
+    (log/log! {:level :info
+               :id ::handle-tools-list
+               :msg "Processing tools/list request"
                :data {:request-id request-id
                       :tool-count tool-count}})
 
     (let [response (msg/create-response request-id {:tools tools})]
-      (log/log! {:level :info :msg "tools/list request completed"
+      (log/log! {:level :info
+                 :id ::tools-list-complete
+                 :msg "tools/list request completed"
                  :data {:request-id request-id
                         :tool-count tool-count}})
       response)))
 
 (defn reset-registry!
-  "Clear all tools from the registry.
+  "DEPRECATED: Use bb-mcp-server.registry/clear! instead.
 
-  Primarily used for testing to ensure clean state between tests.
-
-  Side effects: Resets tool-registry atom to empty vector"
+  Clears all tools from the unified registry."
   []
-  (log/log! {:level :info :msg "Resetting tool registry" :data {:current-count (count @tool-registry)}})
-  (reset! tool-registry [])
-  (log/log! {:level :info :msg "Tool registry reset complete" :data {:new-count (count @tool-registry)}}))
+  (log/log! {:level :warn
+             :id ::deprecated-reset-registry
+             :msg "reset-registry! is deprecated, use registry/clear!"})
+  (registry/clear!))

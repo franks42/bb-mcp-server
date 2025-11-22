@@ -99,22 +99,29 @@
 
 ## Phase 2: Core Functionality (Week 2)
 
-### 2.1 Tool Registry
+### 2.1 Tool Registry ✅ COMPLETE
 **Goal:** Dynamic tool registration and lookup
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 2.1.1 | Design tool registry interface | 🎯 | ⏳ | Orchestrator | API design for register/unregister/lookup |
-| 2.1.2 | Implement tool registry | 🤖 | ⏳ | Agent | Thread-safe registry. Full tests |
-| 2.1.3 | Add schema validation (Malli) | 🤖 | ⏳ | Agent | Validate tool definitions. Clear errors |
-| 2.1.4 | Update tools/list to use registry | 🤖 | ⏳ | Agent | Dynamic tool listing works |
-| 2.1.5 | Update tools/call to use registry | 🤖 | ⏳ | Agent | Dynamic dispatch works |
-| 2.1.6 | Add 3 example tools | 🤖 | ⏳ | Agent | echo, add, concat with tests |
-| 2.1.7 | Review registry design | 🎯 | ⏳ | Orchestrator | Clean API, good error messages |
+| 2.1.1 | Design tool registry interface | 🎯 | ✅ | Orchestrator | API design for register/unregister/lookup |
+| 2.1.2 | Implement tool registry | 🤖 | ✅ | Agent | Thread-safe registry. Full tests |
+| 2.1.3 | Add schema validation (Malli) | 🤖 | ✅ | Agent | Validate tool definitions. Clear errors |
+| 2.1.4 | Update tools/list to use registry | 🤖 | ✅ | Agent | Dynamic tool listing works |
+| 2.1.5 | Update tools/call to use registry | 🤖 | ✅ | Agent | Dynamic dispatch works |
+| 2.1.6 | Add 3 example tools | 🤖 | ✅ | Agent | echo, add, concat with tests |
+| 2.1.7 | Review registry design | 🎯 | ✅ | Orchestrator | Clean API, good error messages |
 
-**Dependencies:** 1.2 (Minimal MCP Server) ✅ UNBLOCKED
-**Estimated LOC:** ~200-300
-**Deliverable:** Tools can be registered at runtime
+**Dependencies:** 1.2 (Minimal MCP Server) ✅ COMPLETE
+**Actual LOC:** ~350 (registry.clj + examples.clj + migrations)
+**Deliverable:** ✅ Unified tool registry with Malli validation
+
+**Phase 2.1 Achievements:**
+- Unified registry (definition + handler in single record)
+- Thread-safe with O(1) lookup
+- Malli schema validation
+- 4 tools: hello, echo, add, concat
+- Old APIs deprecated with clear migration path
 
 ---
 
@@ -123,15 +130,15 @@
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 2.2.1 | Design error taxonomy | 🎯 | ⏸️ | Orchestrator | Error types and codes defined |
-| 2.2.2 | Implement error response format | 🤖 | ⏸️ | Agent | JSON-RPC error responses |
-| 2.2.3 | Add input validation | 🤖 | ⏸️ | Agent | Validate all tool params with Malli |
-| 2.2.4 | Add exception middleware | 🤖 | ⏸️ | Agent | Catch and format all exceptions |
-| 2.2.5 | Add telemetry for errors | 🤖 | ⏸️ | Agent | Log all errors with context |
-| 2.2.6 | Write error handling tests | 🤖 | ⏸️ | Agent | Test all error paths |
-| 2.2.7 | Review error handling | 🎯 | ⏸️ | Orchestrator | Clear messages, good debugging info |
+| 2.2.1 | Design error taxonomy | 🎯 | ⏳ | Orchestrator | Error types and codes defined |
+| 2.2.2 | Implement error response format | 🤖 | ⏳ | Agent | JSON-RPC error responses |
+| 2.2.3 | Add input validation | 🤖 | ⏳ | Agent | Validate all tool params with Malli |
+| 2.2.4 | Add exception middleware | 🤖 | ⏳ | Agent | Catch and format all exceptions |
+| 2.2.5 | Add telemetry for errors | 🤖 | ⏳ | Agent | Log all errors with context |
+| 2.2.6 | Write error handling tests | 🤖 | ⏳ | Agent | Test all error paths |
+| 2.2.7 | Review error handling | 🎯 | ⏳ | Orchestrator | Clear messages, good debugging info |
 
-**Dependencies:** 2.1 (Tool Registry)
+**Dependencies:** 2.1 (Tool Registry) ✅ UNBLOCKED
 **Estimated LOC:** ~200
 **Deliverable:** Graceful error handling throughout
 
@@ -217,22 +224,31 @@
 
 ---
 
-### 4.3 Module Loading
-**Goal:** Load external tool modules
+### 4.3 Module Loading (Component-Style)
+**Goal:** Load external tool modules with Component-style lifecycle management
+
+**Design Principles (from Stuart Sierra's Component):**
+- Modules declare dependencies explicitly
+- Dependencies injected at construction time
+- Start in dependency order, stop in reverse order
+- System map holds all modules as data
+- Idempotent start/stop operations
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 4.3.1 | Design module system | 🎯 | ⏸️ | Orchestrator | Module format, loading protocol |
-| 4.3.2 | Implement module loader | 🤖 | ⏸️ | Agent | Safe loading with validation |
-| 4.3.3 | Add dependency resolution | 🤖 | ⏸️ | Agent | Topological sort, cycle detection |
-| 4.3.4 | Add module lifecycle (ILifecycle) | 🤖 | ⏸️ | Agent | start, stop, reload |
-| 4.3.5 | Add module configuration | 🤖 | ⏸️ | Agent | modules.edn with signing |
-| 4.3.6 | Write module loading tests | 🤖 | ⏸️ | Agent | Test loading, deps, errors |
-| 4.3.7 | Review module system | 🎯 | ⏸️ | Orchestrator | Secure, flexible, well-tested |
+| 4.3.1 | Design module system | 🎯 | ⏸️ | Orchestrator | Component-style: ILifecycle protocol, dependency declaration, system map |
+| 4.3.2 | Implement ILifecycle protocol | 🤖 | ⏸️ | Agent | `start`, `stop` with dependency injection. Idempotent operations |
+| 4.3.3 | Implement system map | 🤖 | ⏸️ | Agent | Data structure holding all modules, supports `start-system`/`stop-system` |
+| 4.3.4 | Add dependency resolution | 🤖 | ⏸️ | Agent | Topological sort, cycle detection, clear error on missing deps |
+| 4.3.5 | Implement module loader | 🤖 | ⏸️ | Agent | Safe loading with validation, constructs modules with deps |
+| 4.3.6 | Add module configuration | 🤖 | ⏸️ | Agent | modules.edn with signing, declares dependencies |
+| 4.3.7 | Add reload support | 🤖 | ⏸️ | Agent | Stop → reconstruct → start for changed modules |
+| 4.3.8 | Write module loading tests | 🤖 | ⏸️ | Agent | Test lifecycle, deps, errors, reload |
+| 4.3.9 | Review module system | 🎯 | ⏸️ | Orchestrator | Secure, flexible, well-tested, Component patterns followed |
 
 **Dependencies:** 4.2 (Rate Limiting)
-**Estimated LOC:** ~400-500
-**Deliverable:** External modules can be loaded
+**Estimated LOC:** ~500-600
+**Deliverable:** External modules with Component-style lifecycle management
 
 ---
 
