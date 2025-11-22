@@ -26,7 +26,7 @@ This is an **upgrade to bb's HTTP server stack**, providing an alternative to We
 2. **REST APIs** - Same tools exposed via REST with real-time features
 3. **Any bb project** - Reusable session/SSE infrastructure
 
-**Status:** Phase 3 Complete
+**Status:** Phase 2.5 Complete
 **Date:** 2025-11-22
 **Last Updated:** 2025-11-22
 **Design Doc:** `streamable-http-transport-design.md`
@@ -546,21 +546,21 @@ test/streamable_http/
 **Goal:** Implement built-in middleware with Ring-compatible pattern
 
 **Tasks:**
-- [ ] Implement `middleware.clj` with Ring-compatible wrappers
-- [ ] Implement `wrap-cors` with configurable origins
-- [ ] Implement `wrap-rate-limit` with token bucket algorithm
-- [ ] Implement `wrap-basic-auth` for simple auth
-- [ ] Implement `wrap-request-logging` for debugging
-- [ ] Implement `wrap-origin-validation` for DNS rebinding protection
-- [ ] Implement middleware stack assembly in server
-- [ ] Unit tests for each middleware
+- [x] Implement `middleware.clj` with Ring-compatible wrappers
+- [x] Implement `wrap-cors` with configurable origins
+- [x] Implement `wrap-rate-limit` with token bucket algorithm
+- [x] Implement `wrap-basic-auth` for simple auth
+- [x] Implement `wrap-request-logging` for debugging
+- [x] Implement `wrap-origin-validation` for DNS rebinding protection
+- [x] Implement `apply-middleware` helper for composition
+- [x] Unit tests for each middleware (23 new tests, 44 assertions)
 
 **Files:**
 ```
 src/streamable_http/
 └── middleware.clj
 
-test/
+test/streamable_http/
 └── middleware_test.clj
 ```
 
@@ -578,7 +578,7 @@ test/
 ;; User can provide any Ring middleware via :middleware config
 ```
 
-**Deliverable:** Pluggable middleware system compatible with Ring ecosystem
+**Deliverable:** Pluggable middleware system compatible with Ring ecosystem ✅
 
 ---
 
@@ -776,10 +776,10 @@ Day 2: Handlers
   7. handlers/delete.clj
   8. router.clj
 
-Day 3: Middleware
-  9. middleware.clj (wrap-cors, wrap-rate-limit, wrap-basic-auth)
-  10. middleware_test.clj
-  11. Middleware stack assembly
+Day 3: Middleware ✅
+  9. middleware.clj (wrap-cors, wrap-rate-limit, wrap-basic-auth, wrap-request-logging, wrap-origin-validation)
+  10. middleware_test.clj (23 tests)
+  11. apply-middleware composition helper
 
 Day 4: Server & API
   12. server.clj
@@ -834,15 +834,11 @@ Day 6: Hardening & Docs
 - [x] 57 tests, 117 assertions passing
 
 ### Phase 2.5 Complete When:
-- [ ] All built-in middleware (CORS, rate-limit, basic-auth) working
-- [ ] Middleware stack assembly correctly orders wrappers
-- [ ] External Ring middleware can be injected via `:middleware` config
-- [ ] Tests pass for each middleware in isolation
-
-### Phase 3 Complete When:
-- [ ] curl can complete initialize handshake
-- [ ] Session ID returned in header
-- [ ] SSE stream opens on GET
+- [x] All built-in middleware (CORS, rate-limit, basic-auth) working
+- [x] Middleware stack assembly correctly orders wrappers (apply-middleware)
+- [x] External Ring middleware can be injected via `:middleware` config
+- [x] Tests pass for each middleware in isolation
+- [x] 80 tests, 161 assertions passing
 
 ### Phase 4 Complete When:
 - [ ] bb-mcp-server tools work over Streamable HTTP

@@ -18,6 +18,7 @@
 (require 'streamable-http.session-test)
 (require 'streamable-http.handlers-test)
 (require 'streamable-http.router-test)
+(require 'streamable-http.middleware-test)
 (require 'streamable-http.integration-test)
 
 (defn run-tests
@@ -27,6 +28,7 @@
                             'streamable-http.session-test
                             'streamable-http.handlers-test
                             'streamable-http.router-test
+                            'streamable-http.middleware-test
                             'streamable-http.integration-test)]
     (if (and (zero? (:fail result))
              (zero? (:error result)))
