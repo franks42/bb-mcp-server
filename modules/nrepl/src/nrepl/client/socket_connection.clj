@@ -1,6 +1,7 @@
 (ns nrepl.client.socket-connection
   "Low-level nREPL connection lifecycle management - uses unified state management"
-  (:require [nrepl.state.connection :as conn-state])
+  (:require [nrepl.state.connection :as conn-state]
+            [taoensso.trove :as log])
   (:import [java.net Socket]
            [java.io PushbackInputStream]))
 
@@ -20,8 +21,10 @@
               :id conn-id
               :created-at (System/currentTimeMillis)
               :status :connected}]
-    (binding [*out* *err*]
-      (println "[Socket] Connected to" host ":" port "with ID" conn-id))
+    (log/log! {:level :info
+               :id ::socket-connected
+               :msg "Socket connected"
+               :data {:host host :port port :connection-id conn-id}})
     conn))
 
 (defn close-connection
@@ -32,8 +35,10 @@
   ;; Update unified connection state
   (when id
     (conn-state/mark-connection-closed! id :connection-closed "Connection closed")
-    (binding [*out* *err*]
-      (println "[Socket] Closed connection" id))))
+    (log/log! {:level :info
+               :id ::socket-closed
+               :msg "Socket connection closed"
+               :data {:connection-id id}})))
 
 ;; =============================================================================
 ;; Wrapper Functions for Backward Compatibility

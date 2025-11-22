@@ -2,7 +2,8 @@
     "Calculator analytics - logging and usage pattern analysis."
     (:require [clojure.java.io :as io]
               [clojure.edn :as edn]
-              [clojure.string :as str]))
+              [clojure.string :as str]
+              [taoensso.trove :as log]))
 
 (def log-file "calculator-usage.edn")
 
@@ -48,9 +49,11 @@
    (catch Exception e
       ;; Silently ignore logging failures - calculator should work even if logging fails
       ;; This handles read-only file systems (Claude Desktop, sandboxed environments)
-          (binding [*out* *err*]
-                   (println "[calculator-analytics] Warning: Failed to write analytics log:" (.getMessage e)))
-          nil)))
+      (log/log! {:level :warn
+                 :id ::analytics-write-failed
+                 :msg "Failed to write analytics log"
+                 :data {:error (.getMessage e)}})
+      nil)))
 
 (defn generate-usage-report
   "Analyze log file and generate summary statistics"
