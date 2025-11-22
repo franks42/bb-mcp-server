@@ -11,12 +11,17 @@
 ;; =============================================================================
 
 (defn parse-json
-  "Parse JSON string to Clojure map with keyword keys.
+  "Parse JSON string to Clojure data with keyword keys.
+   Arrays are converted to vectors for (vector? ...) checks.
    Returns nil on parse failure."
   [s]
   (when s
     (try
-     (json/parse-string s true)
+     (let [parsed (json/parse-string s true)]
+        ;; Convert lazy seqs to vectors for array detection
+       (if (and (sequential? parsed) (not (vector? parsed)))
+         (vec parsed)
+         parsed))
      (catch Exception e
             (log/log! {:level :warn
                        :id    ::parse-json-failed

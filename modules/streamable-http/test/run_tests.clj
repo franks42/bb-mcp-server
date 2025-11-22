@@ -16,12 +16,16 @@
 ;; Load test namespaces
 (require 'streamable-http.sse-test)
 (require 'streamable-http.session-test)
+(require 'streamable-http.handlers-test)
+(require 'streamable-http.router-test)
 
 (defn run-tests
   "Run all streamable-http module tests."
   []
   (let [result (t/run-tests 'streamable-http.sse-test
-                            'streamable-http.session-test)]
+                            'streamable-http.session-test
+                            'streamable-http.handlers-test
+                            'streamable-http.router-test)]
     (if (and (zero? (:fail result))
              (zero? (:error result)))
       (do

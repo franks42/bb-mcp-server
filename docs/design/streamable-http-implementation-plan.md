@@ -8,7 +8,7 @@ This document outlines the implementation plan for the MCP Streamable HTTP trans
 2. Extracted to its own repository later
 3. Reused in other Babashka MCP projects
 
-**Status:** Phase 1 Complete
+**Status:** Phase 2 Complete
 **Date:** 2025-11-22
 **Last Updated:** 2025-11-22
 **Design Doc:** `streamable-http-transport-design.md`
@@ -445,11 +445,11 @@ modules/streamable-http/
 **Goal:** Implement the three HTTP handlers
 
 **Tasks:**
-- [ ] Implement `handlers/post.clj` (JSON-RPC via POST)
-- [ ] Implement `handlers/get.clj` (SSE stream opening)
-- [ ] Implement `handlers/delete.clj` (session termination)
-- [ ] Implement `router.clj` (dispatch to handlers)
-- [ ] Unit tests for each handler
+- [x] Implement `handlers/post.clj` (JSON-RPC via POST)
+- [x] Implement `handlers/get.clj` (SSE stream opening)
+- [x] Implement `handlers/delete.clj` (session termination)
+- [x] Implement `router.clj` (dispatch to handlers)
+- [x] Unit tests for each handler (21 new tests, 37 assertions)
 
 **Files:**
 ```
@@ -459,9 +459,13 @@ src/streamable_http/
     ├── post.clj
     ├── get.clj
     └── delete.clj
+
+test/streamable_http/
+├── handlers_test.clj
+└── router_test.clj
 ```
 
-**Deliverable:** All handlers working with mock JSON-RPC processor
+**Deliverable:** All handlers working with mock JSON-RPC processor ✅
 
 ---
 
@@ -741,9 +745,16 @@ Day 6: Hardening & Docs
 ## Success Criteria
 
 ### Phase 1 Complete When:
-- [ ] `bb modules/streamable-http/test/run_tests.clj` passes
-- [ ] Session create/get/destroy works
-- [ ] SSE events format correctly
+- [x] `bb modules/streamable-http/test/run_tests.clj` passes
+- [x] Session create/get/destroy works
+- [x] SSE events format correctly
+
+### Phase 2 Complete When:
+- [x] POST handler processes JSON-RPC (initialize, requests, batches)
+- [x] GET handler opens SSE streams with session validation
+- [x] DELETE handler terminates sessions
+- [x] Router dispatches to correct handlers
+- [x] 47 tests, 91 assertions passing
 
 ### Phase 2.5 Complete When:
 - [ ] All built-in middleware (CORS, rate-limit, basic-auth) working
