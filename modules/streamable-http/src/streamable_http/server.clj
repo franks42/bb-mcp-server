@@ -5,6 +5,7 @@
     (:require [org.httpkit.server :as http]
               [streamable-http.router :as router]
               [streamable-http.session :as session]
+              [streamable-http.sse :as sse]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -13,6 +14,42 @@
 
 ;; Holds reference to running server for cleanup
 (defonce ^:private server-instance (atom nil))
+
+;; Server draining state - when true, reject new connections
+(defonce ^:private draining-state (atom false))
+
+;; =============================================================================
+;; Graceful Shutdown
+;; =============================================================================
+
+(defn- notify-sse-clients-shutdown!
+  "Send shutdown notification to all SSE clients.
+   Returns number of clients notified."
+  []
+  (let [channels (session/all-sse-channels)
+        count (count channels)]
+    (when (pos? count)
+      (log/log! {:level :info
+                 :id    ::notifying-sse-clients
+                 :msg   "Notifying SSE clients of shutdown"
+                 :data  {:channel-count count}})
+      ;; Send a close event to each channel
+      (doseq [ch channels]
+             (try
+              (sse/send-event! ch {:event "close"
+                                   :data {:reason "server_shutdown"}})
+              (catch Exception e
+                     (log/log! {:level :debug
+                                :id    ::notify-shutdown-failed
+                                :msg   "Failed to notify client"
+                                :error e})))))
+    count))
+
+(defn draining?
+  "Check if server is draining (shutting down).
+   Returns true if server is rejecting new connections."
+  []
+  @draining-state)
 
 ;; =============================================================================
 ;; Server Lifecycle
@@ -91,16 +128,29 @@
     ;; Start session cleanup task
     (session/start-cleanup-task! session-timeout-ms 60000)
 
-    (let [instance {:stop! (fn []
+    (let [instance {:stop! (fn [& [{:keys [grace-period-ms]
+                                    :or {grace-period-ms 1000}}]]
                              (log/log! {:level :info
                                         :id    ::server-stopping
                                         :msg   "Stopping Streamable HTTP server"})
+                             ;; Enter draining state
+                             (reset! draining-state true)
                              ;; Stop cleanup task
                              (session/stop-cleanup-task!)
-                             ;; Destroy all sessions
+                             ;; Notify SSE clients of shutdown
+                             (let [notified (notify-sse-clients-shutdown!)]
+                               (when (pos? notified)
+                                 ;; Brief grace period for clients to disconnect
+                                 (log/log! {:level :debug
+                                            :id    ::grace-period
+                                            :msg   "Waiting for clients to disconnect"
+                                            :data  {:grace-period-ms grace-period-ms}})
+                                 (Thread/sleep grace-period-ms)))
+                             ;; Destroy all sessions (closes remaining connections)
                              (session/destroy-all-sessions!)
                              ;; Stop http-kit server
                              @(http/server-stop! stop-fn {:timeout 5000})
+                             (reset! draining-state false)
                              (reset! server-instance nil)
                              (log/log! {:level :info
                                         :id    ::server-stopped

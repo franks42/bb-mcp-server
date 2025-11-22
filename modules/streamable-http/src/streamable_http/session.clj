@@ -320,3 +320,11 @@
                               (- now (apply min (map :created-at all-sessions)))
                               0)
      :total-sse-channels (reduce + (map #(count (:sse-channels %)) all-sessions))}))
+
+(defn all-sse-channels
+  "Get all SSE channels across all sessions.
+
+   Returns:
+     Set of all active SSE channels."
+  []
+  (reduce into #{} (map :sse-channels (vals @sessions))))

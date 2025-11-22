@@ -62,6 +62,21 @@
                                        :message message
                                        :data data})))
 
+(defn- safe-call-handler
+  "Call json-rpc-handler with exception handling.
+   Returns [response nil] on success or [nil exception] on error."
+  [json-rpc-handler msg]
+  (try
+   [(json-rpc-handler msg) nil]
+   (catch Exception e
+          (log/log! {:level :error
+                     :id    ::handler-exception
+                     :msg   "Exception in JSON-RPC handler"
+                     :data  {:method (:method msg)
+                             :error (.getMessage e)}
+                     :error e})
+          [nil e])))
+
 ;; =============================================================================
 ;; Handler Implementation
 ;; =============================================================================
@@ -74,17 +89,24 @@
              :msg   "Processing initialize request"
              :data  {:client-info (get-in msg [:params :clientInfo])}})
   (let [start (util/current-time-ms)
-        response (json-rpc-handler msg)
-        session (session/create-session! (:params msg))
-        duration (util/elapsed-ms start)]
-    (log/log! {:level :info
-               :id    ::initialize-complete
-               :msg   "Initialize complete"
-               :data  {:session-id (:session-id session)
-                       :duration-ms duration}})
-    (json-response 200
-                   response
-                   {"Mcp-Session-Id" (:session-id session)})))
+        [response err] (safe-call-handler json-rpc-handler msg)]
+    (if err
+      ;; Handler threw an exception
+      (error-response (:id msg)
+                      (:internal-error error-codes)
+                      "Internal error during initialize"
+                      {:error (.getMessage err)})
+      ;; Success - create session
+      (let [session (session/create-session! (:params msg))
+            duration (util/elapsed-ms start)]
+        (log/log! {:level :info
+                   :id    ::initialize-complete
+                   :msg   "Initialize complete"
+                   :data  {:session-id (:session-id session)
+                           :duration-ms duration}})
+        (json-response 200
+                       response
+                       {"Mcp-Session-Id" (:session-id session)})))))
 
 (defn- handle-regular-request
   "Handle regular JSON-RPC request with valid session."
@@ -95,20 +117,40 @@
              :data  {:method (:method msg)
                      :session-id session-id}})
   (session/touch-session! session-id)
-  (let [start (util/current-time-ms)
-        response (json-rpc-handler msg)
-        duration (util/elapsed-ms start)]
-    (log/log! {:level :debug
-               :id    ::request-complete
-               :msg   "Request complete"
-               :data  {:method (:method msg)
-                       :duration-ms duration}})
-    ;; Notifications don't get responses
-    (if (notification? msg)
-      {:status 202
-       :headers {"Content-Type" "application/json"}
-       :body ""}
-      (json-response 200 response))))
+  ;; Notifications don't get responses
+  (if (notification? msg)
+    (do
+     (safe-call-handler json-rpc-handler msg) ; fire and forget, log errors
+     {:status 202
+      :headers {"Content-Type" "application/json"}
+      :body ""})
+    ;; Regular request - need response
+    (let [start (util/current-time-ms)
+          [response err] (safe-call-handler json-rpc-handler msg)
+          duration (util/elapsed-ms start)]
+      (log/log! {:level :debug
+                 :id    ::request-complete
+                 :msg   "Request complete"
+                 :data  {:method (:method msg)
+                         :duration-ms duration}})
+      (if err
+        (error-response (:id msg)
+                        (:internal-error error-codes)
+                        "Internal error"
+                        {:error (.getMessage err)})
+        (json-response 200 response)))))
+
+(defn- process-batch-msg
+  "Process a single message in a batch, handling exceptions."
+  [json-rpc-handler msg]
+  (let [[response err] (safe-call-handler json-rpc-handler msg)]
+    (if err
+      ;; Return error response for this message
+      (util/json-rpc-error {:id (:id msg)
+                            :code (:internal-error error-codes)
+                            :message "Internal error"
+                            :data {:error (.getMessage err)}})
+      response)))
 
 (defn- handle-batch-request
   "Handle batch of JSON-RPC requests."
@@ -119,9 +161,13 @@
              :data  {:count (count msgs)
                      :session-id session-id}})
   (session/touch-session! session-id)
+  ;; Process notifications (fire and forget)
+  (doseq [msg (filter notification? msgs)]
+         (safe-call-handler json-rpc-handler msg))
+  ;; Process requests that need responses
   (let [responses (->> msgs
                        (remove notification?)
-                       (map json-rpc-handler))]
+                       (map #(process-batch-msg json-rpc-handler %)))]
     (if (empty? responses)
       {:status 202
        :headers {"Content-Type" "application/json"}
