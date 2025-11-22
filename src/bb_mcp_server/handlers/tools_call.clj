@@ -4,6 +4,7 @@
   Executes tool handlers with argument validation and error handling.
   Tools are registered via bb-mcp-server.registry and executed via handle-tools-call."
     (:require [bb-mcp-server.protocol.message :as msg]
+              [bb-mcp-server.protocol.errors :as errors]
               [bb-mcp-server.registry :as registry]
               [taoensso.trove :as log]))
 
@@ -22,27 +23,16 @@
                    :tool-name tool-name})))
 
 (defn- validate-arguments
-  "Validate arguments against tool's input schema.
+  "Validate arguments against tool's input schema using Malli.
 
   Args:
   - arguments: Map of argument name -> value
-  - input-schema: JSON Schema map with :required field
+  - input-schema: JSON Schema map
+  - tool-name: Name of the tool being called
 
-  Returns: true if valid, false otherwise
-
-  Currently implements simple validation checking that all required fields exist.
-  Future enhancement: Full JSON Schema validation with Malli."
-  [arguments input-schema]
-  (let [required-fields (get input-schema :required [])
-        argument-keys (set (map name (keys arguments)))
-        missing-fields (remove #(contains? argument-keys %) required-fields)]
-    (log/log! {:level :debug
-               :id ::validate-arguments
-               :msg "Validating arguments"
-               :data {:required required-fields
-                      :provided argument-keys
-                      :missing missing-fields}})
-    (empty? missing-fields)))
+  Returns: {:valid true/false :errors humanized-errors}"
+  [arguments input-schema tool-name]
+  (errors/validate-arguments arguments input-schema tool-name))
 
 (defn- execute-handler
   "Execute a tool handler with error handling.
@@ -119,8 +109,9 @@
     (if-let [tool (registry/get-tool tool-name)]
       ;; Tool found - validate and execute
       (let [handler-fn (:handler tool)
-            input-schema (:inputSchema tool)]
-        (if (validate-arguments arguments input-schema)
+            input-schema (:inputSchema tool)
+            validation-result (validate-arguments arguments input-schema tool-name)]
+        (if (:valid validation-result)
           ;; Arguments valid - execute handler
           (let [execution-result (execute-handler tool-name handler-fn arguments)]
             (if (:success execution-result)
@@ -140,51 +131,38 @@
                                   :tool tool-name}})
                 response)
               ;; Error - handler threw exception
-              (do
-                (log/log! {:level :error
-                           :id ::tool-execution-failed
-                           :msg "Tool execution failed"
-                           :data {:request-id request-id
-                                  :tool tool-name
-                                  :error (:error execution-result)}})
+              (let [error-data (errors/exception->error-data
+                                 (ex-info "Tool execution failed"
+                                          (:error execution-result))
+                                 {:tool tool-name})]
+                (errors/log-error! :runtime-error "Tool execution failed" error-data)
                 (msg/create-error-response
                  request-id
-                 (:tool-execution-failed msg/error-codes)
+                 (:tool-execution-failed errors/error-codes)
                  "Tool execution failed"
-                 (merge {:tool tool-name}
-                        (:error execution-result))))))
-          ;; Arguments invalid
-          (let [required-fields (get input-schema :required [])
-                provided-keys (set (map name (keys arguments)))
-                missing-fields (remove #(contains? provided-keys %) required-fields)]
-            (log/log! {:level :warn
-                       :id ::invalid-arguments
-                       :msg "Invalid tool arguments"
-                       :data {:tool tool-name
-                              :required required-fields
-                              :provided provided-keys
-                              :missing missing-fields}})
+                 error-data))))
+          ;; Arguments invalid - use detailed validation errors
+          (let [error-data {:type :validation-error
+                            :tool tool-name
+                            :validation-errors (:errors validation-result)
+                            :arguments (vec (keys arguments))}]
+            (errors/log-error! :validation-error "Invalid tool arguments" error-data)
             (msg/create-error-response
              request-id
-             (:invalid-tool-params msg/error-codes)
+             (:invalid-tool-params errors/error-codes)
              "Invalid tool params"
-             {:tool tool-name
-              :required required-fields
-              :provided provided-keys
-              :missing missing-fields}))))
+             error-data))))
 
       ;; Tool not found
-      (do
-        (log/log! {:level :warn
-                   :id ::tool-not-found
-                   :msg "Tool not found in registry"
-                   :data {:tool tool-name
-                          :available-tools (registry/tool-names)}})
+      (let [error-data {:type :not-found
+                        :tool tool-name
+                        :available (vec (registry/tool-names))}]
+        (errors/log-error! :not-found "Tool not found in registry" error-data)
         (msg/create-error-response
          request-id
-         (:tool-not-found msg/error-codes)
+         (:tool-not-found errors/error-codes)
          "Tool not found"
-         {:tool tool-name})))))
+         error-data)))))
 
 (defn reset-handlers!
   "DEPRECATED: Use bb-mcp-server.registry/clear! instead.

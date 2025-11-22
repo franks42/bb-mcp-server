@@ -125,22 +125,30 @@
 
 ---
 
-### 2.2 Error Handling
+### 2.2 Error Handling ✅ COMPLETE
 **Goal:** Robust error handling and reporting
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 2.2.1 | Design error taxonomy | 🎯 | ⏳ | Orchestrator | Error types and codes defined |
-| 2.2.2 | Implement error response format | 🤖 | ⏳ | Agent | JSON-RPC error responses |
-| 2.2.3 | Add input validation | 🤖 | ⏳ | Agent | Validate all tool params with Malli |
-| 2.2.4 | Add exception middleware | 🤖 | ⏳ | Agent | Catch and format all exceptions |
-| 2.2.5 | Add telemetry for errors | 🤖 | ⏳ | Agent | Log all errors with context |
-| 2.2.6 | Write error handling tests | 🤖 | ⏳ | Agent | Test all error paths |
-| 2.2.7 | Review error handling | 🎯 | ⏳ | Orchestrator | Clear messages, good debugging info |
+| 2.2.1 | Design error taxonomy | 🎯 | ✅ | Orchestrator | Error types and codes defined |
+| 2.2.2 | Implement error response format | 🤖 | ✅ | Agent | JSON-RPC error responses |
+| 2.2.3 | Add input validation | 🤖 | ✅ | Agent | Validate all tool params with Malli |
+| 2.2.4 | Add exception middleware | 🤖 | ✅ | Agent | Catch and format all exceptions |
+| 2.2.5 | Add telemetry for errors | 🤖 | ✅ | Agent | Log all errors with context |
+| 2.2.6 | Write error handling tests | 🤖 | ✅ | Agent | Test all error paths |
+| 2.2.7 | Review error handling | 🎯 | ✅ | Orchestrator | Clear messages, good debugging info |
 
-**Dependencies:** 2.1 (Tool Registry) ✅ UNBLOCKED
-**Estimated LOC:** ~200
-**Deliverable:** Graceful error handling throughout
+**Dependencies:** 2.1 (Tool Registry) ✅ COMPLETE
+**Actual LOC:** ~280 (errors.clj + tools_call.clj updates)
+**Deliverable:** ✅ Robust error handling with Malli validation
+
+**Phase 2.2 Achievements:**
+- Error taxonomy with 11 error codes (JSON-RPC + MCP custom)
+- JSON Schema to Malli conversion for full type validation
+- Detailed validation errors (e.g., "should be an integer")
+- Centralized error logging with structured context
+- Stack trace simplification for debugging
+- Design doc: `docs/design/error-handling-design.md`
 
 ---
 
