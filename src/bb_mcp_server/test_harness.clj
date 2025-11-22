@@ -14,6 +14,33 @@
               [cheshire.core :as json]
               [taoensso.trove :as log]))
 
+(defn setup-handlers-only!
+  "Set up only the MCP method handlers without clearing registry or registering test tools.
+
+  Use this when tools are registered by the module system.
+
+  Side effects:
+  - Resets router state
+  - Registers MCP method handlers with the router
+  - Does NOT clear registry or register any tools"
+  []
+  (log/log! {:level :info
+             :id ::setup-handlers-start
+             :msg "Setting up MCP handlers only"})
+
+  ;; Reset router state only (not registry)
+  (router/reset-state!)
+
+  ;; Register MCP method handlers
+  (router/register-handler! "initialize" init-handler/handle-initialize)
+  (router/register-handler! "tools/list" tools-list/handle-tools-list)
+  (router/register-handler! "tools/call" tools-call/handle-tools-call)
+
+  (log/log! {:level :info
+             :id ::setup-handlers-complete
+             :msg "MCP handlers setup complete"
+             :data {:tool-count (registry/tool-count)}}))
+
 (defn setup!
   "Set up the test environment by registering all handlers and tools.
 
@@ -28,14 +55,11 @@
              :id ::setup-start
              :msg "Setting up test harness"})
 
-  ;; Reset server state
-  (router/reset-state!)
+  ;; Clear registry before setting up handlers
   (registry/clear!)
 
-  ;; Register MCP method handlers
-  (router/register-handler! "initialize" init-handler/handle-initialize)
-  (router/register-handler! "tools/list" tools-list/handle-tools-list)
-  (router/register-handler! "tools/call" tools-call/handle-tools-call)
+  ;; Set up handlers
+  (setup-handlers-only!)
 
   ;; Initialize tools
   (hello/init!)

@@ -148,21 +148,30 @@
   "Start HTTP transport.
 
   Args:
-    config - Map with optional :port (default 3000), :host (default \"0.0.0.0\")
+    config - Map with optional keys:
+      :port       - HTTP port (default 3000)
+      :host       - Bind address (default \"0.0.0.0\")
+      :setup-mode - Harness setup mode:
+                    :full (default) - Full harness with test tools
+                    :handlers-only  - Only MCP handlers (for module system)
+                    :none           - Skip all setup (manual configuration)
 
   Returns: Transport state map
 
   Side effects:
-    - Initializes MCP handlers and tools
+    - Initializes MCP handlers and/or tools based on setup-mode
     - Starts HTTP server"
-  [{:keys [port host] :or {port 3000 host "0.0.0.0"} :as config}]
+  [{:keys [port host setup-mode] :or {port 3000 host "0.0.0.0" setup-mode :full} :as config}]
   (log/log! {:level :info
              :id ::http-start
              :msg "Starting HTTP transport"
-             :data {:port port :host host}})
+             :data {:port port :host host :setup-mode setup-mode}})
 
-  ;; Setup MCP handlers and tools
-  (harness/setup!)
+  ;; Setup based on mode
+  (case setup-mode
+    :full (harness/setup!)
+    :handlers-only (harness/setup-handlers-only!)
+    :none nil)
 
   ;; Start HTTP server
   (let [server (http/run-server router {:port port :ip host})]

@@ -1,0 +1,6 @@
+{:name "hello"
+ :version "1.0.0"
+ :description "Hello world MCP tool module - demonstrates module system"
+ :entry-ns hello.core
+ :deps []
+ :config-schema {:greeting [:string {:default "Hello"}]}}
