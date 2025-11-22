@@ -18,6 +18,7 @@
 (require 'streamable-http.session-test)
 (require 'streamable-http.handlers-test)
 (require 'streamable-http.router-test)
+(require 'streamable-http.integration-test)
 
 (defn run-tests
   "Run all streamable-http module tests."
@@ -25,7 +26,8 @@
   (let [result (t/run-tests 'streamable-http.sse-test
                             'streamable-http.session-test
                             'streamable-http.handlers-test
-                            'streamable-http.router-test)]
+                            'streamable-http.router-test
+                            'streamable-http.integration-test)]
     (if (and (zero? (:fail result))
              (zero? (:error result)))
       (do

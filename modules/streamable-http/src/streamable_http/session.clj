@@ -66,6 +66,14 @@
   [session-id]
   (get @sessions session-id))
 
+(defn list-sessions
+  "List all active session IDs.
+
+   Returns:
+     Sequence of session ID strings."
+  []
+  (keys @sessions))
+
 (defn valid-session?
   "Check if session exists and is valid.
 

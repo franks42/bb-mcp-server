@@ -8,7 +8,7 @@ This document outlines the implementation plan for the MCP Streamable HTTP trans
 2. Extracted to its own repository later
 3. Reused in other Babashka MCP projects
 
-**Status:** Phase 2 Complete
+**Status:** Phase 3 Complete
 **Date:** 2025-11-22
 **Last Updated:** 2025-11-22
 **Design Doc:** `streamable-http-transport-design.md`
@@ -515,22 +515,21 @@ test/
 **Goal:** Complete server with lifecycle management
 
 **Tasks:**
-- [ ] Implement `server.clj` (http-kit server wrapper)
-- [ ] Implement `core.clj` (public API)
-- [ ] Wire everything together
-- [ ] Integration tests with real HTTP requests
+- [x] Implement `server.clj` (http-kit server wrapper)
+- [x] Implement `core.clj` (public API)
+- [x] Wire everything together
+- [x] Integration tests with real HTTP requests (10 tests, 26 assertions)
 
 **Files:**
 ```
 src/streamable_http/
 ├── core.clj
 └── server.clj
-test/
-├── core_test.clj
+test/streamable_http/
 └── integration_test.clj
 ```
 
-**Deliverable:** Fully functional standalone module
+**Deliverable:** Fully functional standalone module ✅
 
 ---
 
@@ -755,6 +754,12 @@ Day 6: Hardening & Docs
 - [x] DELETE handler terminates sessions
 - [x] Router dispatches to correct handlers
 - [x] 47 tests, 91 assertions passing
+
+### Phase 3 Complete When:
+- [x] curl can complete initialize handshake
+- [x] Session ID returned in header
+- [x] Full session lifecycle works (init → request → delete)
+- [x] 57 tests, 117 assertions passing
 
 ### Phase 2.5 Complete When:
 - [ ] All built-in middleware (CORS, rate-limit, basic-auth) working
