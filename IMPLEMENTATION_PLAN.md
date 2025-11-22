@@ -154,23 +154,32 @@
 
 ## Phase 3: Multi-Transport (Week 3)
 
-### 3.1 HTTP Transport
+### 3.1 HTTP Transport ✅ COMPLETE
 **Goal:** Add HTTP alongside stdio
 
 | # | Task | Type | Status | Owner | Acceptance Criteria |
 |---|------|------|--------|-------|-------------------|
-| 3.1.1 | Design transport abstraction | 🎯 | ⏸️ | Orchestrator | Common interface for stdio/HTTP/REST |
-| 3.1.2 | Implement transport protocol | 🤖 | ⏸️ | Agent | Protocol for transport detection |
-| 3.1.3 | Refactor stdio as transport impl | 🤖 | ⏸️ | Agent | Stdio implements transport interface |
-| 3.1.4 | Implement HTTP transport | 🤖 | ⏸️ | Agent | HTTP server using ring/jetty |
-| 3.1.5 | Add HTTP middleware stack | 🤖 | ⏸️ | Agent | CORS, content negotiation |
-| 3.1.6 | Add transport selection logic | 🤖 | ⏸️ | Agent | Auto-detect or config-based |
-| 3.1.7 | Write HTTP integration tests | 🤖 | ⏸️ | Agent | Test full HTTP request cycle |
-| 3.1.8 | Review transport architecture | 🎯 | ⏸️ | Orchestrator | Clean abstraction, no duplication |
+| 3.1.1 | Design transport abstraction | 🎯 | ✅ | Orchestrator | Common interface for stdio/HTTP/REST |
+| 3.1.2 | Implement transport protocol | 🤖 | ✅ | Agent | Protocol for transport detection |
+| 3.1.3 | Refactor stdio as transport impl | 🤖 | ⏳ | Agent | Stdio implements transport interface (deferred) |
+| 3.1.4 | Implement HTTP transport | 🤖 | ✅ | Agent | HTTP server using http-kit |
+| 3.1.5 | Add HTTP middleware stack | 🤖 | ✅ | Agent | CORS, content negotiation |
+| 3.1.6 | Add transport selection logic | 🤖 | ✅ | Agent | bb server:stdio / bb server:http |
+| 3.1.7 | Write HTTP integration tests | 🤖 | ✅ | Agent | Test full HTTP request cycle |
+| 3.1.8 | Review transport architecture | 🎯 | ✅ | Orchestrator | Clean abstraction, no duplication |
 
-**Dependencies:** 2.2 (Error Handling)
-**Estimated LOC:** ~300-400
-**Deliverable:** Server runs on stdio OR HTTP
+**Dependencies:** 2.2 (Error Handling) ✅ COMPLETE
+**Actual LOC:** ~350 (http.clj + protocol.clj + bb.edn)
+**Deliverable:** ✅ Server runs on stdio OR HTTP
+
+**Phase 3.1 Achievements:**
+- Transport protocol abstraction (map-based for Babashka)
+- HTTP transport with http-kit server
+- CORS support for browser clients
+- JSON-RPC error → HTTP status mapping
+- Health endpoint at GET /health
+- bb tasks: server:stdio, server:http [port]
+- Design doc: `docs/design/transport-design.md`
 
 ---
 
