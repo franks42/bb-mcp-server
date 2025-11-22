@@ -1,0 +1,5 @@
+{:name "nrepl-test-server"
+ :version "1.0.0"
+ :description "Auto-starts a Babashka nREPL server for testing nrepl client tools"
+ :entry-ns nrepl-test-server.core
+ :deps []}

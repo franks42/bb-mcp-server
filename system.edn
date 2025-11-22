@@ -8,8 +8,9 @@
 
  ;; Explicit list of modules to load (by name)
  ;; Only these modules will be loaded, in this order if no dependencies
- :modules ["hello" "echo" "math" "strings" "calculate" "local-eval"]
+ :modules ["hello" "echo" "math" "strings" "calculate" "local-eval" "nrepl" "nrepl-test-server"]
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
- :config {"hello" {:greeting "Hi"}}}
+ :config {"hello" {:greeting "Hi"}
+          "nrepl-test-server" {:port 7888 :host "localhost"}}}

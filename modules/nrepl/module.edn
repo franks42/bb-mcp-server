@@ -1,0 +1,5 @@
+{:name "nrepl"
+ :version "1.0.0"
+ :description "nREPL client tools - connect, evaluate, and manage remote Clojure REPLs"
+ :entry-ns nrepl.core
+ :deps []}
