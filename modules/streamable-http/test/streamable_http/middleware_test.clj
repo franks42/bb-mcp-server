@@ -275,6 +275,114 @@
                     (is (= 200 (:status response))))))
 
 ;; =============================================================================
+;; API Key Authentication Tests
+;; =============================================================================
+
+(def ^:private valid-api-keys
+     "Test API keys for validation."
+     #{"sk-ant-test-valid-key-12345"
+       "sk-openai-test-key-67890"})
+
+(defn- test-key-validator
+  "Test validator that checks against valid-api-keys set."
+  [key]
+  (when (contains? valid-api-keys key)
+    {:user-id "test-user" :key key}))
+
+(deftest test-wrap-api-key-anthropic-style
+         (testing "Anthropic-style x-api-key header works"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator})
+                        request (make-request :headers {"x-api-key" "sk-ant-test-valid-key-12345"})
+                        response (handler request)]
+                    (is (= 200 (:status response))))))
+
+(deftest test-wrap-api-key-openai-style
+         (testing "OpenAI-style Authorization: Bearer header works"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator})
+                        request (make-request :headers {"authorization" "Bearer sk-openai-test-key-67890"})
+                        response (handler request)]
+                    (is (= 200 (:status response))))))
+
+(deftest test-wrap-api-key-prefers-x-api-key
+         (testing "x-api-key takes precedence over Bearer"
+                  (let [received-key (atom nil)
+                        handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn (fn [k]
+                                                                 (reset! received-key k)
+                                                                 (contains? valid-api-keys k))})
+                        request (make-request :headers {"x-api-key" "sk-ant-test-valid-key-12345"
+                                                        "authorization" "Bearer sk-openai-test-key-67890"})
+                        _response (handler request)]
+                    (is (= "sk-ant-test-valid-key-12345" @received-key)))))
+
+(deftest test-wrap-api-key-invalid-key
+         (testing "Invalid API key returns 401"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator})
+                        request (make-request :headers {"x-api-key" "invalid-key"})
+                        response (handler request)]
+                    (is (= 401 (:status response)))
+                    (is (str/includes? (:body response) "Invalid API key")))))
+
+(deftest test-wrap-api-key-missing-key
+         (testing "Missing API key returns 401 with hint"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator})
+                        request (make-request)
+                        response (handler request)]
+                    (is (= 401 (:status response)))
+                    (is (str/includes? (:body response) "API key required"))
+                    (is (str/includes? (:body response) "x-api-key")))))
+
+(deftest test-wrap-api-key-excluded-paths
+         (testing "Excluded paths bypass API key check"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator
+                                                  :exclude #{"/health" "/metrics"}})
+                        request (make-request :uri "/health")
+                        response (handler request)]
+                    (is (= 200 (:status response))))))
+
+(deftest test-wrap-api-key-custom-header
+         (testing "Custom header name works"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator
+                                                  :header "x-custom-api-key"})
+                        request (make-request :headers {"x-custom-api-key" "sk-ant-test-valid-key-12345"})
+                        response (handler request)]
+                    (is (= 200 (:status response))))))
+
+(deftest test-wrap-api-key-on-success-callback
+         (testing "on-success callback transforms request"
+                  (let [captured-user (atom nil)
+                        custom-handler (fn [req]
+                                         (reset! captured-user (:user req))
+                                         (echo-handler req))
+                        handler (mw/wrap-api-key custom-handler
+                                                 {:validate-fn test-key-validator
+                                                  :on-success (fn [req _key result _source]
+                                                                (assoc req :user (:user-id result)))})
+                        request (make-request :headers {"x-api-key" "sk-ant-test-valid-key-12345"})
+                        _response (handler request)]
+                    (is (= "test-user" @captured-user)))))
+
+(deftest test-wrap-api-key-requires-validate-fn
+         (testing "Throws if validate-fn not provided"
+                  (is (thrown? clojure.lang.ExceptionInfo
+                               (mw/wrap-api-key echo-handler {})))))
+
+(deftest test-wrap-api-key-bearer-without-prefix
+         (testing "Authorization header without Bearer prefix is ignored"
+                  (let [handler (mw/wrap-api-key echo-handler
+                                                 {:validate-fn test-key-validator})
+                        request (make-request :headers {"authorization" "Basic sometoken"})
+                        response (handler request)]
+                    (is (= 401 (:status response)))
+                    (is (str/includes? (:body response) "API key required")))))
+
+;; =============================================================================
 ;; Middleware Composition Tests
 ;; =============================================================================
 

@@ -200,6 +200,102 @@
                                "Authentication required")})})))))))
 
 ;; =============================================================================
+;; API Key Authentication Middleware
+;; =============================================================================
+
+(defn- extract-api-key
+  "Extract API key from request headers.
+   Supports both Anthropic-style (x-api-key) and OpenAI-style (Authorization: Bearer).
+   Returns [key source] or nil."
+  [request {:keys [header bearer-header bearer-prefix]
+            :or {header "x-api-key"
+                 bearer-header "authorization"
+                 bearer-prefix "Bearer "}}]
+  (let [headers (:headers request)]
+    ;; Try x-api-key style first (Anthropic)
+    (if-let [key (get headers header)]
+            [key :header]
+      ;; Try Authorization: Bearer style (OpenAI)
+            (when-let [auth (get headers bearer-header)]
+                      (when (str/starts-with? auth bearer-prefix)
+                        [(subs auth (count bearer-prefix)) :bearer])))))
+
+(defn wrap-api-key
+  "API Key Authentication supporting both Anthropic and OpenAI styles.
+
+   Anthropic style: x-api-key: <key>
+   OpenAI style:    Authorization: Bearer <key>
+
+   Options:
+     :validate-fn    - (fn [key] -> truthy) validation function (REQUIRED)
+                       Return truthy value (e.g., user map) to allow request
+                       Return falsy to reject
+     :header         - Custom header name (default: \"x-api-key\")
+     :bearer-header  - Bearer auth header (default: \"authorization\")
+     :bearer-prefix  - Bearer prefix (default: \"Bearer \")
+     :exclude        - Set of paths to exclude from auth (default: #{})
+     :on-success     - (fn [request key result source] -> request)
+                       Transform request after successful auth
+                       Default: assoc :api-key-info with key metadata
+
+   Example:
+     ;; Simple key validation
+     (wrap-api-key handler
+       {:validate-fn #(contains? valid-keys %)})
+
+     ;; With user lookup
+     (wrap-api-key handler
+       {:validate-fn (fn [key] (db/get-user-by-api-key key))
+        :on-success (fn [req key user _] (assoc req :user user))})
+
+     ;; Exclude health endpoint
+     (wrap-api-key handler
+       {:validate-fn my-validator
+        :exclude #{\"/health\" \"/metrics\"}})"
+  [handler {:keys [validate-fn exclude on-success]
+            :or {exclude #{}
+                 on-success (fn [req key result source]
+                              (assoc req :api-key-info
+                                     {:key-prefix (subs key 0 (min 8 (count key)))
+                                      :source source
+                                      :validated-at (System/currentTimeMillis)
+                                      :result result}))}
+            :as opts}]
+  (when-not validate-fn
+    (throw (ex-info "wrap-api-key requires :validate-fn option" {})))
+  (fn [request]
+    (let [path (:uri request)]
+      (if (contains? exclude path)
+        (handler request)
+        (if-let [[key source] (extract-api-key request opts)]
+          ;; Key found, validate it
+                (if-let [result (validate-fn key)]
+            ;; Valid key
+                        (handler (on-success request key result source))
+            ;; Invalid key
+                        (do
+                         (log/log! {:level :warn
+                                    :id    ::api-key-invalid
+                                    :msg   "Invalid API key"
+                                    :data  {:path path
+                                            :source source
+                                            :key-prefix (subs key 0 (min 8 (count key)))}})
+                         {:status 401
+                          :headers {"Content-Type" "application/json"}
+                          :body (util/generate-json {:error "Invalid API key"})}))
+          ;; No key provided
+                (do
+                 (log/log! {:level :warn
+                            :id    ::api-key-missing
+                            :msg   "API key required"
+                            :data  {:path path}})
+                 {:status 401
+                  :headers {"Content-Type" "application/json"}
+                  :body (util/generate-json
+                         {:error "API key required"
+                          :hint "Provide key via 'x-api-key' header or 'Authorization: Bearer <key>'"})}))))))
+
+;; =============================================================================
 ;; Request Logging Middleware
 ;; =============================================================================
 

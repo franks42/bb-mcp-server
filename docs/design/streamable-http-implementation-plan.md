@@ -552,8 +552,9 @@ test/streamable_http/
 - [x] Implement `wrap-basic-auth` for simple auth
 - [x] Implement `wrap-request-logging` for debugging
 - [x] Implement `wrap-origin-validation` for DNS rebinding protection
+- [x] Implement `wrap-api-key` for API key auth (Anthropic + OpenAI styles)
 - [x] Implement `apply-middleware` helper for composition
-- [x] Unit tests for each middleware (23 new tests, 44 assertions)
+- [x] Unit tests for each middleware (33 new tests, 58 assertions)
 
 **Files:**
 ```
@@ -572,6 +573,7 @@ test/streamable_http/
 (wrap-cors handler {:allowed-origins #{"https://example.com"}})
 (wrap-rate-limit handler {:requests-per-minute 60})
 (wrap-basic-auth handler {:credentials {"user" "pass"}})
+(wrap-api-key handler {:validate-fn my-key-validator})  ; Anthropic x-api-key + OpenAI Bearer
 (wrap-request-logging handler {:log-fn my-logger})
 (wrap-origin-validation handler {:allowed-hosts #{"localhost:3000"}})
 
@@ -834,11 +836,12 @@ Day 6: Hardening & Docs
 - [x] 57 tests, 117 assertions passing
 
 ### Phase 2.5 Complete When:
-- [x] All built-in middleware (CORS, rate-limit, basic-auth) working
+- [x] All built-in middleware (CORS, rate-limit, basic-auth, api-key) working
+- [x] API key middleware supports Anthropic (x-api-key) and OpenAI (Bearer) styles
 - [x] Middleware stack assembly correctly orders wrappers (apply-middleware)
 - [x] External Ring middleware can be injected via `:middleware` config
 - [x] Tests pass for each middleware in isolation
-- [x] 80 tests, 161 assertions passing
+- [x] 90 tests, 175 assertions passing
 
 ### Phase 4 Complete When:
 - [ ] bb-mcp-server tools work over Streamable HTTP
