@@ -1,0 +1,25 @@
+;; Streamable HTTP Transport Module
+;;
+;; MCP Streamable HTTP transport (spec 2025-03-26).
+;; Self-contained, handler-agnostic, Ring middleware compatible.
+
+{:name "streamable-http"
+ :version "0.1.0"
+ :description "MCP Streamable HTTP Transport (spec 2025-03-26)"
+ :requires []  ; Zero coupling to bb-mcp-server internals
+ :entry "streamable-http.core/module"
+
+ ;; External deps (must be in bb.edn)
+ :bb-deps {http-kit/http-kit {:mvn/version "2.8.1"}
+           cheshire/cheshire {:mvn/version "6.1.0"}}
+
+ :defaults {:port 3000
+            :host "0.0.0.0"
+            :path "/mcp"
+            :health-path "/health"
+            :session-timeout-ms 3600000        ; 1 hour
+            :session-cleanup-interval-ms 60000 ; Check every minute
+            :cors {:enabled true
+                   :allowed-origins #{}}       ; Empty = allow all (dev only!)
+            :rate-limit nil                    ; {:requests-per-minute 60}
+            :basic-auth nil}}                  ; {:credentials {"user" "pass"}}
