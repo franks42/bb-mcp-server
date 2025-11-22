@@ -109,19 +109,19 @@ If you struggle with matching parentheses:
 - **Performance:** Wrap slow operations in timers.
 
 **Library Choice:**
-- **Babashka:** `[taoensso.telemere-lite :as t]`
-- **JVM:** `[taoensso.telemere :as t]`
+- **Logging facade:** `[taoensso.trove :as log]`
+- **Backend:** `[taoensso.timbre]` (configured in telemetry namespace)
 
 ```clojure
 (defn process-order [order]
-  (t/log! :info "Processing order" {:order-id (:id order)})
+  (log/log! {:level :info :msg "Processing order" :data {:order-id (:id order)}})
   (try
-    (t/with-signal :info {:id ::charge-payment}
-      (charge-payment order))
-    (t/log! :info "Order processed" {:order-id (:id order)})
+    (let [result (charge-payment order)]
+      (log/log! {:level :info :msg "Order processed" :data {:order-id (:id order)}})
+      result)
     (catch Exception e
-      (t/log! :error "Order failed"
-              {:order-id (:id order) :error (ex-message e)})
+      (log/log! {:level :error :msg "Order failed" :error e
+                 :data {:order-id (:id order) :error (ex-message e)}})
       (throw e))))
 ```
 

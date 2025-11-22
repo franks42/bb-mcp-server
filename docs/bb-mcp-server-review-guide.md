@@ -277,7 +277,7 @@ How do we know if this architecture is good?
 9. **Are dependencies appropriate?**
    - http-kit vs other HTTP servers?
    - Cheshire vs other JSON libraries?
-   - Trove vs telemere-lite for logging?
+   - Trove + Timbre for logging (migration complete)
 
 10. **Is the telemetry implementation comprehensive?**
     - Are the right events being logged?

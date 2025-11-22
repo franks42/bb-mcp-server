@@ -1,73 +1,166 @@
-# AI Assistant Directive: Telemetry in Babashka Projects
+# AI Assistant Directive: Telemetry in bb-mcp-server
 
-**Target Audience:** AI Coding Assistants (Copilot, Claude, Gemini, etc.)
-**Context:** Building Babashka (bb) scripts, tools, CLI apps, or MCP servers.
-**Goal:** Embed observability and structured logging from the start.
+**For:** AI Coding Assistants (Claude, Copilot, Gemini, etc.)
+**Project:** bb-mcp-server (Babashka MCP server)
+**Goal:** Every function with I/O or business logic MUST have telemetry.
 
-## 1. The Golden Rule: Trove for Logging, Timbre for Config
+---
 
-*   **DO** use `taoensso.trove` (the facade) for all logging calls in your source code.
-*   **DO** use `taoensso.timbre` (the backend) **ONLY** in a dedicated `telemetry` namespace for configuration.
-*   **DO NOT** use `println`, `prn`, or `clojure.tools.logging` for application logs.
-
-## 2. Implementation Pattern
-
-### A. The Bootstrap Namespace (`src/my_project/telemetry.clj`)
-
-Create a single namespace to wire the backend. This ensures consistent configuration (JSON output, stderr routing, etc.).
+## 1. The Golden Rule
 
 ```clojure
-(ns my-project.telemetry
-  (:require [taoensso.timbre :as timbre]
-            [taoensso.trove :as log]
-            [taoensso.trove.timbre :as backend]))
+;; DO: Use Trove for ALL logging
+(require '[taoensso.trove :as log])
 
-(defn init! []
-  ;; 1. Configure Timbre (Backend)
-  ;; Critical for CLI tools/MCP: Route logs to stderr to keep stdout clean for data
-  (timbre/merge-config!
-   {:min-level :info
-    :appenders {:println {:enabled? true
-                          :fn (fn [data]
-                                (binding [*out* *err*]
-                                  (println (force (:output_ data))))}}}})
-
-  ;; 2. Link Trove (Facade) to Timbre
-  (log/set-log-fn! (backend/get-log-fn))
-  
-  (log/info {:msg "Telemetry initialized" :data {:version "1.0.0"}}))
+;; DO NOT: Use println, prn, timbre directly, or tools.logging
 ```
 
-### B. Usage in Application Code
+---
 
-Require `taoensso.trove` and use it everywhere.
+## 2. The API
 
 ```clojure
-(ns my-project.core
-  (:require [taoensso.trove :as log]
-            [my-project.telemetry :as telemetry]))
-
-(defn -main [& args]
-  (telemetry/init!)
-  (log/info {:msg "Application started" :data {:args args}})
-  
-  (try
-    (do-work)
-    (catch Exception e
-      (log/error {:msg "Fatal error" :data {:error e}}))))
+(log/log! {:level :info          ; REQUIRED: :trace :debug :info :warn :error :fatal
+           :id    ::request-recv ; RECOMMENDED: namespaced keyword for searchability
+           :msg   "Request received"  ; REQUIRED: human-readable message
+           :data  {:method "GET"}     ; OPTIONAL: structured context
+           :error exception})         ; OPTIONAL: exception object
 ```
 
-## 3. Directives for AI Agents
+---
 
-1.  **Structured First**: Always prefer structured logging.
-    *   *Good*: `(log/info {:msg "User login" :data {:user-id 123}})`
-    *   *Bad*: `(log/info (str "User login " 123))`
-2.  **Stdio Hygiene**: If the app uses `stdout` for data (e.g., JSON-RPC, CLI output), **MUST** configure the logger to write to `stderr`.
-3.  **Context is King**: Include relevant data maps in logs to aid future debugging.
-4.  **Initialize Early**: Ensure the telemetry init function is called at the entry point (`-main`).
+## 3. Log Levels - Use Correctly
 
-## 4. Why Trove?
+| Level | When to Use | Example |
+|-------|-------------|---------|
+| `:trace` | Internal flow, very verbose | Message parsing steps |
+| `:debug` | Lifecycle events, dev useful | Connection added/removed |
+| `:info` | Normal operations | Server started, request processed |
+| `:warn` | Anomalies, recoverable | Rate limit approaching, retry |
+| `:error` | Failures | Handler threw exception |
+| `:fatal` | System cannot continue | DB connection lost |
 
-*   **Zero-Dep Facade**: Source code depends only on the lightweight Trove API.
-*   **Pluggable Backend**: Can swap Timbre for another logger later without changing source code.
-*   **Babashka Compatible**: Works seamlessly in BB environments.
+**Default to `:info`** unless you have a reason for another level.
+
+---
+
+## 4. Event ID Convention
+
+Use `:bb-mcp-server.{component}/{action}` pattern:
+
+```clojure
+:bb-mcp-server.router/request-received
+:bb-mcp-server.handler/tool-executed
+:bb-mcp-server.transport/connection-opened
+:bb-mcp-server.telemetry/initialized
+```
+
+---
+
+## 5. What to Log (Checklist)
+
+Every significant function should log:
+
+- [ ] **Entry** - Start of operation with input summary
+- [ ] **Success** - Completion with result summary
+- [ ] **Failure** - Exception with `:error` key and context
+- [ ] **Duration** - For operations > 10ms
+
+---
+
+## 6. Copy-Paste Templates
+
+### Standard Function Pattern
+```clojure
+(defn process-request [request]
+  (log/log! {:level :info
+             :id    ::process-request
+             :msg   "Processing request"
+             :data  {:request-id (:id request)}})
+  (let [start (System/currentTimeMillis)]
+    (try
+      (let [result (do-work request)
+            duration (- (System/currentTimeMillis) start)]
+        (log/log! {:level :info
+                   :id    ::process-request-complete
+                   :msg   "Request processed"
+                   :data  {:request-id (:id request)
+                           :duration-ms duration}})
+        result)
+      (catch Exception e
+        (log/log! {:level :error
+                   :id    ::process-request-failed
+                   :msg   "Request processing failed"
+                   :error e
+                   :data  {:request-id (:id request)}})
+        (throw e)))))
+```
+
+### Simple Function (no timing needed)
+```clojure
+(defn validate-input [data]
+  (log/log! {:level :debug
+             :id    ::validate-input
+             :msg   "Validating input"
+             :data  {:keys (keys data)}})
+  (if (valid? data)
+    data
+    (do
+      (log/log! {:level :warn
+                 :id    ::validation-failed
+                 :msg   "Input validation failed"
+                 :data  {:errors (get-errors data)}})
+      nil)))
+```
+
+---
+
+## 7. Project Setup (Already Done)
+
+Telemetry bootstrap exists at `src/bb_mcp_server/telemetry.clj`:
+- Routes logs to **stderr** (keeps stdout clean for JSON-RPC)
+- Respects `LOG_LEVEL` env var
+- Call `(telemetry/init!)` at entry points
+
+**You don't need to create this** - just use `log/log!` in your code.
+
+---
+
+## 8. Quick Reference
+
+```clojure
+;; Require (every namespace that logs)
+(ns bb-mcp-server.my-module
+  (:require [taoensso.trove :as log]))
+
+;; Info - normal operations
+(log/log! {:level :info :id ::server-started :msg "Server started" :data {:port 8080}})
+
+;; Debug - lifecycle/dev
+(log/log! {:level :debug :id ::conn-added :msg "Connection added" :data {:conn-id id}})
+
+;; Warn - anomalies
+(log/log! {:level :warn :id ::rate-limited :msg "Rate limit hit" :data {:client-ip ip}})
+
+;; Error - failures (include :error key!)
+(log/log! {:level :error :id ::handler-failed :msg "Handler error" :error e :data {:tool name}})
+```
+
+---
+
+## 9. DO NOT
+
+- ❌ Use `println` or `prn` for logging
+- ❌ Require `taoensso.timbre` directly (only in telemetry.clj)
+- ❌ Log sensitive data (passwords, tokens, full request bodies)
+- ❌ Use string concatenation in `:msg` - put variables in `:data`
+- ❌ Skip logging in catch blocks
+
+---
+
+## 10. Why This Matters
+
+- **Debugging**: Structured logs are searchable
+- **Monitoring**: Can alert on `:error` level events
+- **Performance**: Duration tracking finds bottlenecks
+- **MCP Compliance**: stderr logging keeps stdio transport clean

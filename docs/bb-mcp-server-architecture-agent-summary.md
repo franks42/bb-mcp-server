@@ -25,7 +25,9 @@
 4. **Shutdown:** Registered JVM hook stops modules in reverse order and flushes telemetry.
 
 ## Telemetry & Observability
-- Uses **Trove / Telemere-lite** for structured JSON logs.
+**📖 Implementation Guide: See `docs/AI_TELEMETRY_GUIDE.md` for coding patterns and examples.**
+
+- Uses **Trove** (logging facade) + **Timbre** (backend) for structured JSON logs to stderr.
 - Mandatory events: server lifecycle, module load/unload, tool registration, tool invocation (start/complete/fail), transport-specific request logs, metrics snapshots, security/ratelimiting hooks when present.
 - Designed for log shipping to CloudWatch, GCP Logging, Datadog, or ELK via JSON pipelines.
 
@@ -58,5 +60,5 @@
 ## References
 - Full architecture spec: `docs/bb-mcp-server-architecture.md`
 - Review guide & questions: `docs/bb-mcp-server-review-guide.md`
+- **Telemetry guide: `docs/AI_TELEMETRY_GUIDE.md`** (mandatory for all code)
 - Module templates & examples: `templates/` directory
-- Telemetry usage patterns: same architecture doc + `bb edn` tasks

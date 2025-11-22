@@ -23,3 +23,6 @@ Risks: What could go wrong?
 Security Vulnerability: The load-module! function uses load-file on paths defined in configuration. If a malicious user can modify the local .bb-mcp-server.edn or the global config, they can execute arbitrary code on server startup.
 Runtime Instability: Since nREPL and other tools run in the same process, a blocking operation in a tool handler could block the HTTP
 server or other tools if not carefully managed (though future is used in some places, the threading model needs to be robust).
+
+## User Feedback (2025-11-21)
+"my experience with Gemini 3 Pro (Preview) is much much better than GPT-5.1 Codex (Preview)"

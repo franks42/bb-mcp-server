@@ -120,17 +120,15 @@ If `clj-kondo`, `cljfmt`, `parmezan`, or other required tools are absent:
 
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main []
-  (t/log! :info "Starting task")
+  (log/log! {:level :info :msg "Starting task"})
   (try
     ;; work here
-    (t/log! :info "Task completed")
+    (log/log! {:level :info :msg "Task completed"})
     (catch Exception e
-      (t/log! :error "Task failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Task failed" :data {:error (ex-message e)}})
       (System/exit 1))))
 
 (when (= *file* (System/getProperty "babashka.file"))
@@ -146,7 +144,7 @@ If `clj-kondo`, `cljfmt`, `parmezan`, or other required tools are absent:
 ---
 
 ## Telemetry Requirements
-- Use `taoensso.telemere-lite` in bb scripts; `taoensso.telemere` for JVM.
+- Use `taoensso.trove` as the logging facade with `taoensso.timbre` as backend.
 - Log at least: start, success, failure (with `ex-message` and `ex-data`), and key metrics (counts, durations).
 - For expensive functions, wrap in `t/with-signal` or record elapsed time manually.
 - Avoid logging secrets or large payloads; log IDs and summary stats instead.

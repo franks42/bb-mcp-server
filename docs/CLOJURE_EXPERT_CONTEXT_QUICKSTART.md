@@ -151,17 +151,15 @@ cat README.md
 
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main []
-  (t/log! :info "Starting task")
+  (log/log! {:level :info :msg "Starting task"})
   (try
     ;; Work here
-    (t/log! :info "Task completed")
+    (log/log! {:level :info :msg "Task completed"})
     (catch Exception e
-      (t/log! :error "Task failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Task failed" :data {:error (ex-message e)}})
       (System/exit 1))))
 
 (when (= *file* (System/getProperty "babashka.file"))
@@ -183,8 +181,8 @@ After **2 failed manual attempts**:
 **Rule:** Every function that performs I/O, business logic, or crosses system boundaries **MUST** include telemetry.
 
 ### Library Choice
-- **Babashka:** `[taoensso.telemere-lite :as t]`
-- **JVM Clojure:** `[taoensso.telemere :as t]`
+- **Logging facade:** `[taoensso.trove :as log]`
+- **Backend:** `[taoensso.timbre]` (configured in telemetry namespace)
 
 ### What to Log
 - **Entry:** Start of significant operation (include IDs)

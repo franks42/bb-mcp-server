@@ -94,17 +94,15 @@ $ bb test
 
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main []
-  (t/log! :info "Starting task")
+  (log/log! {:level :info :msg "Starting task"})
   (try
     ;; work here
-    (t/log! :info "Task completed")
+    (log/log! {:level :info :msg "Task completed"})
     (catch Exception e
-      (t/log! :error "Task failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Task failed" :data {:error (ex-message e)}})
       (System/exit 1))))
 
 (when (= *file* (System/getProperty "babashka.file"))
@@ -123,24 +121,30 @@ After 2 failed manual attempts:
 
 ## Telemetry Requirements
 
-Use `taoensso.telemere-lite` in bb scripts; `taoensso.telemere` for JVM.
+**📖 MANDATORY: Follow `docs/AI_TELEMETRY_GUIDE.md` for all telemetry.**
 
-**Log at least:** start, success, failure (with `ex-message` and `ex-data`), and key metrics.
+Quick summary:
+- Use `taoensso.trove` as the logging facade (require as `log`)
+- Use `log/log!` with structured maps: `{:level :info :id ::event-name :msg "..." :data {...}}`
+- Log: entry, success, failure (with `:error` key), duration for slow operations
+- Event IDs: `:bb-mcp-server.{component}/{action}` pattern
 
 ```clojure
+(require '[taoensso.trove :as log])
+
 (defn process-order [order]
-  (t/log! :info "Processing order" {:order-id (:id order)})
+  (log/log! {:level :info :id ::process-order :msg "Processing order" :data {:order-id (:id order)}})
   (try
-    (t/with-signal :info {:id ::charge-payment}
-      (charge-payment order))
-    (t/log! :info "Order processed" {:order-id (:id order)})
+    (let [result (charge-payment order)]
+      (log/log! {:level :info :id ::order-complete :msg "Order processed" :data {:order-id (:id order)}})
+      result)
     (catch Exception e
-      (t/log! :error "Order failed"
-              {:order-id (:id order) :error (ex-message e)})
+      (log/log! {:level :error :id ::order-failed :msg "Order failed" :error e
+                 :data {:order-id (:id order)}})
       (throw e))))
 ```
 
-Avoid logging secrets or large payloads; log IDs and summary stats instead.
+See `docs/AI_TELEMETRY_GUIDE.md` for complete patterns, log levels, and DO NOT list.
 
 ---
 

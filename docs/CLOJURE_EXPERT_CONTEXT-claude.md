@@ -81,22 +81,20 @@ When you need to create ANY script for:
 
 ### 4. TELEMETRY IS REQUIRED
 
-Every function that does I/O, processing, or business logic MUST include telemetry using Trove/Telemere:
+Every function that does I/O, processing, or business logic MUST include telemetry using Trove:
 
 ```clojure
-(require '[taoensso.telemere :as t])  ; for JVM Clojure
-;; OR
-(require '[taoensso.telemere-lite :as t])  ; for Babashka
+(require '[taoensso.trove :as log])
 
 ;; Add logging to every significant function:
 (defn process-data [data]
-  (t/log! :info "Processing started" {:record-count (count data)})
+  (log/log! {:level :info :msg "Processing started" :data {:record-count (count data)}})
   (try
     (let [result (do-processing data)]
-      (t/log! :info "Processing completed" {:result-count (count result)})
+      (log/log! {:level :info :msg "Processing completed" :data {:result-count (count result)}})
       result)
     (catch Exception e
-      (t/log! :error "Processing failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Processing failed" :error e :data {:error (ex-message e)}})
       (throw e))))
 ```
 
@@ -203,17 +201,15 @@ Need to: make browser playground/REPL?
 
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main-operation []
-  (t/log! :info "Starting operation")
+  (log/log! {:level :info :msg "Starting operation"})
   (try
     ;; Your logic here
-    (t/log! :info "Operation completed")
+    (log/log! {:level :info :msg "Operation completed"})
     (catch Exception e
-      (t/log! :error "Operation failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Operation failed" :data {:error (ex-message e)}})
       (System/exit 1))))
 
 (when (= *file* (System/getProperty "babashka.file"))
@@ -224,7 +220,8 @@ Need to: make browser playground/REPL?
 
 ```clojure
 {:paths ["src"]
- :deps {com.taoensso/telemere-lite {:mvn/version "LATEST"}}
+ :deps {com.taoensso/trove {:mvn/version "1.0.0"}
+        com.taoensso/timbre {:mvn/version "6.6.1"}}
  
  :tasks
  {install {:doc "Install dependencies"

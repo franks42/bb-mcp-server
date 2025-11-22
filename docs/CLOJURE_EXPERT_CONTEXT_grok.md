@@ -64,21 +64,19 @@ Use Babashka (bb) for all scripting needs (installation, configuration, deployme
 **Prefer bb, but use alternatives if bb can't handle the task** (e.g., complex system calls requiring bash). No other scripting languages by default.
 
 ### 4. Telemetry is Required
-Use Telemere-lite for Babashka, Telemere for JVM Clojure. Add logging to every significant function.
+Use Trove as the logging facade with Timbre as the backend. Add logging to every significant function.
 
 ```clojure
-(require '[taoensso.telemere-lite :as t])  ; Babashka
-;; OR
-(require '[taoensso.telemere :as t])       ; JVM Clojure
+(require '[taoensso.trove :as log])
 
 (defn process-data [data]
-  (t/log! :info "Processing started" {:record-count (count data)})
+  (log/log! {:level :info :msg "Processing started" :data {:record-count (count data)}})
   (try
     (let [result (do-processing data)]
-      (t/log! :info "Processing completed" {:result-count (count result)})
+      (log/log! {:level :info :msg "Processing completed" :data {:result-count (count result)}})
       result)
     (catch Exception e
-      (t/log! :error "Processing failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Processing failed" :error e :data {:error (ex-message e)}})
       (throw e))))
 ```
 
@@ -93,7 +91,7 @@ Ensure these tools are installed:
 - **clj-kondo:** `brew install clj-kondo` (or equivalent)
 - **cljfmt:** `brew install cljfmt`
 - **Parmezan:** `bb install-deps` (if using bb.edn with parmezan dep)
-- **Telemere:** Add to deps.edn or bb.edn as needed
+- **Trove + Timbre:** Add to deps.edn or bb.edn as needed
 
 ## Mandatory Workflow
 (Same as above, with added git integration)
@@ -119,17 +117,15 @@ git commit -m "Update: [brief description]"
 
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main []
-  (t/log! :info "Starting operation")
+  (log/log! {:level :info :msg "Starting operation"})
   (try
     ;; Logic here
-    (t/log! :info "Operation completed")
+    (log/log! {:level :info :msg "Operation completed"})
     (catch Exception e
-      (t/log! :error "Operation failed" {:error (ex-message e)})
+      (log/log! {:level :error :msg "Operation failed" :data {:error (ex-message e)}})
       (System/exit 1))))
 
 (when (= *file* (System/getProperty "babashka.file"))
@@ -139,7 +135,8 @@ git commit -m "Update: [brief description]"
 ### Standard bb.edn
 ```clojure
 {:paths ["src"]
- :deps {com.taoensso/telemere-lite {:mvn/version "LATEST"}}
+ :deps {com.taoensso/trove {:mvn/version "1.0.0"}
+        com.taoensso/timbre {:mvn/version "6.6.1"}}
  :tasks
  {install {:task (shell "clojure -P")}
   lint {:task (shell "clj-kondo --lint src test")}

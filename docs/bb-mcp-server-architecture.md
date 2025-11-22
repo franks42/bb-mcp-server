@@ -638,11 +638,13 @@ bb-mcp-server supports **cascading configuration** with project-based tool loadi
 
 ## Telemetry and Logging (Trove)
 
+**📖 Implementation Guide: See `docs/AI_TELEMETRY_GUIDE.md` for coding patterns and examples.**
+
 ### Design Philosophy
 
 **Comprehensive structured logging from day one**, not retrofitted later.
 
-Every significant event in the system generates structured JSON logs using **Trove** (or telemere-lite), enabling:
+Every significant event in the system generates structured JSON logs using **Trove** (facade) with **Timbre** (backend), enabling:
 - Real-time monitoring and debugging
 - Performance analysis
 - Security auditing
@@ -659,7 +661,7 @@ Every significant event in the system generates structured JSON logs using **Tro
 ✅ **Simple API** - Easy to use
 ✅ **Performance** - Low overhead
 
-Alternative: **telemere-lite** for more advanced features (OpenTelemetry compatible).
+Future: When Telemere supports Babashka, swap the backend binding in `telemetry/init!` - no call site changes needed.
 
 ### What to Log
 

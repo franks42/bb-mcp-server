@@ -32,7 +32,7 @@
 6. ✅ Document any per-environment overrides (env vars, bb tasks) so the next AI agent knows how to toggle verbosity.
 
 ### Migration Notes
-- Existing `telemere_lite` macros already produce Trove-compatible event maps; call-sites can gradually swap to direct `log/log!` usage.
+- The migration to Trove is complete. All code now uses `log/log!` with structured maps.
 - When Telemere gains Babashka support, only the backend wiring (`log/set-log-fn!`) changes—app code stays on the Trove facade.
 - Treat event IDs as ABI: agree on `:bb-mcp-server.component/action` pattern now to avoid churn later.
 - Sensitive data must be scrubbed **before** the `:data` map; Trove does not auto-redact.

@@ -185,13 +185,11 @@ cljfmt --version
 parmezan --version
 ```
 
-#### Telemere (Telemetry)
+#### Trove + Timbre (Telemetry)
 ```clojure
-;; Add to deps.edn
-{:deps {com.taoensso/telemere {:mvn/version "LATEST"}}}
-
-;; Or bb.edn for lite version
-{:deps {com.taoensso/telemere-lite {:mvn/version "LATEST"}}}
+;; Add to deps.edn or bb.edn
+{:deps {com.taoensso/trove {:mvn/version "1.0.0"}
+        com.taoensso/timbre {:mvn/version "6.6.1"}}}
 ```
 
 ### Installation Check Script
@@ -353,23 +351,20 @@ Our code in src/core.clj has zero warnings.
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]]
          '[clojure.string :as str]
-         '[taoensso.telemere-lite :as t])
-
-(t/set-min-level! :info)
+         '[taoensso.trove :as log])
 
 (defn main-operation
   "Description of what this script does."
   [& args]
-  (t/log! :info "Starting operation" {:args args})
+  (log/log! {:level :info :msg "Starting operation" :data {:args args}})
   (try
     ;; Your logic here
     (let [result (do-something args)]
-      (t/log! :info "Operation completed successfully" {:result result})
+      (log/log! {:level :info :msg "Operation completed successfully" :data {:result result}})
       result)
     (catch Exception e
-      (t/log! :error "Operation failed"
-              {:error (ex-message e)
-               :data (ex-data e)})
+      (log/log! {:level :error :msg "Operation failed" :error e
+                 :data {:error (ex-message e) :ex-data (ex-data e)}})
       (System/exit 1))))
 
 ;; Only run when executed directly (not when loaded)
@@ -382,7 +377,8 @@ Our code in src/core.clj has zero warnings.
 ```clojure
 {:paths ["src" "resources"]
 
- :deps {com.taoensso/telemere-lite {:mvn/version "1.0.0-beta14"}
+ :deps {com.taoensso/trove {:mvn/version "1.0.0"}
+        com.taoensso/timbre {:mvn/version "6.6.1"}
         babashka/fs {:mvn/version "0.5.20"}}
 
  :tasks
@@ -467,8 +463,8 @@ clj-kondo --lint src/myfile.clj
 
 ### Libraries
 
-- **Babashka:** `taoensso.telemere-lite`
-- **JVM Clojure:** `taoensso.telemere`
+- **Logging facade:** `taoensso.trove`
+- **Backend:** `taoensso.timbre` (configured in telemetry namespace)
 
 ### Log Levels - Use Appropriately
 
