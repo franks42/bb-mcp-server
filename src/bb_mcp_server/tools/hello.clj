@@ -44,16 +44,16 @@
 
 ;; Complete tool record for unified registry
 (def hello-tool
-  "Complete tool record for the 'hello' tool.
+     "Complete tool record for the 'hello' tool.
 
   Includes definition and handler for unified registry."
-  {:name "hello"
-   :description "Returns a greeting message"
-   :inputSchema {:type "object"
-                 :properties {:name {:type "string"
-                                     :description "Name to greet"}}
-                 :required ["name"]}
-   :handler hello-handler})
+     {:name "hello"
+      :description "Returns a greeting message"
+      :inputSchema {:type "object"
+                    :properties {:name {:type "string"
+                                        :description "Name to greet"}}
+                    :required ["name"]}
+      :handler hello-handler})
 
 (defn init!
   "Initialize the hello tool.
@@ -70,17 +70,17 @@
              :msg "Initializing hello tool"})
 
   (try
-    (registry/register! hello-tool)
-    (log/log! {:level :info
-               :id ::hello-init-complete
-               :msg "Hello tool initialization complete"})
-    true
+   (registry/register! hello-tool)
+   (log/log! {:level :info
+              :id ::hello-init-complete
+              :msg "Hello tool initialization complete"})
+   true
 
-    (catch Exception e
-      (log/log! {:level :error
-                 :id ::hello-init-failed
-                 :msg "Hello tool initialization failed"
-                 :error e
-                 :data {:error (ex-message e)
-                        :error-data (ex-data e)}})
-      (throw e))))
+   (catch Exception e
+          (log/log! {:level :error
+                     :id ::hello-init-failed
+                     :msg "Hello tool initialization failed"
+                     :error e
+                     :data {:error (ex-message e)
+                            :error-data (ex-data e)}})
+          (throw e))))

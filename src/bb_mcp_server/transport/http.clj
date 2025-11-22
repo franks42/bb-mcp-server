@@ -84,9 +84,9 @@
   "Handle health check request."
   [_request]
   (let [tool-count (try
-                     (require '[bb-mcp-server.registry :as registry])
-                     ((resolve 'bb-mcp-server.registry/tool-count))
-                     (catch Exception _ 0))]
+                    (require '[bb-mcp-server.registry :as registry])
+                    ((resolve 'bb-mcp-server.registry/tool-count))
+                    (catch Exception _ 0))]
     {:status 200
      :headers (merge cors-headers {"Content-Type" "application/json"})
      :body (json/generate-string {:status "ok"
@@ -185,11 +185,11 @@
              :id ::http-stop
              :msg "Stopping HTTP transport"})
   (when-let [server (:server @server-state)]
-    (server) ; http-kit stop function
-    (reset! server-state {:server nil :config nil})
-    (log/log! {:level :info
-               :id ::http-stopped
-               :msg "HTTP transport stopped"}))
+            (server) ; http-kit stop function
+            (reset! server-state {:server nil :config nil})
+            (log/log! {:level :info
+                       :id ::http-stopped
+                       :msg "HTTP transport stopped"}))
   nil)
 
 (defn running?

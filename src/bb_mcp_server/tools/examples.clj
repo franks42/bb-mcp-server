@@ -23,14 +23,14 @@
   message)
 
 (def echo-tool
-  "Tool definition for echo - returns input unchanged."
-  {:name "echo"
-   :description "Returns the input message unchanged"
-   :inputSchema {:type "object"
-                 :properties {:message {:type "string"
-                                        :description "Message to echo back"}}
-                 :required ["message"]}
-   :handler echo-handler})
+     "Tool definition for echo - returns input unchanged."
+     {:name "echo"
+      :description "Returns the input message unchanged"
+      :inputSchema {:type "object"
+                    :properties {:message {:type "string"
+                                           :description "Message to echo back"}}
+                    :required ["message"]}
+      :handler echo-handler})
 
 ;; -----------------------------------------------------------------------------
 ;; Add Tool
@@ -51,16 +51,16 @@
     result))
 
 (def add-tool
-  "Tool definition for add - adds two numbers."
-  {:name "add"
-   :description "Adds two numbers and returns the sum"
-   :inputSchema {:type "object"
-                 :properties {:a {:type "number"
-                                  :description "First number"}
-                              :b {:type "number"
-                                  :description "Second number"}}
-                 :required ["a" "b"]}
-   :handler add-handler})
+     "Tool definition for add - adds two numbers."
+     {:name "add"
+      :description "Adds two numbers and returns the sum"
+      :inputSchema {:type "object"
+                    :properties {:a {:type "number"
+                                     :description "First number"}
+                                 :b {:type "number"
+                                     :description "Second number"}}
+                    :required ["a" "b"]}
+      :handler add-handler})
 
 ;; -----------------------------------------------------------------------------
 ;; Concat Tool
@@ -82,25 +82,25 @@
     result))
 
 (def concat-tool
-  "Tool definition for concat - concatenates strings."
-  {:name "concat"
-   :description "Concatenates an array of strings with optional separator"
-   :inputSchema {:type "object"
-                 :properties {:strings {:type "array"
-                                        :items {:type "string"}
-                                        :description "Array of strings to concatenate"}
-                              :separator {:type "string"
-                                          :description "Optional separator between strings"}}
-                 :required ["strings"]}
-   :handler concat-handler})
+     "Tool definition for concat - concatenates strings."
+     {:name "concat"
+      :description "Concatenates an array of strings with optional separator"
+      :inputSchema {:type "object"
+                    :properties {:strings {:type "array"
+                                           :items {:type "string"}
+                                           :description "Array of strings to concatenate"}
+                                 :separator {:type "string"
+                                             :description "Optional separator between strings"}}
+                    :required ["strings"]}
+      :handler concat-handler})
 
 ;; -----------------------------------------------------------------------------
 ;; Registration
 ;; -----------------------------------------------------------------------------
 
 (def all-tools
-  "All example tools for bulk registration."
-  [echo-tool add-tool concat-tool])
+     "All example tools for bulk registration."
+     [echo-tool add-tool concat-tool])
 
 (defn init!
   "Register all example tools with the unified registry."

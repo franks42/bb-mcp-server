@@ -105,12 +105,12 @@
     (if (= type "object")
       (let [prop-schemas
             (for [[k v] properties]
-              (let [key-name (if (keyword? k) k (keyword k))
-                    prop-schema (json-type->malli v)
-                    optional? (not (contains? required-set (name k)))]
-                (if optional?
-                  [key-name {:optional true} prop-schema]
-                  [key-name prop-schema])))]
+                 (let [key-name (if (keyword? k) k (keyword k))
+                       prop-schema (json-type->malli v)
+                       optional? (not (contains? required-set (name k)))]
+                   (if optional?
+                     [key-name {:optional true} prop-schema]
+                     [key-name prop-schema])))]
         (into [:map] prop-schemas))
       ;; Non-object schema
       (json-type->malli json-schema))))
@@ -138,39 +138,39 @@
              :msg "Validating arguments"
              :data {:tool tool-name :argument-keys (keys arguments)}})
   (try
-    (let [malli-schema (json-schema->malli json-schema)
+   (let [malli-schema (json-schema->malli json-schema)
           ;; Convert string keys to keywords for validation
-          kw-arguments (reduce-kv (fn [m k v]
-                                    (assoc m (if (string? k) (keyword k) k) v))
-                                  {}
-                                  arguments)]
-      (if (m/validate malli-schema kw-arguments)
-        (do
-          (log/log! {:level :debug
-                     :id ::validation-success
-                     :msg "Arguments valid"
+         kw-arguments (reduce-kv (fn [m k v]
+                                   (assoc m (if (string? k) (keyword k) k) v))
+                                 {}
+                                 arguments)]
+     (if (m/validate malli-schema kw-arguments)
+       (do
+        (log/log! {:level :debug
+                   :id ::validation-success
+                   :msg "Arguments valid"
+                   :data {:tool tool-name}})
+        {:valid true :arguments arguments})
+       (let [explanation (m/explain malli-schema kw-arguments)
+             humanized (me/humanize explanation)]
+         (log/log! {:level :warn
+                    :id ::validation-failed
+                    :msg "Argument validation failed"
+                    :data {:tool tool-name :errors humanized}})
+         {:valid false
+          :errors humanized
+          :tool tool-name
+          :schema malli-schema})))
+   (catch Exception e
+          (log/log! {:level :error
+                     :id ::validation-exception
+                     :msg "Exception during validation"
+                     :error e
                      :data {:tool tool-name}})
-          {:valid true :arguments arguments})
-        (let [explanation (m/explain malli-schema kw-arguments)
-              humanized (me/humanize explanation)]
-          (log/log! {:level :warn
-                     :id ::validation-failed
-                     :msg "Argument validation failed"
-                     :data {:tool tool-name :errors humanized}})
           {:valid false
-           :errors humanized
+           :errors {:_validation "Schema conversion failed"}
            :tool tool-name
-           :schema malli-schema})))
-    (catch Exception e
-      (log/log! {:level :error
-                 :id ::validation-exception
-                 :msg "Exception during validation"
-                 :error e
-                 :data {:tool tool-name}})
-      {:valid false
-       :errors {:_validation "Schema conversion failed"}
-       :tool tool-name
-       :exception (ex-message e)})))
+           :exception (ex-message e)})))
 
 (defn validate-arguments!
   "Validate tool arguments, throwing on failure.

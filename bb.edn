@@ -6,10 +6,14 @@
         com.taoensso/timbre {:mvn/version "6.6.1"}
         org.clojure/tools.logging {:mvn/version "1.3.0"}}
 
- :paths ["src"]
+ :paths ["src" "scripts"]
 
  :tasks
- {lint {:doc "Lint code with clj-kondo"
+ {;; ==========================================================================
+  ;; Development Tasks
+  ;; ==========================================================================
+
+  lint {:doc "Lint code with clj-kondo"
         :task (shell "clj-kondo" "--lint" "src")}
 
   format {:doc "Format code with cljfmt"
@@ -21,19 +25,43 @@
   check {:doc "Run all checks (lint + format + test)"
          :task (do (run 'lint) (run 'format) (run 'test))}
 
-  server:stdio {:doc "Run MCP server over stdio"
-                :task (do
-                       (require '[bb-mcp-server.transport.stdio :as stdio])
-                       (stdio/run-stdio-server!))}
+  ;; ==========================================================================
+  ;; Server Tasks
+  ;; ==========================================================================
 
-  server:http {:doc "Run MCP server over HTTP (default port 3000)"
-               :task (let [port (or (some-> (first *command-line-args*) parse-long) 3000)]
-                      (require '[bb-mcp-server.transport.http :as http])
-                      (http/start! {:port port})
-                      (println (str "MCP HTTP server running on http://localhost:" port))
-                      (println "Endpoints: POST /mcp, GET /health")
-                      (println "Press Ctrl+C to stop")
-                      (deref (promise)))}}
+  server:stdio {:doc "Run MCP server over stdio"
+                :task (load-file "scripts/stdio_server.clj")}
+
+  server:http {:doc "Run MCP server over HTTP [port] (default 3000)"
+               :task (load-file "scripts/http_server.clj")}
+
+  ;; ==========================================================================
+  ;; HTTP Test Tasks
+  ;; ==========================================================================
+
+  http:test {:doc "Run all HTTP tests"
+             :task (shell "bb" "scripts/http_test.clj" "all")}
+
+  http:health {:doc "Check HTTP server health"
+               :task (shell "bb" "scripts/http_test.clj" "health")}
+
+  http:init {:doc "Test MCP initialize"
+             :task (shell "bb" "scripts/http_test.clj" "init")}
+
+  http:tools {:doc "List MCP tools"
+              :task (shell "bb" "scripts/http_test.clj" "tools")}
+
+  http:hello {:doc "Test hello tool [name]"
+              :task (apply shell "bb" "scripts/http_test.clj" "hello" *command-line-args*)}
+
+  http:add {:doc "Test add tool [a] [b]"
+            :task (apply shell "bb" "scripts/http_test.clj" "add" *command-line-args*)}
+
+  http:concat {:doc "Test concat tool [strings...]"
+               :task (apply shell "bb" "scripts/http_test.clj" "concat" *command-line-args*)}
+
+  http:call {:doc "Call any tool: http:call <tool> <json-args>"
+             :task (apply shell "bb" "scripts/http_test.clj" "call" *command-line-args*)}}
 
  :aliases
  {:test {:extra-paths ["test"]

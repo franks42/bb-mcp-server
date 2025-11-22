@@ -53,26 +53,26 @@
                     :arguments (keys arguments)}})
   (let [start-time (System/currentTimeMillis)]
     (try
-      (let [result (handler-fn arguments)
-            duration (- (System/currentTimeMillis) start-time)]
-        (log/log! {:level :info
-                   :id ::handler-success
-                   :msg "Tool handler executed successfully"
-                   :data {:tool tool-name
-                          :duration-ms duration}})
-        {:success result})
-      (catch Exception e
-        (let [duration (- (System/currentTimeMillis) start-time)]
-          (log/log! {:level :error
-                     :id ::handler-failed
-                     :msg "Tool handler execution failed"
-                     :error e
-                     :data {:tool tool-name
-                            :duration-ms duration
-                            :error (ex-message e)
-                            :error-data (ex-data e)}})
-          {:error {:message (ex-message e)
-                   :data (ex-data e)}})))))
+     (let [result (handler-fn arguments)
+           duration (- (System/currentTimeMillis) start-time)]
+       (log/log! {:level :info
+                  :id ::handler-success
+                  :msg "Tool handler executed successfully"
+                  :data {:tool tool-name
+                         :duration-ms duration}})
+       {:success result})
+     (catch Exception e
+            (let [duration (- (System/currentTimeMillis) start-time)]
+              (log/log! {:level :error
+                         :id ::handler-failed
+                         :msg "Tool handler execution failed"
+                         :error e
+                         :data {:tool tool-name
+                                :duration-ms duration
+                                :error (ex-message e)
+                                :error-data (ex-data e)}})
+              {:error {:message (ex-message e)
+                       :data (ex-data e)}})))))
 
 (defn handle-tools-call
   "Handle tools/call JSON-RPC request.
@@ -108,61 +108,61 @@
     ;; Look up tool from unified registry
     (if-let [tool (registry/get-tool tool-name)]
       ;; Tool found - validate and execute
-      (let [handler-fn (:handler tool)
-            input-schema (:inputSchema tool)
-            validation-result (validate-arguments arguments input-schema tool-name)]
-        (if (:valid validation-result)
+            (let [handler-fn (:handler tool)
+                  input-schema (:inputSchema tool)
+                  validation-result (validate-arguments arguments input-schema tool-name)]
+              (if (:valid validation-result)
           ;; Arguments valid - execute handler
-          (let [execution-result (execute-handler tool-name handler-fn arguments)]
-            (if (:success execution-result)
+                (let [execution-result (execute-handler tool-name handler-fn arguments)]
+                  (if (:success execution-result)
               ;; Success - return result in content format
-              (let [result (:success execution-result)
-                    result-str (if (string? result)
-                                 result
-                                 (pr-str result))
-                    response (msg/create-response
-                              request-id
-                              {:content [{:type "text"
-                                          :text result-str}]})]
-                (log/log! {:level :info
-                           :id ::tools-call-success
-                           :msg "tools/call request completed successfully"
-                           :data {:request-id request-id
-                                  :tool tool-name}})
-                response)
+                    (let [result (:success execution-result)
+                          result-str (if (string? result)
+                                       result
+                                       (pr-str result))
+                          response (msg/create-response
+                                    request-id
+                                    {:content [{:type "text"
+                                                :text result-str}]})]
+                      (log/log! {:level :info
+                                 :id ::tools-call-success
+                                 :msg "tools/call request completed successfully"
+                                 :data {:request-id request-id
+                                        :tool tool-name}})
+                      response)
               ;; Error - handler threw exception
-              (let [error-data (errors/exception->error-data
-                                 (ex-info "Tool execution failed"
-                                          (:error execution-result))
-                                 {:tool tool-name})]
-                (errors/log-error! :runtime-error "Tool execution failed" error-data)
-                (msg/create-error-response
-                 request-id
-                 (:tool-execution-failed errors/error-codes)
-                 "Tool execution failed"
-                 error-data))))
+                    (let [error-data (errors/exception->error-data
+                                      (ex-info "Tool execution failed"
+                                               (:error execution-result))
+                                      {:tool tool-name})]
+                      (errors/log-error! :runtime-error "Tool execution failed" error-data)
+                      (msg/create-error-response
+                       request-id
+                       (:tool-execution-failed errors/error-codes)
+                       "Tool execution failed"
+                       error-data))))
           ;; Arguments invalid - use detailed validation errors
-          (let [error-data {:type :validation-error
-                            :tool tool-name
-                            :validation-errors (:errors validation-result)
-                            :arguments (vec (keys arguments))}]
-            (errors/log-error! :validation-error "Invalid tool arguments" error-data)
-            (msg/create-error-response
-             request-id
-             (:invalid-tool-params errors/error-codes)
-             "Invalid tool params"
-             error-data))))
+                (let [error-data {:type :validation-error
+                                  :tool tool-name
+                                  :validation-errors (:errors validation-result)
+                                  :arguments (vec (keys arguments))}]
+                  (errors/log-error! :validation-error "Invalid tool arguments" error-data)
+                  (msg/create-error-response
+                   request-id
+                   (:invalid-tool-params errors/error-codes)
+                   "Invalid tool params"
+                   error-data))))
 
       ;; Tool not found
-      (let [error-data {:type :not-found
-                        :tool tool-name
-                        :available (vec (registry/tool-names))}]
-        (errors/log-error! :not-found "Tool not found in registry" error-data)
-        (msg/create-error-response
-         request-id
-         (:tool-not-found errors/error-codes)
-         "Tool not found"
-         error-data)))))
+            (let [error-data {:type :not-found
+                              :tool tool-name
+                              :available (vec (registry/tool-names))}]
+              (errors/log-error! :not-found "Tool not found in registry" error-data)
+              (msg/create-error-response
+               request-id
+               (:tool-not-found errors/error-codes)
+               "Tool not found"
+               error-data)))))
 
 (defn reset-handlers!
   "DEPRECATED: Use bb-mcp-server.registry/clear! instead.
