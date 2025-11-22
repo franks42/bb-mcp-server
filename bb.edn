@@ -42,6 +42,9 @@
   server:streamable {:doc "Run MCP server over Streamable HTTP [port] (default 3000)"
                      :task (load-file "scripts/streamable_http_server.clj")}
 
+  server:stop {:doc "Stop server running on [port] (default 3000)"
+               :task (load-file "scripts/stop_server.clj")}
+
   ;; ==========================================================================
   ;; HTTP Test Tasks
   ;; ==========================================================================
@@ -90,6 +93,9 @@
 
   test:http {:doc "Run HTTP integration tests (server must be running)"
              :task (load-file "scripts/http_integration_test.clj")}
+
+  test:streamable-http {:doc "Run Streamable HTTP integration test (server must be running on port)"
+                        :task (apply shell "scripts/test_streamable_http.sh" *command-line-args*)}
 
   test:all {:doc "Run all tests (main + modules)"
             :task (do (run 'test:modules)

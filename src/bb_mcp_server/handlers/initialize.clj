@@ -60,8 +60,9 @@
     ;; Return fixed response matching MCP spec
     ;; IMPORTANT: "2025-03-26" is a DATE (Mar 26, 2025), NOT a version number!
     ;; We don't declare authorization capability, so OAuth is not required
+    ;; listChanged: true signals we support notifications/tools/list_changed
     (msg/create-response request-id
                          {:protocolVersion "2025-03-26"
                           :serverInfo {:name "bb-mcp-server"
                                        :version "0.1.0"}
-                          :capabilities {:tools {}}})))
+                          :capabilities {:tools {:listChanged true}}})))

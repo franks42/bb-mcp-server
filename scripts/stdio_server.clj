@@ -14,9 +14,9 @@
 (let [create-result (sys/create-system-from-config)]
   (if (:error create-result)
     (do
-      (binding [*out* *err*]
-        (println "ERROR: Failed to create system:" (:error create-result)))
-      (System/exit 1))
+     (binding [*out* *err*]
+              (println "ERROR: Failed to create system:" (:error create-result)))
+     (System/exit 1))
     (log/log! {:level :info
                :msg "Modules configured"
                :data {:modules (get-in create-result [:success :modules])}})))
@@ -25,9 +25,9 @@
 (let [start-result (sys/start-system!)]
   (if (:error start-result)
     (do
-      (binding [*out* *err*]
-        (println "ERROR: Failed to start system:" (:error start-result)))
-      (System/exit 1))
+     (binding [*out* *err*]
+              (println "ERROR: Failed to start system:" (:error start-result)))
+     (System/exit 1))
     (log/log! {:level :info
                :msg "Modules started"
                :data {:started (get-in start-result [:success :started])}})))

@@ -26,9 +26,9 @@ This is an **upgrade to bb's HTTP server stack**, providing an alternative to We
 2. **REST APIs** - Same tools exposed via REST with real-time features
 3. **Any bb project** - Reusable session/SSE infrastructure
 
-**Status:** Phase 4 & 5 Complete - Ready for Phase 6 (Docs)
+**Status:** Phase 5.5 Complete - Server operations & MCP notifications
 **Date:** 2025-11-22
-**Last Updated:** 2025-11-22
+**Last Updated:** 2025-11-22 (added PID management, listChanged capability)
 **Design Doc:** `streamable-http-transport-design.md`
 **Review:** `streamable-http-transport-review.md` (Approved)
 
@@ -657,19 +657,169 @@ src/streamable_http/
 
 ---
 
-### Phase 6: Documentation & Extraction Prep
+### Phase 5.5: Server Operations & MCP Notifications
 
-**Goal:** Prepare for standalone repository
+**Goal:** Graceful server management and MCP-compliant notifications
 
 **Tasks:**
-- [ ] Comprehensive README.md
-- [ ] API documentation
+- [x] Implement PID file management (`scripts/pid_util.clj`)
+- [x] Add `bb server:stop <port>` task for graceful shutdown
+- [x] Implement `listChanged` capability in initialize handler
+- [x] Add callback mechanism in registry for tool list changes
+- [x] Wire `broadcast-notification!` to registry changes
+- [x] Server broadcasts `notifications/tools/list_changed` when tools added/removed
+
+**Files:**
+```
+scripts/
+└── pid_util.clj                    # PID file utilities
+
+src/bb_mcp_server/
+├── handlers/initialize.clj         # Added {:tools {:listChanged true}}
+└── registry.clj                    # Added list-changed-callback mechanism
+
+scripts/
+└── streamable_http_server.clj      # Wires callback to broadcast
+```
+
+**Key Implementation Details:**
+
+1. **PID File Management:**
+   - `pid-util/write-pid-file!` creates `.pid/<port>.pid` on startup
+   - `pid-util/delete-pid-file!` removes on shutdown
+   - `bb server:stop <port>` reads PID and sends SIGTERM
+
+2. **listChanged Capability:**
+   - Initialize response declares `{:tools {:listChanged true}}`
+   - `registry/set-list-changed-callback!` sets notification callback
+   - `register!` and `unregister!` call callback when tool list changes
+   - Callback triggers `broadcast-notification!` to all SSE clients
+
+**Usage:**
+```bash
+# Start server (writes PID file)
+bb server:streamable 19878
+
+# Stop server gracefully (reads PID, sends SIGTERM)
+bb server:stop 19878
+```
+
+**Hot-reload workflow:**
+```clojure
+;; Dynamic tool registration triggers notification
+(registry/register! {:name "new-tool" ...})
+;; → All SSE clients receive notifications/tools/list_changed
+;; → Clients can call tools/list to get updated tool list
+```
+
+**Deliverable:** Graceful server management + MCP-compliant list change notifications ✅
+
+---
+
+### Phase 6: Documentation (Deferred)
+
+**Goal:** Document the module for users
+
+**Note:** Extraction to standalone repo is **deferred** - keeping all code together during active development.
+
+**Tasks:**
+- [ ] Comprehensive README.md for `modules/streamable-http/`
+- [ ] API documentation (public functions in `core.clj`)
 - [ ] Usage examples
-- [ ] Standalone bb.edn (no bb-mcp-server deps)
-- [ ] GitHub Actions CI (if extracted)
 - [ ] Changelog
 
-**Deliverable:** Ready for extraction to own repo
+**Deferred (extraction prep):**
+- Standalone bb.edn (no bb-mcp-server deps)
+- GitHub Actions CI
+- `git subtree split`
+
+**Deliverable:** Well-documented module within bb-mcp-server
+
+---
+
+### Phase 7: REST API Transport (Future)
+
+**Goal:** RESTful API alongside MCP JSON-RPC, with transport-aware tool routing
+
+**Motivation:**
+- Dashboards and web UIs prefer REST over JSON-RPC
+- OpenAPI/Swagger tooling for API documentation
+- Easier integration for non-MCP clients
+- Security: some tools should only be exposed on certain transports
+
+**Transport Routing Table:**
+
+Each tool declares which transports it supports:
+
+```clojure
+;; In tool registration
+{:name "calculate"
+ :description "Math calculations"
+ :inputSchema {...}
+ :handler calculate-fn
+ :transports #{:rest :mcp-http :mcp-stdio}}  ; NEW: transport whitelist
+
+;; Or in module.edn
+{:tools [{:name "nrepl-eval"
+          :transports #{:mcp-stdio}}  ; Dangerous - local only!
+         {:name "echo"
+          :transports #{:rest :mcp-http :mcp-stdio}}]}  ; Safe everywhere
+```
+
+**Default behavior:**
+- If `:transports` not specified → all transports (backward compatible)
+- Tools filter by transport at request time
+
+**Transport types:**
+| Transport | Description | Use Case |
+|-----------|-------------|----------|
+| `:mcp-stdio` | Claude Code subprocess | Local dev, full trust |
+| `:mcp-http` | MCP JSON-RPC over HTTP | Cloud MCP clients |
+| `:rest` | RESTful API | Dashboards, web UIs |
+
+**Tasks:**
+- [ ] Extend registry schema to include `:transports` field
+- [ ] Add `list-tools-for-transport` function to registry
+- [ ] Design REST API routes mapping to tools
+  - `GET /api/tools` → list REST-enabled tools only
+  - `GET /api/tools/:name` → tool metadata
+  - `POST /api/tools/:name/call` → invoke tool (if REST-enabled)
+  - `GET /api/sessions` → list active sessions
+- [ ] Implement REST router in `streamable-http/handlers/rest.clj`
+- [ ] Implement REST→MCP adapter (convert REST requests to internal tool calls)
+- [ ] Add content negotiation middleware (JSON, EDN, Transit)
+- [ ] Generate OpenAPI/Swagger spec from REST-enabled tools
+- [ ] Integration tests for REST endpoints
+- [ ] Document REST API and transport routing in README
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────┐
+│              streamable-http (generic)              │
+│     Sessions │ SSE │ Middleware │ Lifecycle         │
+├─────────────────┬───────────────────────────────────┤
+│   /mcp          │          /api                     │
+│   JSON-RPC 2.0  │          REST                     │
+│   MCP Protocol  │          REST conventions         │
+├─────────────────┴───────────────────────────────────┤
+│                 Tool Registry                       │
+│           (same tools, two interfaces)              │
+└─────────────────────────────────────────────────────┘
+```
+
+**Files:**
+```
+src/streamable_http/
+├── handlers/
+│   └── rest.clj          # REST endpoint handlers (NEW)
+└── openapi.clj           # OpenAPI spec generation (NEW)
+
+test/streamable_http/
+└── rest_test.clj         # REST integration tests (NEW)
+```
+
+**Dependencies:** Phase 6 (Documentation)
+**Deliverable:** RESTful API works alongside MCP JSON-RPC
 
 ---
 
@@ -866,10 +1016,27 @@ Day 6: Hardening & Docs
 - [x] Graceful shutdown notifies SSE clients before closing
 - [x] 90 tests, 175 assertions passing
 
+### Phase 5.5 Complete When:
+- [x] `bb server:stop <port>` gracefully stops server via PID file
+- [x] PID file created on startup, deleted on shutdown
+- [x] Initialize response includes `{:tools {:listChanged true}}`
+- [x] `registry/register!` triggers `notifications/tools/list_changed` broadcast
+- [x] `registry/unregister!` triggers `notifications/tools/list_changed` broadcast
+- [x] All 133 tests, 345 assertions passing (including module tests)
+
 ### Phase 6 Complete When:
-- [ ] Module runs standalone (own bb.edn)
-- [ ] README sufficient for external use
-- [ ] Ready to `git subtree split`
+- [ ] README.md documents public API
+- [ ] Usage examples included
+- [ ] (Deferred: standalone bb.edn, extraction)
+
+### Phase 7 Complete When:
+- [ ] Registry supports `:transports` field on tools
+- [ ] `list-tools-for-transport` filters tools by transport
+- [ ] `GET /api/tools` returns only REST-enabled tools
+- [ ] `POST /api/tools/:name/call` invokes tools (respects transport whitelist)
+- [ ] OpenAPI spec generated from REST-enabled tools
+- [ ] Same tools accessible via MCP and REST (when whitelisted)
+- [ ] REST integration tests passing
 
 ---
 
@@ -895,6 +1062,89 @@ Day 6: Hardening & Docs
 6. **Rate limit algorithm**: Token bucket vs sliding window?
    - **Decision:** Token bucket - simpler, works for single-instance
    - **Note:** Document that distributed rate limiting needs external solution
+
+---
+
+## Operational Notes
+
+### Hot-Reloading Tools
+
+There are two approaches to add/remove tools:
+
+#### Approach 1: Dynamic Registration (No Server Restart)
+
+Add tools at runtime without stopping the server:
+
+1. **Load the module** using `local-load-file` tool:
+   ```
+   local-load-file with path: "modules/hello/src/hello/core.clj"
+   ```
+
+2. **Start the module** using `local-eval` tool:
+   ```clojure
+   (hello.core/start {} {:greeting "Hi"})
+   ```
+   This registers the tool with the server's registry.
+
+3. **Reconnect MCP client** - In Claude Code, run `/mcp` to refresh tool list
+
+**Why this works:**
+- `local-load-file` loads the module namespace into the running server
+- The module's `start` function calls `registry/register!`
+- Server immediately has the new tool available
+- Client reconnect refreshes the cached tool list (no new session needed if same server)
+
+**Example workflow:**
+```
+# In Claude Code, use the MCP tools:
+
+1. local-load-file: modules/hello/src/hello/core.clj
+   → Loads hello.core namespace
+
+2. local-eval: (hello.core/start {} {:greeting "Hi"})
+   → Registers hello tool, returns {:registered-tools ["hello"]}
+
+3. /mcp (Claude Code command)
+   → Reconnects, now sees hello tool
+
+4. hello: {name: "Frank"}
+   → "Hi, Frank!"
+```
+
+#### Approach 2: Server Restart (Config-Based)
+
+When modifying `system.edn` for permanent changes:
+
+1. **Stop the server** using `bb server:stop <port>`
+2. **Edit `system.edn`** to add/remove modules
+3. **Restart the server** on the **same port** using `bb server:streamable <port>`
+4. **Force MCP client reconnect** - In Claude Code, run `/mcp` to reconnect
+
+**Example workflow:**
+```bash
+# Stop server
+bb server:stop 19878
+
+# Edit system.edn to add "math" module
+# :modules ["hello" "echo" "strings" "calculate" "local-eval" "nrepl" "math"]
+
+# Restart on same port
+bb server:streamable 19878
+
+# In Claude Code: /mcp (to reconnect)
+# Now both old and new tools are available
+```
+
+#### When to Use Each Approach
+
+| Scenario | Approach |
+|----------|----------|
+| Testing new tool during development | Dynamic (no restart) |
+| Permanent addition to server config | Server restart |
+| Quick iteration on tool handler | Dynamic (no restart) |
+| Production deployment | Server restart |
+
+Both approaches require a client `/mcp` reconnect to see new tools, because MCP clients cache the tool list from `tools/list` at initialization.
 
 ---
 

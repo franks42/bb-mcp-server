@@ -51,6 +51,45 @@
  registry
          (atom {}))
 
+(defonce ^{:doc "Callback function called when tool list changes.
+                Set via set-list-changed-callback! for notification support."}
+ list-changed-callback
+         (atom nil))
+
+;; -----------------------------------------------------------------------------
+;; List Changed Notification API
+;; -----------------------------------------------------------------------------
+
+(defn set-list-changed-callback!
+  "Set callback to be called when tool list changes.
+
+  The callback receives no arguments - it should trigger a
+  'notifications/tools/list_changed' notification to clients.
+
+  Args:
+    callback-fn - Zero-arg function to call on changes, or nil to disable
+
+  Example:
+    (set-list-changed-callback!
+      #(broadcast-notification! \"notifications/tools/list_changed\" {}))"
+  [callback-fn]
+  (reset! list-changed-callback callback-fn))
+
+(defn- notify-list-changed!
+  "Internal: trigger list changed callback if set."
+  []
+  (when-let [callback @list-changed-callback]
+            (try
+             (callback)
+             (log/log! {:level :info
+                        :id ::list-changed-notified
+                        :msg "Tool list changed notification sent"})
+             (catch Exception e
+                    (log/log! {:level :warn
+                               :id ::list-changed-error
+                               :msg "Error sending list changed notification"
+                               :data {:error (.getMessage e)}})))))
+
 ;; -----------------------------------------------------------------------------
 ;; Validation
 ;; -----------------------------------------------------------------------------
@@ -99,6 +138,7 @@
                :msg "Tool registered"
                :data {:tool-name tool-name
                       :total-tools (count @registry)}})
+    (notify-list-changed!)
     tool-record))
 
 (defn unregister!
@@ -120,7 +160,8 @@
                  :id ::unregistered
                  :msg "Tool unregistered"
                  :data {:tool-name tool-name
-                        :total-tools (count @registry)}}))
+                        :total-tools (count @registry)}})
+      (notify-list-changed!))
     removed))
 
 (defn register-all!

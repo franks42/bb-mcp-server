@@ -32,18 +32,18 @@
 
 (defn send-request [request]
   (try
-    (let [response (http/post (str base-url "/mcp")
-                              {:headers {"Content-Type" "application/json"}
-                               :body (json/generate-string request)
-                               :throw false})]
-      {:status (:status response)
-       :body (when (:body response)
-               (try
-                 (json/parse-string (:body response) true)
-                 (catch Exception _
-                   (:body response))))})
-    (catch Exception e
-      {:error (ex-message e)})))
+   (let [response (http/post (str base-url "/mcp")
+                             {:headers {"Content-Type" "application/json"}
+                              :body (json/generate-string request)
+                              :throw false})]
+     {:status (:status response)
+      :body (when (:body response)
+              (try
+               (json/parse-string (:body response) true)
+               (catch Exception _
+                      (:body response))))})
+   (catch Exception e
+          {:error (ex-message e)})))
 
 ;; =============================================================================
 ;; Test Cases
@@ -57,8 +57,8 @@
 
 (defn test-initialize []
   (let [req (json-rpc-request "initialize"
-                               {:protocolVersion "1.0"
-                                :clientInfo {:name "integration-test" :version "1.0.0"}})
+                              {:protocolVersion "1.0"
+                               :clientInfo {:name "integration-test" :version "1.0.0"}})
         {:keys [body error]} (send-request req)]
     (cond
       error
@@ -95,7 +95,7 @@
       (let [text (get-in body [:result :content 0 :text])]
         ;; Accept either "Hello" or "Hi" since greeting is configurable
         (if (and text (or (str/includes? text "Hello")
-                         (str/includes? text "Hi")))
+                          (str/includes? text "Hi")))
           (record-result! "Tools Call (hello)" true text)
           (record-result! "Tools Call (hello)" false (str "Missing greeting: " text))))
 
@@ -120,16 +120,16 @@
 
 (defn test-invalid-json []
   (try
-    (let [response (http/post (str base-url "/mcp")
-                              {:headers {"Content-Type" "application/json"}
-                               :body "not valid json"
-                               :throw false})
-          body (json/parse-string (:body response) true)]
-      (if (= -32700 (get-in body [:error :code]))
-        (record-result! "Invalid JSON" true "Correct parse error code")
-        (record-result! "Invalid JSON" false (str "Expected -32700: " body))))
-    (catch Exception e
-      (record-result! "Invalid JSON" false (ex-message e)))))
+   (let [response (http/post (str base-url "/mcp")
+                             {:headers {"Content-Type" "application/json"}
+                              :body "not valid json"
+                              :throw false})
+         body (json/parse-string (:body response) true)]
+     (if (= -32700 (get-in body [:error :code]))
+       (record-result! "Invalid JSON" true "Correct parse error code")
+       (record-result! "Invalid JSON" false (str "Expected -32700: " body))))
+   (catch Exception e
+          (record-result! "Invalid JSON" false (ex-message e)))))
 
 (defn test-unknown-method []
   (let [req (json-rpc-request "unknown/method" {})
@@ -193,9 +193,9 @@
 
 ;; Check if server is running first
 (try
-  (http/get (str base-url "/health") {:throw true :timeout 2000})
-  (run-tests)
-  (catch Exception _
-    (println "❌ Server not running at" base-url)
-    (println "Start server first with: bb server:http" test-port)
-    (System/exit 1)))
+ (http/get (str base-url "/health") {:throw true :timeout 2000})
+ (run-tests)
+ (catch Exception _
+        (println "❌ Server not running at" base-url)
+        (println "Start server first with: bb server:http" test-port)
+        (System/exit 1)))
