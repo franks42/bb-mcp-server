@@ -149,7 +149,7 @@
                                                  :code code}))))
                         code)
           nrepl-message (when actual-code {:op "eval" :code actual-code})
-          result (delegate/call-async-tool "nrepl-send-message"
+          result (delegate/call-async-tool "nrepl.nrepl-send-message"
                                            (cond-> {:timeout-ms timeout}
                                                    connection (assoc :connection connection)
                                                    message-id (assoc :message-id message-id)

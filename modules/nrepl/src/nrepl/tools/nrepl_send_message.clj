@@ -51,7 +51,7 @@
   (cond
     ;; Recovery path - check for delayed result
     message-id
-    (delegate/call-async-tool "nrepl-get-result-async"
+    (delegate/call-async-tool "nrepl.nrepl-get-result-async"
                               {:message-id message-id :timeout timeout-ms})
 
     ;; Validation - message required for normal path
@@ -66,11 +66,11 @@
 
     ;; Normal path - send then wait
     :else
-    (let [send-result (delegate/call-async-tool "nrepl-send-message-async"
+    (let [send-result (delegate/call-async-tool "nrepl.nrepl-send-message-async"
                                                 {:message message :connection connection})]
       (if (delegate/is-success-result? send-result)
         (let [msg-id (delegate/extract-result-data send-result :message-id)]
-          (delegate/call-async-tool "nrepl-get-result-async"
+          (delegate/call-async-tool "nrepl.nrepl-get-result-async"
                                     {:message-id msg-id :timeout timeout-ms}))
         send-result)))) ; Propagate send error
 

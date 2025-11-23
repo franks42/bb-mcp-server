@@ -1,8 +1,7 @@
 (ns nrepl.tools.tool-delegation
     "Tool delegation helper - enables calling MCP tools from within other tools"
     (:require [bb-mcp-server.registry :as registry]
-              [cheshire.core :as json]
-              [clojure.string]))
+              [cheshire.core :as json]))
 
 ;; =============================================================================
 ;; Tool Delegation Infrastructure
@@ -11,8 +10,11 @@
 (defn call-async-tool
   "Call another MCP tool and return its result - enables tool delegation.
 
+   IMPORTANT: Use fully-qualified tool names (e.g., 'nrepl.nrepl-send-message')
+   to ensure correct resolution in the registry.
+
    Example:
-   (call-async-tool 'nrepl-send-message-async' {:message {:op 'eval' :code '(+ 1 2)'}})
+   (call-async-tool \"nrepl.nrepl-send-message-async\" {:message {:op \"eval\" :code \"(+ 1 2)\"}})
 
    Returns the full MCP tool response with :content, :isError, etc."
   [tool-name args]
