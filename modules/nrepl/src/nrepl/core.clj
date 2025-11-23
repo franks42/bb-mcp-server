@@ -68,7 +68,7 @@
                     :tool-count (count tools)}})
   ;; Register all tools
   (doseq [{:keys [name definition handler]} tools]
-         (registry/register! (assoc definition :name name :handler handler)))
+         (registry/register! (assoc definition :name name :module "nrepl" :handler handler)))
   (log/log! {:level :info
              :id ::nrepl-started
              :msg "nREPL module started"

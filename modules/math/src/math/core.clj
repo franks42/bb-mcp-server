@@ -29,6 +29,7 @@
      "Add tool definition with schema and handler."
      {:name "add"
       :description "Adds two numbers and returns the sum"
+      :module "math"
       :inputSchema {:type "object"
                     :properties {:a {:type "number"
                                      :description "First number"}

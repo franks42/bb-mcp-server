@@ -52,6 +52,7 @@
 
 (def tool-definition
      {:name tool-name
+      :module "local-eval"
       :description "Load and evaluate Clojure files in MCP server's runtime.
 
 Uses Clojure's built-in load-file function to load and evaluate the specified

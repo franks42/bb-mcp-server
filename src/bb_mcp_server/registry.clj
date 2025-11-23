@@ -44,6 +44,7 @@
       [:description :string]
       [:inputSchema JsonSchema]
       [:handler fn?]
+      [:module {:optional true} :string]
       [:transports {:optional true} [:set Transport]]])
 
 (def ToolDefinition
@@ -52,6 +53,7 @@
       [:name :string]
       [:description :string]
       [:inputSchema JsonSchema]
+      [:module {:optional true} :string]
       [:transports {:optional true} [:set Transport]]])
 
 ;; -----------------------------------------------------------------------------
@@ -246,13 +248,13 @@
 (defn list-tools
   "Get all registered tool definitions (without handlers).
 
-  Returns: Sequence of maps with :name, :description, :inputSchema, :transports
+  Returns: Sequence of maps with :name, :description, :inputSchema, :module, :transports
 
   Note: Handler functions are excluded for serialization safety."
   []
   (->> @registry
        vals
-       (map #(select-keys % [:name :description :inputSchema :transports]))
+       (map #(select-keys % [:name :description :inputSchema :module :transports]))
        (sort-by :name)))
 
 (defn get-tool-transports
@@ -280,7 +282,7 @@
   (->> @registry
        vals
        (filter #(contains? (get-tool-transports %) transport))
-       (map #(select-keys % [:name :description :inputSchema :transports]))
+       (map #(select-keys % [:name :description :inputSchema :module :transports]))
        (sort-by :name)))
 
 (defn tool-supports-transport?
@@ -294,6 +296,61 @@
   [tool-name transport]
   (when-let [tool (get-tool tool-name)]
     (contains? (get-tool-transports tool) transport)))
+
+(defn list-modules
+  "Get list of unique module names from registered tools.
+
+  Returns: Sorted sequence of module name strings (nil modules excluded)"
+  []
+  (->> @registry
+       vals
+       (map :module)
+       (remove nil?)
+       distinct
+       sort))
+
+(defn list-tools-for-module
+  "Get tool definitions for a specific module.
+
+  Args:
+    module-name - String name of module
+
+  Returns: Sequence of tool definitions belonging to the module"
+  [module-name]
+  (->> @registry
+       vals
+       (filter #(= module-name (:module %)))
+       (map #(select-keys % [:name :description :inputSchema :module :transports]))
+       (sort-by :name)))
+
+(defn list-tools-for-module-and-transport
+  "Get tool definitions for a module that support a specific transport.
+
+  Args:
+    module-name - String name of module
+    transport   - Transport keyword
+
+  Returns: Sequence of tool definitions"
+  [module-name transport]
+  (->> @registry
+       vals
+       (filter #(and (= module-name (:module %))
+                     (contains? (get-tool-transports %) transport)))
+       (map #(select-keys % [:name :description :inputSchema :module :transports]))
+       (sort-by :name)))
+
+(defn get-tool-in-module
+  "Get a specific tool by module and name.
+
+  Args:
+    module-name - String name of module
+    tool-name   - String name of tool
+
+  Returns: Tool record if found and belongs to module, nil otherwise"
+  [module-name tool-name]
+  (when-let [tool (get-tool tool-name)]
+    (when (= module-name (:module tool))
+      tool)))
 
 ;; -----------------------------------------------------------------------------
 ;; Introspection API

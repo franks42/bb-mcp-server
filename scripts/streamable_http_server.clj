@@ -67,10 +67,14 @@
                            :path "/mcp"
                            :health-path "/health"
                            ;; REST API configuration
-                           :rest-config {:list-tools-fn    registry/list-tools-for-transport
-                                         :get-tool-fn      registry/get-tool
-                                         :get-handler-fn   registry/get-handler
-                                         :supports-rest-fn registry/tool-supports-transport?}}))
+                           :rest-config {:list-tools-fn            registry/list-tools-for-transport
+                                         :get-tool-fn              registry/get-tool
+                                         :get-handler-fn           registry/get-handler
+                                         :supports-rest-fn         registry/tool-supports-transport?
+                                         ;; Module-based routing
+                                         :list-modules-fn          registry/list-modules
+                                         :list-tools-for-module-fn registry/list-tools-for-module
+                                         :get-tool-in-module-fn    registry/get-tool-in-module}}))
 
 ;; Set up tool list changed notification callback
 ;; When tools are registered/unregistered, broadcast to all SSE clients
@@ -83,10 +87,18 @@
 (println "    POST /mcp    - JSON-RPC requests (initialize, tools/list, tools/call)")
 (println "    GET  /mcp    - SSE stream (with Mcp-Session-Id header)")
 (println "    DELETE /mcp  - Terminate session")
-(println "  REST API Endpoints:")
-(println "    GET  /api/tools        - List tools (REST-enabled only)")
+(println "  REST API (Module-based):")
+(println "    GET  /api/modules                      - List all modules")
+(println "    GET  /api/modules/:module/tools        - List tools in module")
+(println "    GET  /api/modules/:module/tools/:name  - Get tool metadata")
+(println "    POST /api/modules/:module/tools/:name  - Call a tool")
+(println "  REST API (Flat):")
+(println "    GET  /api/tools        - List all tools")
 (println "    GET  /api/tools/:name  - Get tool metadata")
 (println "    POST /api/tools/:name  - Call a tool")
+(println "  Documentation:")
+(println "    GET /api/docs          - HTML API docs")
+(println "    GET /api/openapi.json  - OpenAPI spec")
 (println "  Utility:")
 (println "    GET /health  - Health check")
 (println "\n  Features:")

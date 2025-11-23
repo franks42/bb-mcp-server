@@ -72,6 +72,7 @@
 (def calculate-tool
      "Calculate tool definition with schema and handler."
      {:name "calculate"
+      :module "calculate"
       :description "Evaluate mathematical expressions using Clojure prefix notation with 100+ pre-loaded functions.
 
 **Categories:**

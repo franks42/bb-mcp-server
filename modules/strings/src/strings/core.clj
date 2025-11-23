@@ -31,6 +31,7 @@
      "Concat tool definition with schema and handler."
      {:name "concat"
       :description "Concatenates an array of strings with optional separator"
+      :module "strings"
       :inputSchema {:type "object"
                     :properties {:strings {:type "array"
                                            :items {:type "string"}

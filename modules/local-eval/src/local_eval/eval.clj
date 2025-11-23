@@ -132,6 +132,7 @@
 
 (def tool-definition
      {:name tool-name
+      :module "local-eval"
       :description "Execute Clojure code within MCP server runtime for introspection and debugging.
 Uses native Babashka/Clojure eval - ideal for server state inspection, debugging, and code execution.
 

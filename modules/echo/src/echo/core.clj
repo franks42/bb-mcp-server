@@ -24,6 +24,7 @@
      "Echo tool definition with schema and handler."
      {:name "echo"
       :description "Returns the input message unchanged"
+      :module "echo"
       :inputSchema {:type "object"
                     :properties {:message {:type "string"
                                            :description "Message to echo back"}}

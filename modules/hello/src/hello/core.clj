@@ -44,6 +44,7 @@
 (def hello-tool
      "MCP tool definition for hello."
      {:name "hello"
+      :module "hello"
       :description "Greet a user by name"
       :inputSchema {:type "object"
                     :properties {:name {:type "string"
