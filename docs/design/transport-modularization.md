@@ -132,6 +132,7 @@ modules/
 - When the http-core infrastructure needs to be shared elsewhere
 - When json-rpc needs to be used outside bb-mcp-server
 - When the current structure becomes painful to maintain
+- **When implementing progress notifications** (requires transport-aware delivery)
 
 ## Questions to Answer Later
 
@@ -140,7 +141,117 @@ modules/
 3. Can json-rpc be a standalone bb library?
 4. What's the right granularity for http-core vs mcp-http vs rest-api?
 
+---
+
+## Implementation Plan: Unified Processor with Context
+
+*Based on architecture review (2025-11-22)*
+
+### The Problem: Duplicate Processing Logic
+
+Currently, JSON-RPC processing is duplicated:
+- `test-harness.clj` → used by Stdio transport
+- `streamable-http/handlers/post.clj` → used by HTTP transport
+
+Both do: Parse JSON → Validate → Route → Format Response
+
+### The Solution: `protocol.processor` with Context
+
+Create a unified processor that accepts a **context object** (`ctx`) carrying transport-specific capabilities.
+
+```
+┌──────────────┐      ┌──────────────┐
+│  Stdio       │      │  HTTP (SSE)  │
+│  Transport   │      │  Transport   │
+└──────┬───────┘      └──────┬───────┘
+       │                     │
+       ▼                     ▼
+┌────────────────────────────────────┐
+│         Unified Processor          │
+│ (bb-mcp-server.protocol.processor) │
+│                                    │
+│  process-request [ctx request]     │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────┐
+│              Router                │
+│ (bb-mcp-server.protocol.router)    │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+┌──────────────┐      ┌──────────────┐
+│  Handlers    │      │  Registry    │
+└──────────────┘      └──────────────┘
+```
+
+### The Context Object
+
+The `ctx` map carries transport-specific capabilities to handlers:
+
+```clojure
+;; Stdio context
+{:transport :stdio
+ :send-notification! (fn [msg] (println (json/generate-string msg)))}
+
+;; HTTP context
+{:transport :http
+ :session-id "abc-123"
+ :send-notification! (fn [msg] (sse/send-json-rpc! channel msg))}
+```
+
+### Handler Signature Change
+
+**Before:** `(fn [request] ...)`
+**After:** `(fn [ctx request] ...)`
+
+Example with progress notifications:
+
+```clojure
+(defn handle-tools-call [{:keys [send-notification!]} request]
+  ;; ... execute tool ...
+  ;; Send progress (works on both stdio and HTTP!)
+  (send-notification! {:method "notifications/progress"
+                       :params {:progress 50}})
+  ;; Return result
+  {:result ...})
+```
+
+### Why This is Low-Risk
+
+1. **Handlers stay pure** - Just add `ctx` as first arg
+2. **No module changes** - Tool modules don't know about transports
+3. **Incremental** - Can migrate one handler at a time
+4. **Backward compatible** - Old handlers work, just can't send notifications
+
+### Implementation Steps
+
+1. **Create `bb-mcp-server.protocol.processor`**
+   - Move parsing/dispatch logic from `test-harness.clj`
+   - Accept `[ctx request-or-str]`
+   - Call router with `[ctx request]`
+
+2. **Update Router**
+   - `route-request [ctx request]` instead of `[request]`
+   - Pass `ctx` to handlers
+
+3. **Update Handlers (incremental)**
+   - Change signature to `[ctx request]`
+   - Use `(:send-notification! ctx)` for progress
+
+4. **Update Transports**
+   - **Stdio**: Build stdio-ctx, call processor
+   - **HTTP**: Build http-ctx with session/SSE, call processor
+
+### REST API: No Changes Needed
+
+REST bypasses JSON-RPC entirely - calls registry/handlers directly.
+This is correct and should stay separate.
+
+---
+
 ## Related
 
 - [naming-conventions.md](naming-conventions.md) - Module-tool separator design
-- [streamable-http-implementation-plan.md](streamable-http-implementation-plan.md) - Current HTTP transport phases
+- [streamable-http-implementation-plan.md](../streamable-http/docs/streamable-http-implementation-plan.md) - HTTP transport phases
+- [modularization-advice.md](modularization-advice.md) - Original architecture review
