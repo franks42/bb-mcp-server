@@ -3,6 +3,9 @@
 
    Provides HTTP REST endpoints for tools registered with :rest transport support.
 
+   Server Introspection:
+     GET  /api/server                         - Server info (name, version, moduleToolSeparator)
+
    Module-based Endpoints:
      GET  /api/modules                        - List all modules
      GET  /api/modules/:module/tools          - List tools for a module
@@ -186,6 +189,29 @@
      :body html}))
 
 ;; =============================================================================
+;; Server Info Handler
+;; =============================================================================
+
+(defn handle-server-info
+  "Handle GET /api/server - return server info for introspection.
+
+   Returns information equivalent to MCP initialize response serverInfo,
+   enabling clients to introspect server configuration without MCP handshake.
+
+   Arguments:
+     request         - Ring request
+     server-info-fn  - Function returning server info map
+
+   Returns:
+     Ring response with server info"
+  [_request server-info-fn]
+  (log/log! {:level :debug
+             :id    ::server-info
+             :msg   "Returning server info"})
+  (let [info (server-info-fn)]
+    (success-response info)))
+
+;; =============================================================================
 ;; Module-based Handlers
 ;; =============================================================================
 
@@ -256,29 +282,26 @@
    Arguments:
      request                  - Ring request
      module-name              - Name of module
-     tool-name                - Name of tool
-     get-tool-in-module-fn   - Function to get tool by module and name
-     get-handler-fn          - Function to get tool handler
+     tool-name                - Short name of tool (from URL)
+     get-tool-in-module-fn   - Function to get tool by module and short name
 
    Returns:
      Ring response with tool result or error"
-  [request module-name tool-name get-tool-in-module-fn get-handler-fn]
+  [request module-name tool-name get-tool-in-module-fn]
   (log/log! {:level :info
              :id    ::call-module-tool
              :msg   "Calling tool via module REST"
              :data  {:module module-name :tool-name tool-name}})
 
-  ;; Check tool exists in module
-  (if-not (get-tool-in-module-fn module-name tool-name)
-    (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))
-
+  ;; Get the tool (includes handler) by module + short name
+  (if-let [tool (get-tool-in-module-fn module-name tool-name)]
     ;; Parse body
     (let [[params error] (parse-json-body request)]
       (if error
         (bad-request-response error)
 
-        ;; Call handler
-        (if-let [handler (get-handler-fn tool-name)]
+        ;; Call handler from tool record
+        (if-let [handler (:handler tool)]
           (try
             (let [result (handler params)]
               (log/log! {:level :info
@@ -300,7 +323,10 @@
                 {:module module-name
                  :tool tool-name
                  :message (.getMessage e)})))
-          (internal-error-response "Tool handler not found"))))))
+          (internal-error-response "Tool handler not found"))))
+
+    ;; Tool not found
+    (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))))
 
 ;; =============================================================================
 ;; Router
@@ -316,6 +342,7 @@
        :list-modules-fn          - (fn []) -> seq of module names
        :list-tools-for-module-fn - (fn [module-name]) -> seq of tool definitions
        :get-tool-in-module-fn    - (fn [module-name tool-name]) -> tool or nil
+       :server-info-fn           - (fn []) -> server info map (optional)
        :openapi-opts             - Optional OpenAPI config (server-url, title, etc.)
 
    Returns:
@@ -323,7 +350,7 @@
      Returns nil if request doesn't match /api/* path"
   [{:keys [list-tools-fn get-handler-fn
            list-modules-fn list-tools-for-module-fn get-tool-in-module-fn
-           openapi-opts]}]
+           server-info-fn openapi-opts]}]
   (fn [request]
     (let [uri (:uri request)
           method (:request-method request)]
@@ -336,6 +363,10 @@
         ;; GET /api/openapi.json - OpenAPI specification
         (and (= uri "/api/openapi.json") (= method :get))
         (handle-openapi request list-tools-fn openapi-opts)
+
+        ;; GET /api/server - server info for introspection
+        (and (= uri "/api/server") (= method :get) server-info-fn)
+        (handle-server-info request server-info-fn)
 
         ;; =================================================================
         ;; Module-based routes
@@ -353,7 +384,7 @@
         ;; POST /api/modules/:module/tools/:name - call a tool in module
         (and (re-matches #"/api/modules/[^/]+/tools/[^/]+" uri) (= method :post))
         (when-let [{:keys [module tool]} (extract-module-tool uri)]
-          (handle-call-module-tool request module tool get-tool-in-module-fn get-handler-fn))
+          (handle-call-module-tool request module tool get-tool-in-module-fn))
 
         ;; GET /api/modules/:module/tools/:name - get tool metadata in module
         (and (re-matches #"/api/modules/[^/]+/tools/[^/]+" uri) (= method :get))

@@ -107,7 +107,7 @@
              :data {:instance instance}})
 
   ;; Unregister tool
-  (registry/unregister! "hello")
+  (registry/unregister! "hello.hello")
 
   ;; Reset state
   (reset! module-state {:greeting "Hello" :call-count 0})

@@ -4,18 +4,40 @@
   Provides thread-safe registration, lookup, and management of tools.
   Each tool consists of metadata (name, description, schema) and a handler function.
 
-  Usage:
-    (register! {:name \"hello\"
-                :description \"Say hello\"
-                :inputSchema {:type \"object\" :properties {:name {:type \"string\"}}}
-                :handler (fn [{:keys [name]}] (str \"Hello, \" name \"!\"))})
+  Tool Naming:
+    Tools are identified by a fully-qualified name: 'module.name'
+    This prevents collisions when multiple modules define tools with the same short name.
+    The :name field is the MCP-visible identifier (module.shortname).
+    The :short-name field is preserved for REST API routes (/api/modules/:module/tools/:short-name).
 
-    (get-tool \"hello\")      ; => full tool record
-    (get-handler \"hello\")   ; => handler function
-    (list-tools)              ; => seq of tool definitions (no handlers)"
-    (:require [malli.core :as m]
+  Usage:
+    (register! {:name \"add\"                    ; short name
+                :module \"math\"                 ; required!
+                :description \"Add numbers\"
+                :inputSchema {:type \"object\" :properties {:a {:type \"number\"}}}
+                :handler (fn [{:keys [a b]}] (+ a b))})
+
+    ;; Tool is registered as 'math.add'
+    (get-tool \"math.add\")      ; => full tool record
+    (get-handler \"math.add\")   ; => handler function
+    (list-tools)                 ; => seq of tool definitions (no handlers)"
+    (:require [clojure.string :as str]
+              [malli.core :as m]
               [malli.error :as me]
               [taoensso.trove :as log]))
+
+;; -----------------------------------------------------------------------------
+;; Tool Naming Configuration
+;; -----------------------------------------------------------------------------
+
+(def module-tool-separator
+  "Separator character used between module and tool names.
+
+  This character is used to construct fully-qualified tool names like 'module.tool'.
+  It is reserved and cannot appear in module names or tool short names.
+
+  This value is exposed in the MCP initialize response for client introspection."
+  ".")
 
 ;; -----------------------------------------------------------------------------
 ;; Schema Definitions
@@ -38,22 +60,32 @@
   [:enum :rest :mcp-http :mcp-stdio])
 
 (def ToolRecord
-     "Schema for a complete tool registration"
+     "Schema for a complete tool registration.
+
+  Required fields:
+    :name        - Short tool name (e.g., 'add')
+    :module      - Module name (required! e.g., 'math')
+    :description - Human-readable description
+    :inputSchema - JSON Schema for parameters
+    :handler     - Function to call
+
+  The full MCP tool name will be 'module.name' (e.g., 'math.add')"
      [:map {:closed false}  ; Allow extra keys for extensibility
       [:name :string]
+      [:module :string]  ; Now required!
       [:description :string]
       [:inputSchema JsonSchema]
       [:handler fn?]
-      [:module {:optional true} :string]
       [:transports {:optional true} [:set Transport]]])
 
 (def ToolDefinition
      "Schema for tool definition (without handler) - returned by list-tools"
      [:map {:closed false}  ; Allow extra keys for extensibility
       [:name :string]
+      [:module :string]  ; Now required!
+      [:short-name {:optional true} :string]  ; Original name before prefixing
       [:description :string]
       [:inputSchema JsonSchema]
-      [:module {:optional true} :string]
       [:transports {:optional true} [:set Transport]]])
 
 ;; -----------------------------------------------------------------------------
@@ -124,6 +156,34 @@
                        :errors humanized})))))
 
 ;; -----------------------------------------------------------------------------
+;; Tool Name Helpers
+;; -----------------------------------------------------------------------------
+
+(defn make-full-name
+  "Create fully-qualified tool name from module and short name.
+
+  Args:
+    module-name - Module name string
+    short-name  - Short tool name string
+
+  Returns: String 'module<separator>shortname' using module-tool-separator"
+  [module-name short-name]
+  (str module-name module-tool-separator short-name))
+
+(defn parse-full-name
+  "Parse a fully-qualified tool name into module and short name.
+
+  Args:
+    full-name - String like 'module<separator>toolname'
+
+  Returns: Map with :module and :short-name, or nil if invalid format"
+  [full-name]
+  (let [sep-idx (str/index-of full-name module-tool-separator)]
+    (when (and sep-idx (pos? sep-idx) (< sep-idx (dec (count full-name))))
+      {:module (subs full-name 0 sep-idx)
+       :short-name (subs full-name (inc sep-idx))})))
+
+;; -----------------------------------------------------------------------------
 ;; Registration API
 ;; -----------------------------------------------------------------------------
 
@@ -131,48 +191,104 @@
   "Register a tool in the registry.
 
   Args:
-    tool-record - Map with :name, :description, :inputSchema, :handler
+    tool-record - Map with :name, :module, :description, :inputSchema, :handler
+                  :module is REQUIRED
 
-  Returns: The registered tool record
+  Returns: The registered tool record (with :name updated to full name)
 
-  Throws: ex-info if validation fails
+  Throws: ex-info if:
+    - validation fails
+    - :module is missing
+    - module name or tool name contains a dot (reserved separator)
+    - tool with same full name already exists
 
-  Note: Re-registering a tool with the same name replaces the previous one."
+  The tool's :name will be transformed to 'module.name' format.
+  The original short name is preserved in :short-name."
   [tool-record]
-  (validate-tool-record! tool-record)
-  (let [tool-name (:name tool-record)]
+  ;; Validate module is present
+  (when-not (:module tool-record)
+    (throw (ex-info "Tool registration requires :module field"
+                    {:type :missing-module
+                     :tool-name (:name tool-record)})))
+
+  ;; Validate separator char not in module name or tool name (reserved)
+  (let [module-name (:module tool-record)
+        tool-name (:name tool-record)]
+    (when (and module-name (str/includes? module-name module-tool-separator))
+      (throw (ex-info (str "Module name cannot contain '" module-tool-separator "' (reserved separator)")
+                      {:type :invalid-module-name
+                       :module module-name
+                       :separator module-tool-separator
+                       :reason "separator-in-name"})))
+    (when (and tool-name (str/includes? tool-name module-tool-separator))
+      (throw (ex-info (str "Tool name cannot contain '" module-tool-separator "' (reserved separator)")
+                      {:type :invalid-tool-name
+                       :tool-name tool-name
+                       :separator module-tool-separator
+                       :reason "separator-in-name"}))))
+
+  ;; Create full name
+  (let [short-name (:name tool-record)
+        module-name (:module tool-record)
+        full-name (make-full-name module-name short-name)
+        ;; Transform record: :name becomes full name, preserve :short-name
+        transformed (assoc tool-record
+                           :name full-name
+                           :short-name short-name)]
+
+    ;; Validate transformed record
+    (validate-tool-record! transformed)
+
+    ;; Check for collision
+    (when (contains? @registry full-name)
+      (let [existing (get @registry full-name)]
+        (log/log! {:level :error
+                   :id ::collision
+                   :msg "Tool name collision detected"
+                   :data {:full-name full-name
+                          :existing-module (:module existing)
+                          :new-module module-name}})
+        (throw (ex-info (str "Tool '" full-name "' already registered")
+                        {:type :name-collision
+                         :full-name full-name
+                         :existing-module (:module existing)
+                         :new-module module-name}))))
+
+    ;; Register
     (log/log! {:level :info
                :id ::register
                :msg "Registering tool"
-               :data {:tool-name tool-name}})
-    (swap! registry assoc tool-name tool-record)
+               :data {:full-name full-name
+                      :module module-name
+                      :short-name short-name}})
+    (swap! registry assoc full-name transformed)
     (log/log! {:level :info
                :id ::registered
                :msg "Tool registered"
-               :data {:tool-name tool-name
+               :data {:full-name full-name
                       :total-tools (count @registry)}})
     (notify-list-changed!)
-    tool-record))
+    transformed))
 
 (defn unregister!
   "Remove a tool from the registry.
 
   Args:
-    tool-name - String name of tool to remove
+    full-name - Full tool name (module.shortname) to remove
 
   Returns: The removed tool record, or nil if not found"
-  [tool-name]
+  [full-name]
   (log/log! {:level :info
              :id ::unregister
              :msg "Unregistering tool"
-             :data {:tool-name tool-name}})
-  (let [removed (get @registry tool-name)]
-    (swap! registry dissoc tool-name)
+             :data {:full-name full-name}})
+  (let [removed (get @registry full-name)]
+    (swap! registry dissoc full-name)
     (when removed
       (log/log! {:level :info
                  :id ::unregistered
                  :msg "Tool unregistered"
-                 :data {:tool-name tool-name
+                 :data {:full-name full-name
                         :total-tools (count @registry)}})
       (notify-list-changed!))
     removed))
@@ -340,17 +456,16 @@
        (sort-by :name)))
 
 (defn get-tool-in-module
-  "Get a specific tool by module and name.
+  "Get a specific tool by module and short name.
 
   Args:
     module-name - String name of module
-    tool-name   - String name of tool
+    short-name  - String short name of tool (not full name)
 
-  Returns: Tool record if found and belongs to module, nil otherwise"
-  [module-name tool-name]
-  (when-let [tool (get-tool tool-name)]
-    (when (= module-name (:module tool))
-      tool)))
+  Returns: Tool record if found, nil otherwise"
+  [module-name short-name]
+  (let [full-name (make-full-name module-name short-name)]
+    (get-tool full-name)))
 
 ;; -----------------------------------------------------------------------------
 ;; Introspection API

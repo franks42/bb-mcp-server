@@ -74,7 +74,13 @@
                                          ;; Module-based routing
                                          :list-modules-fn          registry/list-modules
                                          :list-tools-for-module-fn registry/list-tools-for-module
-                                         :get-tool-in-module-fn    registry/get-tool-in-module}}))
+                                         :get-tool-in-module-fn    registry/get-tool-in-module
+                                         ;; Server info for introspection
+                                         :server-info-fn           (fn []
+                                                                     {:name "bb-mcp-server"
+                                                                      :version "0.1.0"
+                                                                      :moduleToolSeparator registry/module-tool-separator
+                                                                      :mcpProtocolVersion "2025-03-26"})}}))
 
 ;; Set up tool list changed notification callback
 ;; When tools are registered/unregistered, broadcast to all SSE clients
@@ -88,6 +94,7 @@
 (println "    GET  /mcp    - SSE stream (with Mcp-Session-Id header)")
 (println "    DELETE /mcp  - Terminate session")
 (println "  REST API:")
+(println "    GET  /api/server                       - Server info (introspection)")
 (println "    GET  /api/modules                      - List all modules")
 (println "    GET  /api/modules/:module/tools        - List tools in module")
 (println "    GET  /api/modules/:module/tools/:name  - Get tool metadata")

@@ -16,24 +16,23 @@
                 :description "Add two numbers"
                 :inputSchema {:type "object"
                               :properties {:a {:type "number"}
-                                           :b {:type "number"}}}}
+                                           :b {:type "number"}}}
+                :handler (fn [{:keys [a b]}] (+ a b))}
    "echo"      {:name "echo"
                 :module "echo"
                 :description "Echo the input"
                 :inputSchema {:type "object"
-                              :properties {:message {:type "string"}}}}
+                              :properties {:message {:type "string"}}}
+                :handler (fn [{:keys [message]}] {:echoed message})}
    "nrepl-eval" {:name "nrepl-eval"
                  :module "nrepl"
                  :description "Evaluate code in nREPL (stdio only)"
                  :inputSchema {:type "object"
                                :properties {:code {:type "string"}}}
-                 :transports #{:mcp-stdio}}})
+                 :transports #{:mcp-stdio}
+                 :handler (fn [{:keys [code]}] {:result code})}})
 
-(def test-handlers
-  "Sample handlers for testing."
-  {"add"  (fn [{:keys [a b]}] (+ a b))
-   "echo" (fn [{:keys [message]}] {:echoed message})
-   "nrepl-eval" (fn [{:keys [code]}] {:result code})})
+;; test-handlers removed - handlers now embedded in test-tools
 
 (defn list-tools-fn [transport]
   (->> (vals test-tools)
@@ -42,8 +41,7 @@
                    (contains? transports transport))))
        (map #(select-keys % [:name :description :inputSchema :transports :module]))))
 
-(defn get-handler-fn [name]
-  (get test-handlers name))
+;; get-handler-fn removed - handlers now embedded in tools
 
 (defn list-modules-fn []
   (->> (vals test-tools)
@@ -63,7 +61,6 @@
 
 (def test-config
   {:list-tools-fn            list-tools-fn
-   :get-handler-fn           get-handler-fn
    :list-modules-fn          list-modules-fn
    :list-tools-for-module-fn list-tools-for-module-fn
    :get-tool-in-module-fn    get-tool-in-module-fn})
@@ -135,7 +132,7 @@
 (deftest handle-call-module-tool-test
   (testing "Calls tool and returns result"
     (let [request {:body "{\"a\": 2, \"b\": 3}"}
-          response (rest/handle-call-module-tool request "math" "add" get-tool-in-module-fn get-handler-fn)
+          response (rest/handle-call-module-tool request "math" "add" get-tool-in-module-fn)
           body (util/parse-json (:body response))]
       (is (= 200 (:status response)))
       (is (= 5 (:result body)))
@@ -144,13 +141,13 @@
 
   (testing "Returns 404 for tool not in module"
     (let [request {:body "{}"}
-          response (rest/handle-call-module-tool request "math" "echo" get-tool-in-module-fn get-handler-fn)
+          response (rest/handle-call-module-tool request "math" "echo" get-tool-in-module-fn)
           body (util/parse-json (:body response))]
       (is (= 404 (:status response)))))
 
   (testing "Returns 400 for invalid JSON"
     (let [request {:body "not json"}
-          response (rest/handle-call-module-tool request "math" "add" get-tool-in-module-fn get-handler-fn)
+          response (rest/handle-call-module-tool request "math" "add" get-tool-in-module-fn)
           body (util/parse-json (:body response))]
       (is (= 400 (:status response)))
       (is (clojure.string/includes? (:message body) "Invalid JSON")))))
@@ -208,6 +205,38 @@
         (is (= "3.0.3" (:openapi body)))
         (is (map? (:info body)))
         (is (map? (:paths body)))))))
+
+;; =============================================================================
+;; Server Info Tests
+;; =============================================================================
+
+(deftest handle-server-info-test
+  (testing "Returns server info when configured"
+    (let [server-info-fn (fn [] {:name "test-server"
+                                  :version "1.0.0"
+                                  :moduleToolSeparator "."
+                                  :mcpProtocolVersion "2025-03-26"})
+          response (rest/handle-server-info {} server-info-fn)
+          body (util/parse-json (:body response))]
+      (is (= 200 (:status response)))
+      (is (= "test-server" (:name body)))
+      (is (= "1.0.0" (:version body)))
+      (is (= "." (:moduleToolSeparator body)))
+      (is (= "2025-03-26" (:mcpProtocolVersion body))))))
+
+(deftest create-rest-router-server-info-test
+  (let [server-info-fn (fn [] {:name "bb-mcp-server"
+                                :version "0.1.0"
+                                :moduleToolSeparator "."})
+        config (assoc test-config :server-info-fn server-info-fn)
+        router (rest/create-rest-router config)]
+
+    (testing "GET /api/server returns server info"
+      (let [response (router {:uri "/api/server" :request-method :get})
+            body (util/parse-json (:body response))]
+        (is (= 200 (:status response)))
+        (is (= "bb-mcp-server" (:name body)))
+        (is (= "." (:moduleToolSeparator body)))))))
 
 ;; =============================================================================
 ;; OpenAPI Tests

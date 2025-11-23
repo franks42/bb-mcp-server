@@ -226,7 +226,7 @@
                         call-req (json/generate-string
                                   {:jsonrpc "2.0"
                                    :method "tools/call"
-                                   :params {:name "hello"
+                                   :params {:name "test.hello"
                                             :arguments {:name "World"}}
                                    :id 2})
                         {:keys [output]} (with-stdio-capture [init-req call-req ""]

@@ -64,7 +64,7 @@
   (log/log! {:level :info
              :id ::strings-stopping
              :msg "Stopping strings module"})
-  (registry/unregister! "concat")
+  (registry/unregister! "strings.concat")
   nil)
 
 (defn status

@@ -81,9 +81,9 @@
   (log/log! {:level :info
              :id ::nrepl-stopping
              :msg "Stopping nREPL module"})
-  ;; Unregister all tools
+  ;; Unregister all tools (use full name: nrepl.toolname)
   (doseq [{:keys [name]} tools]
-         (registry/unregister! name))
+         (registry/unregister! (str "nrepl." name)))
   nil)
 
 (defn status

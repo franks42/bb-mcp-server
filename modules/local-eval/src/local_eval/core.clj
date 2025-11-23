@@ -30,8 +30,8 @@
   (log/log! {:level :info
              :id ::local-eval-stopping
              :msg "Stopping local-eval module"})
-  (registry/unregister! "local-eval")
-  (registry/unregister! "local-load-file")
+  (registry/unregister! "local-eval.local-eval")
+  (registry/unregister! "local-eval.local-load-file")
   nil)
 
 (defn status

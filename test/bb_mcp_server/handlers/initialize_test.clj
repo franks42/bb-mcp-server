@@ -167,9 +167,9 @@
                            (set (keys result)))
                         "Result should have exactly protocolVersion, serverInfo, and capabilities keys")
 
-                    (is (= #{:name :version}
+                    (is (= #{:name :version :moduleToolSeparator}
                            (set (keys (:serverInfo result))))
-                        "ServerInfo should have exactly name and version keys")
+                        "ServerInfo should have exactly name, version, and moduleToolSeparator keys")
 
                     (is (= #{:tools}
                            (set (keys (:capabilities result))))
@@ -182,6 +182,10 @@
                         "serverInfo.name should be string")
                     (is (string? (get-in result [:serverInfo :version]))
                         "serverInfo.version should be string")
+                    (is (string? (get-in result [:serverInfo :moduleToolSeparator]))
+                        "serverInfo.moduleToolSeparator should be string")
+                    (is (= "." (get-in result [:serverInfo :moduleToolSeparator]))
+                        "moduleToolSeparator should match registry value")
                     (is (map? (get-in result [:capabilities :tools]))
                         "capabilities.tools should be map (object in protocol 2025-03-26)")
                     (is (= {:listChanged true} (get-in result [:capabilities :tools]))

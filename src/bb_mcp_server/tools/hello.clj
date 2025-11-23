@@ -48,6 +48,7 @@
 
   Includes definition and handler for unified registry."
      {:name "hello"
+      :module "test"
       :description "Returns a greeting message"
       :inputSchema {:type "object"
                     :properties {:name {:type "string"

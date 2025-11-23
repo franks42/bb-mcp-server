@@ -5,6 +5,7 @@
   to establish a session with the server."
     (:require [bb-mcp-server.protocol.message :as msg]
               [bb-mcp-server.protocol.router :as router]
+              [bb-mcp-server.registry :as registry]
               [taoensso.trove :as log]))
 
 (defn handle-initialize
@@ -61,8 +62,10 @@
     ;; IMPORTANT: "2025-03-26" is a DATE (Mar 26, 2025), NOT a version number!
     ;; We don't declare authorization capability, so OAuth is not required
     ;; listChanged: true signals we support notifications/tools/list_changed
+    ;; moduleToolSeparator: exposed for client introspection of tool naming convention
     (msg/create-response request-id
                          {:protocolVersion "2025-03-26"
                           :serverInfo {:name "bb-mcp-server"
-                                       :version "0.1.0"}
+                                       :version "0.1.0"
+                                       :moduleToolSeparator registry/module-tool-separator}
                           :capabilities {:tools {:listChanged true}}})))

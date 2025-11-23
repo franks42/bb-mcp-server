@@ -61,7 +61,7 @@
   (log/log! {:level :info
              :id ::math-stopping
              :msg "Stopping math module"})
-  (registry/unregister! "add")
+  (registry/unregister! "math.add")
   nil)
 
 (defn status

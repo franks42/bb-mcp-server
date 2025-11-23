@@ -25,6 +25,7 @@
 (def echo-tool
      "Tool definition for echo - returns input unchanged."
      {:name "echo"
+      :module "test"
       :description "Returns the input message unchanged"
       :inputSchema {:type "object"
                     :properties {:message {:type "string"
@@ -53,6 +54,7 @@
 (def add-tool
      "Tool definition for add - adds two numbers."
      {:name "add"
+      :module "test"
       :description "Adds two numbers and returns the sum"
       :inputSchema {:type "object"
                     :properties {:a {:type "number"
@@ -84,6 +86,7 @@
 (def concat-tool
      "Tool definition for concat - concatenates strings."
      {:name "concat"
+      :module "test"
       :description "Concatenates an array of strings with optional separator"
       :inputSchema {:type "object"
                     :properties {:strings {:type "array"

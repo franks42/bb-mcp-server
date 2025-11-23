@@ -54,7 +54,7 @@
   (log/log! {:level :info
              :id ::echo-stopping
              :msg "Stopping echo module"})
-  (registry/unregister! "echo")
+  (registry/unregister! "echo.echo")
   nil)
 
 (defn status

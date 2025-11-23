@@ -127,7 +127,7 @@
   (log/log! {:level :info
              :id ::calculate-stopping
              :msg "Stopping calculate module"})
-  (registry/unregister! "calculate")
+  (registry/unregister! "calculate.calculate")
   nil)
 
 (defn status
