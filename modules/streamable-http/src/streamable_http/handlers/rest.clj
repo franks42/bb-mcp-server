@@ -3,25 +3,20 @@
 
    Provides HTTP REST endpoints for tools registered with :rest transport support.
 
-   Module-based Endpoints (recommended):
+   Module-based Endpoints:
      GET  /api/modules                        - List all modules
      GET  /api/modules/:module/tools          - List tools for a module
      GET  /api/modules/:module/tools/:name    - Get tool metadata
      POST /api/modules/:module/tools/:name    - Call a tool
 
-   Flat Endpoints (legacy, still supported):
-     GET  /api/tools           - List all REST tools
-     GET  /api/tools/:name     - Get tool metadata
-     POST /api/tools/:name     - Call a tool by name
-
-   Special Endpoints:
+   Documentation Endpoints:
      GET  /api/openapi.json    - OpenAPI 3.0 specification
      GET  /api/docs            - HTML documentation
 
    Unlike MCP JSON-RPC, REST uses standard HTTP semantics:
    - Status codes for errors (400, 404, 500)
    - JSON request/response bodies
-   - Module and tool name in URL path"
+   - Module and tool name in URL path (prevents name collisions)"
   (:require [streamable-http.util :as util]
             [streamable-http.openapi :as openapi]
             [streamable-http.docs :as docs]
@@ -128,15 +123,6 @@
       :else
       [nil "Unsupported body type"])))
 
-(defn- extract-tool-name
-  "Extract tool name from URI path.
-
-   /api/tools/calculate -> 'calculate'
-   /api/tools/my-tool   -> 'my-tool'"
-  [uri]
-  (when-let [[_ name] (re-matches #"/api/tools/([^/]+)" uri)]
-    name))
-
 (defn- extract-module-name
   "Extract module name from URI path.
 
@@ -152,99 +138,6 @@
   [uri]
   (when-let [[_ module tool] (re-matches #"/api/modules/([^/]+)/tools/([^/]+)" uri)]
     {:module module :tool tool}))
-
-;; =============================================================================
-;; Handlers
-;; =============================================================================
-
-(defn handle-list-tools
-  "Handle GET /api/tools - list all REST-enabled tools.
-
-   Arguments:
-     request        - Ring request
-     list-tools-fn  - Function to list tools for :rest transport
-
-   Returns:
-     Ring response with tool list"
-  [_request list-tools-fn]
-  (log/log! {:level :debug
-             :id    ::list-tools
-             :msg   "Listing REST tools"})
-  (let [tools (list-tools-fn :rest)]
-    (success-response {:tools (map tool-to-rest-format tools)
-                       :count (count tools)})))
-
-(defn handle-get-tool
-  "Handle GET /api/tools/:name - get tool metadata.
-
-   Arguments:
-     request          - Ring request
-     tool-name        - Name of tool to get
-     get-tool-fn      - Function to get tool by name
-     supports-rest-fn - Function to check if tool supports :rest
-
-   Returns:
-     Ring response with tool info or 404"
-  [_request tool-name get-tool-fn supports-rest-fn]
-  (log/log! {:level :debug
-             :id    ::get-tool
-             :msg   "Getting tool metadata"
-             :data  {:tool-name tool-name}})
-
-  (if-let [tool (get-tool-fn tool-name)]
-    (if (supports-rest-fn tool-name :rest)
-      (success-response (tool-to-rest-format
-                          (select-keys tool [:name :description :inputSchema])))
-      (not-found-response (str "Tool '" tool-name "' not available via REST")))
-    (not-found-response (str "Tool '" tool-name "' not found"))))
-
-(defn handle-call-tool
-  "Handle POST /api/tools/:name - call a tool.
-
-   Arguments:
-     request          - Ring request
-     tool-name        - Name of tool to call
-     get-handler-fn   - Function to get tool handler
-     supports-rest-fn - Function to check if tool supports :rest
-
-   Returns:
-     Ring response with tool result or error"
-  [request tool-name get-handler-fn supports-rest-fn]
-  (log/log! {:level :info
-             :id    ::call-tool
-             :msg   "Calling tool via REST"
-             :data  {:tool-name tool-name}})
-
-  ;; Check tool exists and supports REST
-  (if-not (supports-rest-fn tool-name :rest)
-    (not-found-response (str "Tool '" tool-name "' not found or not available via REST"))
-
-    ;; Parse body
-    (let [[params error] (parse-json-body request)]
-      (if error
-        (bad-request-response error)
-
-        ;; Call handler
-        (if-let [handler (get-handler-fn tool-name)]
-          (try
-            (let [result (handler params)]
-              (log/log! {:level :info
-                         :id    ::tool-success
-                         :msg   "Tool call succeeded"
-                         :data  {:tool-name tool-name}})
-              (created-response {:result result
-                                 :tool tool-name}))
-            (catch Exception e
-              (log/log! {:level :error
-                         :id    ::tool-error
-                         :msg   "Tool call failed"
-                         :data  {:tool-name tool-name
-                                 :error (.getMessage e)}})
-              (internal-error-response
-                "Tool execution failed"
-                {:tool tool-name
-                 :message (.getMessage e)})))
-          (internal-error-response "Tool handler not found"))))))
 
 ;; =============================================================================
 ;; OpenAPI Handler
@@ -418,10 +311,8 @@
 
    Arguments:
      config - Map with:
-       :list-tools-fn            - (fn [transport]) -> seq of tool definitions
-       :get-tool-fn              - (fn [name]) -> tool or nil
+       :list-tools-fn            - (fn [transport]) -> seq of tool definitions (for docs/OpenAPI)
        :get-handler-fn           - (fn [name]) -> handler fn or nil
-       :supports-rest-fn         - (fn [name transport]) -> boolean
        :list-modules-fn          - (fn []) -> seq of module names
        :list-tools-for-module-fn - (fn [module-name]) -> seq of tool definitions
        :get-tool-in-module-fn    - (fn [module-name tool-name]) -> tool or nil
@@ -430,7 +321,7 @@
    Returns:
      Function (fn [request]) -> response or nil
      Returns nil if request doesn't match /api/* path"
-  [{:keys [list-tools-fn get-tool-fn get-handler-fn supports-rest-fn
+  [{:keys [list-tools-fn get-handler-fn
            list-modules-fn list-tools-for-module-fn get-tool-in-module-fn
            openapi-opts]}]
   (fn [request]
@@ -447,7 +338,7 @@
         (handle-openapi request list-tools-fn openapi-opts)
 
         ;; =================================================================
-        ;; Module-based routes (recommended)
+        ;; Module-based routes
         ;; =================================================================
 
         ;; GET /api/modules - list all modules
@@ -470,24 +361,6 @@
           (handle-get-module-tool request module tool get-tool-in-module-fn))
 
         ;; =================================================================
-        ;; Flat routes (legacy, still supported)
-        ;; =================================================================
-
-        ;; GET /api/tools - list all tools
-        (and (= uri "/api/tools") (= method :get))
-        (handle-list-tools request list-tools-fn)
-
-        ;; POST /api/tools/:name - call a tool
-        (and (re-matches #"/api/tools/[^/]+" uri) (= method :post))
-        (when-let [tool-name (extract-tool-name uri)]
-          (handle-call-tool request tool-name get-handler-fn supports-rest-fn))
-
-        ;; GET /api/tools/:name - get tool metadata
-        (and (re-matches #"/api/tools/[^/]+" uri) (= method :get))
-        (when-let [tool-name (extract-tool-name uri)]
-          (handle-get-tool request tool-name get-tool-fn supports-rest-fn))
-
-        ;; =================================================================
         ;; Common routes
         ;; =================================================================
 
@@ -504,16 +377,10 @@
         (= uri "/api/modules")
         (method-not-allowed-response "GET, OPTIONS")
 
-        (= uri "/api/tools")
-        (method-not-allowed-response "GET, OPTIONS")
-
         (re-matches #"/api/modules/[^/]+/tools" uri)
         (method-not-allowed-response "GET, OPTIONS")
 
         (re-matches #"/api/modules/[^/]+/tools/[^/]+" uri)
-        (method-not-allowed-response "GET, POST, OPTIONS")
-
-        (re-matches #"/api/tools/[^/]+" uri)
         (method-not-allowed-response "GET, POST, OPTIONS")
 
         ;; Not an API path - return nil to let other handlers try
