@@ -65,10 +65,11 @@
    Returns:
      Ring handler function."
   [json-rpc-handler config]
-  (let [{:keys [path health-path]} config
+  (let [{:keys [path health-path rest-config]} config
         base-router (router/create-router json-rpc-handler
                                           {:path path
-                                           :health-path health-path})]
+                                           :health-path health-path
+                                           :rest-config rest-config})]
     ;; Apply CORS wrapper
     (router/wrap-cors base-router)))
 

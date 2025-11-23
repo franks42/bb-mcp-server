@@ -28,20 +28,31 @@
       [:properties {:optional true} [:map-of :keyword :map]]
       [:required {:optional true} [:vector :string]]])
 
+;; Default transports when not specified - all transports enabled
+(def default-transports
+  "Default set of transports for tools that don't specify."
+  #{:rest :mcp-http :mcp-stdio})
+
+(def Transport
+  "Valid transport identifiers"
+  [:enum :rest :mcp-http :mcp-stdio])
+
 (def ToolRecord
      "Schema for a complete tool registration"
-     [:map {:closed true}
+     [:map {:closed false}  ; Allow extra keys for extensibility
       [:name :string]
       [:description :string]
       [:inputSchema JsonSchema]
-      [:handler fn?]])
+      [:handler fn?]
+      [:transports {:optional true} [:set Transport]]])
 
 (def ToolDefinition
      "Schema for tool definition (without handler) - returned by list-tools"
-     [:map {:closed true}
+     [:map {:closed false}  ; Allow extra keys for extensibility
       [:name :string]
       [:description :string]
-      [:inputSchema JsonSchema]])
+      [:inputSchema JsonSchema]
+      [:transports {:optional true} [:set Transport]]])
 
 ;; -----------------------------------------------------------------------------
 ;; Registry State
@@ -235,14 +246,54 @@
 (defn list-tools
   "Get all registered tool definitions (without handlers).
 
-  Returns: Sequence of maps with :name, :description, :inputSchema
+  Returns: Sequence of maps with :name, :description, :inputSchema, :transports
 
   Note: Handler functions are excluded for serialization safety."
   []
   (->> @registry
        vals
-       (map #(select-keys % [:name :description :inputSchema]))
+       (map #(select-keys % [:name :description :inputSchema :transports]))
        (sort-by :name)))
+
+(defn get-tool-transports
+  "Get transports for a tool, defaulting to all if not specified.
+
+  Args:
+    tool - Tool record map
+
+  Returns: Set of transport keywords"
+  [tool]
+  (or (:transports tool) default-transports))
+
+(defn list-tools-for-transport
+  "Get tool definitions available for a specific transport.
+
+  Args:
+    transport - Transport keyword (:rest, :mcp-http, or :mcp-stdio)
+
+  Returns: Sequence of tool definitions that support the given transport
+
+  Example:
+    (list-tools-for-transport :rest)
+    ;; => tools that can be called via REST API"
+  [transport]
+  (->> @registry
+       vals
+       (filter #(contains? (get-tool-transports %) transport))
+       (map #(select-keys % [:name :description :inputSchema :transports]))
+       (sort-by :name)))
+
+(defn tool-supports-transport?
+  "Check if a tool supports a specific transport.
+
+  Args:
+    tool-name - String name of tool
+    transport - Transport keyword
+
+  Returns: Boolean"
+  [tool-name transport]
+  (when-let [tool (get-tool tool-name)]
+    (contains? (get-tool-transports tool) transport)))
 
 ;; -----------------------------------------------------------------------------
 ;; Introspection API

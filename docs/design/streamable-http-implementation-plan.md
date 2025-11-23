@@ -26,9 +26,9 @@ This is an **upgrade to bb's HTTP server stack**, providing an alternative to We
 2. **REST APIs** - Same tools exposed via REST with real-time features
 3. **Any bb project** - Reusable session/SSE infrastructure
 
-**Status:** Phase 5.5 Complete - Server operations & MCP notifications
+**Status:** Phase 7 Complete - REST API Transport
 **Date:** 2025-11-22
-**Last Updated:** 2025-11-22 (added PID management, listChanged capability)
+**Last Updated:** 2025-11-23 (Phase 7 REST API implemented)
 **Design Doc:** `streamable-http-transport-design.md`
 **Review:** `streamable-http-transport-review.md` (Approved)
 
@@ -737,7 +737,7 @@ bb server:stop 19878
 
 ---
 
-### Phase 7: REST API Transport (Future)
+### Phase 7: REST API Transport ✅
 
 **Goal:** RESTful API alongside MCP JSON-RPC, with transport-aware tool routing
 
@@ -1030,13 +1030,14 @@ Day 6: Hardening & Docs
 - [ ] (Deferred: standalone bb.edn, extraction)
 
 ### Phase 7 Complete When:
-- [ ] Registry supports `:transports` field on tools
-- [ ] `list-tools-for-transport` filters tools by transport
-- [ ] `GET /api/tools` returns only REST-enabled tools
-- [ ] `POST /api/tools/:name/call` invokes tools (respects transport whitelist)
-- [ ] OpenAPI spec generated from REST-enabled tools
-- [ ] Same tools accessible via MCP and REST (when whitelisted)
-- [ ] REST integration tests passing
+- [x] Registry supports `:transports` field on tools
+- [x] `list-tools-for-transport` filters tools by transport
+- [x] `GET /api/tools` returns only REST-enabled tools
+- [x] `POST /api/tools/:name` invokes tools (respects transport whitelist)
+- [x] `GET /api/tools/:name` returns tool metadata
+- [x] Same tools accessible via MCP and REST (when whitelisted)
+- [x] REST integration tests passing (95 tests, 207 assertions)
+- [ ] OpenAPI spec generated from REST-enabled tools (deferred)
 
 ---
 

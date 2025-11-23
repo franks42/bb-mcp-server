@@ -50,8 +50,8 @@
                           "Result should have :capabilities")
                       (is (map? (get-in result [:capabilities :tools]))
                           "Tools capability should be a map (object)")
-                      (is (= {} (get-in result [:capabilities :tools]))
-                          "Tools capability should be empty map (basic support)")
+                      (is (= {:listChanged true} (get-in result [:capabilities :tools]))
+                          "Tools capability should have listChanged enabled")
                       (is (nil? (get-in result [:capabilities :authorization]))
                           "Authorization capability not declared (OAuth not supported)"))
 
@@ -184,8 +184,8 @@
                         "serverInfo.version should be string")
                     (is (map? (get-in result [:capabilities :tools]))
                         "capabilities.tools should be map (object in protocol 2025-03-26)")
-                    (is (= {} (get-in result [:capabilities :tools]))
-                        "capabilities.tools should be empty map (basic support)"))))
+                    (is (= {:listChanged true} (get-in result [:capabilities :tools]))
+                        "capabilities.tools should have listChanged enabled"))))
 
 (deftest multiple-initialization-attempts-test
          (testing "Multiple initialization attempts all succeed"

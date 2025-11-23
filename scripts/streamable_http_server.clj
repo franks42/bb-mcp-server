@@ -57,7 +57,7 @@
   [request]
   (router/route-request request))
 
-;; Start Streamable HTTP server
+;; Start Streamable HTTP server with REST API support
 (println (str "\n[5/5] Starting Streamable HTTP server on port " port "..."))
 (def server
      "Running Streamable HTTP server instance."
@@ -65,7 +65,12 @@
                           {:port port
                            :host "0.0.0.0"
                            :path "/mcp"
-                           :health-path "/health"}))
+                           :health-path "/health"
+                           ;; REST API configuration
+                           :rest-config {:list-tools-fn    registry/list-tools-for-transport
+                                         :get-tool-fn      registry/get-tool
+                                         :get-handler-fn   registry/get-handler
+                                         :supports-rest-fn registry/tool-supports-transport?}}))
 
 ;; Set up tool list changed notification callback
 ;; When tools are registered/unregistered, broadcast to all SSE clients
@@ -74,14 +79,20 @@
 (println "  Tool list change notifications enabled")
 
 (println (str "\n✓ Server ready! http://localhost:" port))
-(println "  Endpoints:")
+(println "  MCP Endpoints:")
 (println "    POST /mcp    - JSON-RPC requests (initialize, tools/list, tools/call)")
 (println "    GET  /mcp    - SSE stream (with Mcp-Session-Id header)")
 (println "    DELETE /mcp  - Terminate session")
+(println "  REST API Endpoints:")
+(println "    GET  /api/tools        - List tools (REST-enabled only)")
+(println "    GET  /api/tools/:name  - Get tool metadata")
+(println "    POST /api/tools/:name  - Call a tool")
+(println "  Utility:")
 (println "    GET /health  - Health check")
 (println "\n  Features:")
-(println "    - Session management (Mcp-Session-Id header)")
+(println "    - Session management (MCP: Mcp-Session-Id header)")
 (println "    - Server-Sent Events for server notifications")
+(println "    - REST API for direct HTTP tool calls")
 (println "    - CORS enabled")
 (println (str "\n  Stop with: bb server:stop " port))
 (println "  Or press Ctrl+C")
