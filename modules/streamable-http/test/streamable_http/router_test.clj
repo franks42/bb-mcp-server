@@ -24,8 +24,9 @@
 ;; =============================================================================
 
 (defn- echo-handler
-  "Simple echo handler for testing."
-  [msg]
+  "Simple echo handler for testing.
+   Takes [ctx msg] per unified processor signature."
+  [_ctx msg]
   {:jsonrpc "2.0"
    :result {:echo msg}
    :id (:id msg)})

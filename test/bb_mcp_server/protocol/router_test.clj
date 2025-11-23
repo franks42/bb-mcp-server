@@ -12,15 +12,18 @@
 
 (use-fixtures :each reset-router-fixture)
 
+;; Test context - handlers now take [ctx request]
+(def test-ctx {:transport :test :send-notification! (fn [_] nil)})
+
 ;; Helper functions
 (defn mock-handler-success
   "Mock handler that returns success response."
-  [request]
+  [_ctx request]
   (msg/create-response (:id request) {:message "success"}))
 
 (defn mock-handler-error
   "Mock handler that returns error response."
-  [request]
+  [_ctx request]
   (msg/create-error-response
    (:id request)
    (:invalid-params msg/error-codes)
@@ -29,7 +32,7 @@
 
 (defn mock-handler-exception
   "Mock handler that throws an exception."
-  [_request]
+  [_ctx _request]
   (throw (ex-info "Test exception" {:test true})))
 
 ;; Tests
@@ -69,7 +72,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "unknown-method"
                                  :id 1}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (contains? response :error)
                         "Response should contain error")
@@ -94,7 +97,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "tools/list"
                                  :id 2}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (contains? response :error)
                         "Response should contain error")
@@ -121,7 +124,7 @@
                                  :params {:protocolVersion "1.0"
                                           :clientInfo {:name "test-client"}}
                                  :id 1}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (not (contains? response :error))
                         "Response should not contain error")
@@ -140,7 +143,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "tools/list"
                                  :id 3}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (not (contains? response :error))
                         "Response should not contain error")
@@ -159,7 +162,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "test-error"
                                  :id 4}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (contains? response :error)
                         "Response should contain error")
@@ -183,7 +186,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "test-exception"
                                  :id 5}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (contains? response :error)
                         "Response should contain error")
@@ -261,7 +264,7 @@
 
 (deftest test-request-with-params
          (testing "Route request with parameters to handler"
-                  (let [params-handler (fn [request]
+                  (let [params-handler (fn [_ctx request]
                                          (msg/create-response
                                           (:id request)
                                           {:params-received (:params request)}))]
@@ -272,7 +275,7 @@
                                    :method "test-params"
                                    :params {:foo "bar" :num 42}
                                    :id 6}
-                          response (router/route-request request)]
+                          response (router/route-request test-ctx request)]
 
                       (is (not (contains? response :error))
                           "Response should not contain error")
@@ -290,7 +293,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "telemetry-test"
                                  :id 7}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (not (contains? response :error))
                         "Response should not contain error")
@@ -306,7 +309,7 @@
                   (let [request {:jsonrpc "2.0"
                                  :method "telemetry-error"
                                  :id 8}
-                        response (router/route-request request)]
+                        response (router/route-request test-ctx request)]
 
                     (is (contains? response :error)
                         "Response should contain error")
@@ -322,9 +325,9 @@
                   (let [request1 {:jsonrpc "2.0" :method "test" :id 1}
                         request2 {:jsonrpc "2.0" :method "test" :id 2}
                         request3 {:jsonrpc "2.0" :method "test" :id 3}
-                        response1 (router/route-request request1)
-                        response2 (router/route-request request2)
-                        response3 (router/route-request request3)]
+                        response1 (router/route-request test-ctx request1)
+                        response2 (router/route-request test-ctx request2)
+                        response3 (router/route-request test-ctx request3)]
 
                     (is (= 1 (:id response1))
                         "First response should have ID 1")

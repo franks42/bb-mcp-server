@@ -31,6 +31,9 @@
   "Route a parsed JSON-RPC request to the appropriate handler.
 
   Args:
+  - ctx: Context map with transport-specific capabilities:
+         {:transport :stdio/:http
+          :send-notification! (fn [msg] ...)}
   - parsed-request: A map containing the parsed JSON-RPC request
 
   Returns: JSON-RPC response map (success or error)
@@ -38,11 +41,11 @@
   Logic:
   1. Check if method exists in handlers (error -32601 if not)
   2. Check if server is initialized (error -32003 if not, EXCEPT for initialize method)
-  3. Call handler function with request
+  3. Call handler function with ctx and request
   4. Return handler result
 
   All responses include telemetry for method dispatch, duration, and success/failure."
-  [parsed-request]
+  [ctx parsed-request]
   (let [method (:method parsed-request)
         request-id (:id parsed-request)
         start-time (System/nanoTime)]
@@ -86,9 +89,9 @@
                              :id request-id}})
            response)
 
-          ;; Call handler
+          ;; Call handler with context
          :else
-         (let [response (handler parsed-request)
+         (let [response (handler ctx parsed-request)
                duration-ms (/ (- (System/nanoTime) start-time) 1000000.0)
                success? (not (contains? response :error))]
 

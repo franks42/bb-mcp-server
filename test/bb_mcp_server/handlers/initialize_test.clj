@@ -4,6 +4,9 @@
               [bb-mcp-server.handlers.initialize :as init]
               [bb-mcp-server.protocol.router :as router]))
 
+;; Test context - handlers now take [ctx request]
+(def test-ctx {:transport :test :send-notification! (fn [_] nil)})
+
 ;; Reset server state before each test
 (use-fixtures :each
               (fn [f]
@@ -18,7 +21,7 @@
                                           :clientInfo {:name "claude-code"
                                                        :version "1.0.0"}}
                                  :id 1}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should be success response
                     (is (= "2.0" (:jsonrpc response))
@@ -66,7 +69,7 @@
                                  :params {:protocolVersion "1.0"
                                           :clientInfo {:name "test-client"}}
                                  :id 2}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should succeed even without version
                     (is (contains? response :result)
@@ -85,7 +88,7 @@
                                  :params {:protocolVersion "2.0"
                                           :clientInfo {:name "test-client"}}
                                  :id 3}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should succeed with ANY protocol version
                     (is (contains? response :result)
@@ -107,7 +110,7 @@
                                  :method "initialize"
                                  :params {}
                                  :id 4}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should succeed even with empty params
                     (is (contains? response :result)
@@ -123,7 +126,7 @@
                                  :method "initialize"
                                  :params nil
                                  :id 5}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should succeed even with nil params
                     (is (contains? response :result)
@@ -140,7 +143,7 @@
                                  :params {:protocolVersion "1.0"
                                           :clientInfo {:name ""}}
                                  :id 6}
-                        response (init/handle-initialize request)]
+                        response (init/handle-initialize test-ctx request)]
 
       ;; Should succeed with empty name
                     (is (contains? response :result)
@@ -156,7 +159,7 @@
                                           :clientInfo {:name "spec-validator"
                                                        :version "1.0.0"}}
                                  :id 100}
-                        response (init/handle-initialize request)
+                        response (init/handle-initialize test-ctx request)
                         result (:result response)]
 
       ;; Exact structure check
@@ -199,7 +202,7 @@
                                   :params {:protocolVersion "1.0"
                                            :clientInfo {:name "client-1"}}
                                   :id 1}
-                        response1 (init/handle-initialize request1)]
+                        response1 (init/handle-initialize test-ctx request1)]
 
                     (is (contains? response1 :result)
                         "First initialization should succeed")
@@ -212,7 +215,7 @@
                                   :params {:protocolVersion "1.0"
                                            :clientInfo {:name "client-2"}}
                                   :id 2}
-                        response2 (init/handle-initialize request2)]
+                        response2 (init/handle-initialize test-ctx request2)]
 
                     (is (contains? response2 :result)
                         "Second initialization should also succeed")
@@ -223,6 +226,7 @@
          (testing "Initialization state persists across handler calls"
     ;; Initialize once
                   (init/handle-initialize
+                   test-ctx
                    {:jsonrpc "2.0"
                     :method "initialize"
                     :params {:protocolVersion "1.0"
@@ -249,9 +253,9 @@
                                   :method "initialize"
                                   :params {}
                                   :id 3}
-                        response1 (init/handle-initialize request1)
-                        response2 (init/handle-initialize request2)
-                        response3 (init/handle-initialize request3)]
+                        response1 (init/handle-initialize test-ctx request1)
+                        response2 (init/handle-initialize test-ctx request2)
+                        response3 (init/handle-initialize test-ctx request3)]
 
       ;; All responses should have same result (except id)
                     (is (= (:result response1) (:result response2) (:result response3))

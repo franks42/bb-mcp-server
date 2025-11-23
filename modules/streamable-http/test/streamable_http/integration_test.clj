@@ -20,8 +20,9 @@
 ;; =============================================================================
 
 (defn- echo-handler
-  "Echo handler for integration testing."
-  [{:keys [method params id]}]
+  "Echo handler for integration testing.
+   Takes [ctx msg] per unified processor signature."
+  [_ctx {:keys [method params id]}]
   (case method
     "initialize"
     {:jsonrpc "2.0"

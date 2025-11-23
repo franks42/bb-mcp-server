@@ -40,10 +40,11 @@
   For details, see: docs/bb-mcp-server-architecture.md -> Critical Implementation Lessons
 
   Args:
+  - ctx: Context map with :transport and :send-notification! (unused currently)
   - request: The parsed JSON-RPC request map
 
   Returns: JSON-RPC response map (success)"
-  [request]
+  [_ctx request]
   (let [request-id (:id request)
         params (:params request)]
 

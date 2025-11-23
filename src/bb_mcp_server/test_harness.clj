@@ -3,8 +3,8 @@
 
   This namespace wires up all the components (router, handlers, tools) and provides
   a simple interface for testing the full MCP protocol flow programmatically."
-    (:require [bb-mcp-server.protocol.message :as msg]
-              [bb-mcp-server.protocol.router :as router]
+    (:require [bb-mcp-server.protocol.router :as router]
+              [bb-mcp-server.protocol.processor :as processor]
               [bb-mcp-server.handlers.initialize :as init-handler]
               [bb-mcp-server.handlers.tools-list :as tools-list]
               [bb-mcp-server.handlers.tools-call :as tools-call]
@@ -85,37 +85,8 @@
 
   This is the main entry point for testing - send JSON-RPC, get JSON-RPC back."
   [json-str]
-  (log/log! {:level :info :msg "Processing JSON-RPC request" :data {:input-length (count json-str)}})
-
-  ;; Parse request
-  (let [parse-result (msg/parse-request json-str)]
-    (cond
-      ;; Parse error - return error response
-      (:error parse-result)
-      (let [error-response (msg/create-error-response
-                            nil
-                            (get-in parse-result [:error :code])
-                            (get-in parse-result [:error :message])
-                            (get-in parse-result [:error :data]))]
-        (json/generate-string error-response))
-
-      ;; Notification - process but don't respond
-      ;; JSON-RPC 2.0: "The Server MUST NOT reply to a Notification"
-      (:notification parse-result)
-      (do
-       (log/log! {:level :info :msg "Processing notification (no response will be sent)"
-                  :data {:method (get-in parse-result [:notification :method])
-                         :params (get-in parse-result [:notification :params])}})
-        ;; TODO: Route and process notification when we need to handle them
-        ;; For now, just log full notification details and return nil
-       (log/log! {:level :debug :msg "Notification details" :data {:notification (:notification parse-result)}})
-       nil)
-
-      ;; Regular request - route and respond
-      :else
-      (let [request (:request parse-result)
-            response (router/route-request request)]
-        (json/generate-string response)))))
+  ;; Use unified processor with test context
+  (processor/process-request-str (processor/make-test-ctx) json-str))
 
 (defn test-initialize
   "Test the initialize method.

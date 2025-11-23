@@ -49,13 +49,19 @@
 
 ;; Create the JSON-RPC handler for streamable-http
 ;; This bridges the router to the transport
+;; Note: The handler now accepts [ctx request] to support the unified processor
 (defn json-rpc-handler
   "Handle JSON-RPC requests by routing to registered MCP handlers.
 
-   Takes a JSON-RPC request map, routes it, returns response map.
-   This is the bridge between streamable-http transport and bb-mcp-server."
-  [request]
-  (router/route-request request))
+   Takes a context and JSON-RPC request map, routes it, returns response map.
+   This is the bridge between streamable-http transport and bb-mcp-server.
+
+   The ctx contains:
+     :transport       - :http
+     :session-id      - Session identifier
+     :send-notification! - Function to send SSE notifications"
+  [ctx request]
+  (router/route-request ctx request))
 
 ;; Start Streamable HTTP server with REST API support
 (println (str "\n[5/5] Starting Streamable HTTP server on port " port "..."))

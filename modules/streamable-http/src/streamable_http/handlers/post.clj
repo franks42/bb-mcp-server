@@ -6,6 +6,7 @@
    - Regular JSON-RPC requests (requires valid session)
    - Batch requests (array of messages)"
     (:require [streamable-http.session :as session]
+              [streamable-http.sse :as sse]
               [streamable-http.util :as util]
               [taoensso.trove :as log]))
 
@@ -64,10 +65,15 @@
 
 (defn- safe-call-handler
   "Call json-rpc-handler with exception handling.
-   Returns [response nil] on success or [nil exception] on error."
-  [json-rpc-handler msg]
+   Returns [response nil] on success or [nil exception] on error.
+
+   Args:
+     json-rpc-handler - Function (fn [ctx msg]) that handles JSON-RPC
+     ctx              - Context map with :transport, :session-id, :send-notification!
+     msg              - JSON-RPC message map"
+  [json-rpc-handler ctx msg]
   (try
-   [(json-rpc-handler msg) nil]
+   [(json-rpc-handler ctx msg) nil]
    (catch Exception e
           (log/log! {:level :error
                      :id    ::handler-exception
@@ -76,6 +82,28 @@
                              :error (.getMessage e)}
                      :error e})
           [nil e])))
+
+;; =============================================================================
+;; Context Helpers
+;; =============================================================================
+
+(defn- make-http-ctx
+  "Create HTTP context for a session.
+
+   Args:
+     session-id - Session identifier (or nil for initialize)
+
+   Returns:
+     Context map with :transport :http and :send-notification!
+     that sends via the session's SSE channel."
+  [session-id]
+  {:transport :http
+   :session-id session-id
+   :send-notification! (fn [notification]
+                         ;; Send notification via SSE to all session channels
+                         (when session-id
+                           (doseq [ch (session/get-sse-channels session-id)]
+                                  (sse/send-json-rpc! ch notification))))})
 
 ;; =============================================================================
 ;; Handler Implementation
@@ -89,7 +117,9 @@
              :msg   "Processing initialize request"
              :data  {:client-info (get-in msg [:params :clientInfo])}})
   (let [start (util/current-time-ms)
-        [response err] (safe-call-handler json-rpc-handler msg)]
+        ;; Initialize doesn't have a session yet, use nil context
+        init-ctx (make-http-ctx nil)
+        [response err] (safe-call-handler json-rpc-handler init-ctx msg)]
     (if err
       ;; Handler threw an exception
       (error-response (:id msg)
@@ -117,33 +147,34 @@
              :data  {:method (:method msg)
                      :session-id session-id}})
   (session/touch-session! session-id)
-  ;; Notifications don't get responses
-  (if (notification? msg)
-    (do
-     (safe-call-handler json-rpc-handler msg) ; fire and forget, log errors
-     {:status 202
-      :headers {"Content-Type" "application/json"}
-      :body ""})
-    ;; Regular request - need response
-    (let [start (util/current-time-ms)
-          [response err] (safe-call-handler json-rpc-handler msg)
-          duration (util/elapsed-ms start)]
-      (log/log! {:level :debug
-                 :id    ::request-complete
-                 :msg   "Request complete"
-                 :data  {:method (:method msg)
-                         :duration-ms duration}})
-      (if err
-        (error-response (:id msg)
-                        (:internal-error error-codes)
-                        "Internal error"
-                        {:error (.getMessage err)})
-        (json-response 200 response)))))
+  (let [ctx (make-http-ctx session-id)]
+    ;; Notifications don't get responses
+    (if (notification? msg)
+      (do
+       (safe-call-handler json-rpc-handler ctx msg) ; fire and forget, log errors
+       {:status 202
+        :headers {"Content-Type" "application/json"}
+        :body ""})
+      ;; Regular request - need response
+      (let [start (util/current-time-ms)
+            [response err] (safe-call-handler json-rpc-handler ctx msg)
+            duration (util/elapsed-ms start)]
+        (log/log! {:level :debug
+                   :id    ::request-complete
+                   :msg   "Request complete"
+                   :data  {:method (:method msg)
+                           :duration-ms duration}})
+        (if err
+          (error-response (:id msg)
+                          (:internal-error error-codes)
+                          "Internal error"
+                          {:error (.getMessage err)})
+          (json-response 200 response))))))
 
 (defn- process-batch-msg
   "Process a single message in a batch, handling exceptions."
-  [json-rpc-handler msg]
-  (let [[response err] (safe-call-handler json-rpc-handler msg)]
+  [json-rpc-handler ctx msg]
+  (let [[response err] (safe-call-handler json-rpc-handler ctx msg)]
     (if err
       ;; Return error response for this message
       (util/json-rpc-error {:id (:id msg)
@@ -161,18 +192,19 @@
              :data  {:count (count msgs)
                      :session-id session-id}})
   (session/touch-session! session-id)
-  ;; Process notifications (fire and forget)
-  (doseq [msg (filter notification? msgs)]
-         (safe-call-handler json-rpc-handler msg))
-  ;; Process requests that need responses
-  (let [responses (->> msgs
-                       (remove notification?)
-                       (map #(process-batch-msg json-rpc-handler %)))]
-    (if (empty? responses)
-      {:status 202
-       :headers {"Content-Type" "application/json"}
-       :body ""}
-      (json-response 200 responses))))
+  (let [ctx (make-http-ctx session-id)]
+    ;; Process notifications (fire and forget)
+    (doseq [msg (filter notification? msgs)]
+           (safe-call-handler json-rpc-handler ctx msg))
+    ;; Process requests that need responses
+    (let [responses (->> msgs
+                         (remove notification?)
+                         (map #(process-batch-msg json-rpc-handler ctx %)))]
+      (if (empty? responses)
+        {:status 202
+         :headers {"Content-Type" "application/json"}
+         :body ""}
+        (json-response 200 responses)))))
 
 ;; =============================================================================
 ;; Public API

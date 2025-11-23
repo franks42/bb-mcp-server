@@ -30,12 +30,13 @@
   "Handle tools/list JSON-RPC request.
 
   Args:
+  - ctx: Context map with :transport and :send-notification! (unused currently)
   - request: Parsed JSON-RPC request map with :jsonrpc, :method, :id
 
   Returns: JSON-RPC response map with :jsonrpc, :result, :id
 
   The result contains {:tools [...]} with all registered tools."
-  [request]
+  [_ctx request]
   (let [request-id (:id request)
         tools (registry/list-tools)
         tool-count (count tools)]

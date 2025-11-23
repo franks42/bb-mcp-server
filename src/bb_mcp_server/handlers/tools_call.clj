@@ -78,6 +78,8 @@
   "Handle tools/call JSON-RPC request.
 
   Args:
+  - ctx: Context map with :transport and :send-notification!
+         Handlers can use (:send-notification! ctx) to send progress updates
   - request: Parsed JSON-RPC request map with :jsonrpc, :method, :params, :id
 
   Returns: JSON-RPC response map (success or error)
@@ -93,7 +95,7 @@
   - -32000: Tool not found
   - -32002: Invalid tool params (validation failed)
   - -32001: Tool execution failed (handler threw exception)"
-  [request]
+  [_ctx request]
   (let [request-id (:id request)
         params (:params request)
         tool-name (:name params)
