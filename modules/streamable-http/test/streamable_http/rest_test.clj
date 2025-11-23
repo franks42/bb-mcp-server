@@ -2,6 +2,7 @@
   "Tests for REST API handlers."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [streamable-http.handlers.rest :as rest]
+            [streamable-http.openapi :as openapi]
             [streamable-http.util :as util]))
 
 ;; =============================================================================
@@ -177,4 +178,47 @@
 
     (testing "Non-API path returns nil"
       (let [response (router {:uri "/other/path" :request-method :get})]
-        (is (nil? response))))))
+        (is (nil? response))))
+
+    (testing "GET /api/openapi.json returns OpenAPI spec"
+      (let [response (router {:uri "/api/openapi.json" :request-method :get})
+            body (util/parse-json (:body response))]
+        (is (= 200 (:status response)))
+        (is (= "3.0.3" (:openapi body)))
+        (is (map? (:info body)))
+        (is (map? (:paths body)))))))
+
+;; =============================================================================
+;; OpenAPI Tests
+;; =============================================================================
+
+(deftest openapi-generate-spec-test
+  (testing "Generates valid OpenAPI 3.0 spec"
+    (let [tools [{:name "add"
+                  :description "Add numbers"
+                  :inputSchema {:type "object"
+                                :properties {:a {:type "number"}}}}]
+          spec (openapi/generate-spec tools)]
+      (is (= "3.0.3" (:openapi spec)))
+      (is (= "bb-mcp-server REST API" (get-in spec [:info :title])))
+      (is (map? (:paths spec)))
+      (is (contains? (:paths spec) "/api/tools"))
+      (is (contains? (:paths spec) "/api/tools/add"))))
+
+  (testing "Custom options override defaults"
+    (let [spec (openapi/generate-spec [] {:title "My API"
+                                           :version "2.0.0"
+                                           :server-url "http://myserver:8080"})]
+      (is (= "My API" (get-in spec [:info :title])))
+      (is (= "2.0.0" (get-in spec [:info :version])))
+      (is (= "http://myserver:8080" (get-in spec [:servers 0 :url])))))
+
+  (testing "Tool paths include GET and POST operations"
+    (let [tools [{:name "test-tool"
+                  :description "Test"
+                  :inputSchema {:type "object"}}]
+          spec (openapi/generate-spec tools)
+          path (get-in spec [:paths "/api/tools/test-tool"])]
+      (is (map? (:get path)))
+      (is (map? (:post path)))
+      (is (= "call-test-tool" (get-in path [:post :operationId]))))))

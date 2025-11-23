@@ -5,14 +5,16 @@
 
    Endpoints:
      GET  /api/tools           - List available REST tools
-     POST /api/tools/:name     - Call a tool by name
      GET  /api/tools/:name     - Get tool metadata
+     POST /api/tools/:name     - Call a tool by name
+     GET  /api/openapi.json    - OpenAPI 3.0 specification
 
    Unlike MCP JSON-RPC, REST uses standard HTTP semantics:
    - Status codes for errors (400, 404, 500)
    - JSON request/response bodies
    - Tool name in URL path"
   (:require [streamable-http.util :as util]
+            [streamable-http.openapi :as openapi]
             [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -214,6 +216,28 @@
           (internal-error-response "Tool handler not found"))))))
 
 ;; =============================================================================
+;; OpenAPI Handler
+;; =============================================================================
+
+(defn handle-openapi
+  "Handle GET /api/openapi.json - return OpenAPI specification.
+
+   Arguments:
+     request       - Ring request
+     list-tools-fn - Function to list tools for :rest transport
+     opts          - OpenAPI generation options (server-url, etc.)
+
+   Returns:
+     Ring response with OpenAPI JSON"
+  [_request list-tools-fn opts]
+  (log/log! {:level :debug
+             :id    ::openapi-spec
+             :msg   "Generating OpenAPI specification"})
+  (let [tools (list-tools-fn :rest)
+        spec (openapi/generate-spec tools opts)]
+    (success-response spec)))
+
+;; =============================================================================
 ;; Router
 ;; =============================================================================
 
@@ -226,16 +250,21 @@
        :get-tool-fn       - (fn [name]) -> tool or nil
        :get-handler-fn    - (fn [name]) -> handler fn or nil
        :supports-rest-fn  - (fn [name transport]) -> boolean
+       :openapi-opts      - Optional OpenAPI config (server-url, title, etc.)
 
    Returns:
      Function (fn [request]) -> response or nil
      Returns nil if request doesn't match /api/* path"
-  [{:keys [list-tools-fn get-tool-fn get-handler-fn supports-rest-fn]}]
+  [{:keys [list-tools-fn get-tool-fn get-handler-fn supports-rest-fn openapi-opts]}]
   (fn [request]
     (let [uri (:uri request)
           method (:request-method request)]
 
       (cond
+        ;; GET /api/openapi.json - OpenAPI specification
+        (and (= uri "/api/openapi.json") (= method :get))
+        (handle-openapi request list-tools-fn openapi-opts)
+
         ;; GET /api/tools - list all tools
         (and (= uri "/api/tools") (= method :get))
         (handle-list-tools request list-tools-fn)
