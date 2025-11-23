@@ -31,13 +31,13 @@
 ;; -----------------------------------------------------------------------------
 
 (def module-tool-separator
-  "Separator character used between module and tool names.
+     "Separator character used between module and tool names.
 
   This character is used to construct fully-qualified tool names like 'module.tool'.
   It is reserved and cannot appear in module names or tool short names.
 
   This value is exposed in the MCP initialize response for client introspection."
-  ".")
+     ".")
 
 ;; -----------------------------------------------------------------------------
 ;; Schema Definitions
@@ -52,12 +52,12 @@
 
 ;; Default transports when not specified - all transports enabled
 (def default-transports
-  "Default set of transports for tools that don't specify."
-  #{:rest :mcp-http :mcp-stdio})
+     "Default set of transports for tools that don't specify."
+     #{:rest :mcp-http :mcp-stdio})
 
 (def Transport
-  "Valid transport identifiers"
-  [:enum :rest :mcp-http :mcp-stdio])
+     "Valid transport identifiers"
+     [:enum :rest :mcp-http :mcp-stdio])
 
 (def ToolRecord
      "Schema for a complete tool registration.
@@ -411,7 +411,7 @@
   Returns: Boolean"
   [tool-name transport]
   (when-let [tool (get-tool tool-name)]
-    (contains? (get-tool-transports tool) transport)))
+            (contains? (get-tool-transports tool) transport)))
 
 (defn list-modules
   "Get list of unique module names from registered tools.

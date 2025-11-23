@@ -1,8 +1,8 @@
 (ns streamable-http.docs
-  "HTML documentation generator for REST API.
+    "HTML documentation generator for REST API.
 
    Generates a human-readable HTML page from OpenAPI spec."
-  (:require [clojure.string :as str]))
+    (:require [clojure.string :as str]))
 
 (defn- escape-html
   "Escape HTML special characters."
@@ -28,10 +28,10 @@
           "<span class=\"type\">object</span>"
           (str "<span class=\"type\">object</span> {\n"
                (str/join ",\n"
-                 (for [[k v] props]
-                   (str pad "&nbsp;&nbsp;<span class=\"prop\">" (name k) "</span>"
-                        (when (required (name k)) "<span class=\"required\">*</span>")
-                        ": " (schema-to-html v (inc indent)))))
+                         (for [[k v] props]
+                              (str pad "&nbsp;&nbsp;<span class=\"prop\">" (name k) "</span>"
+                                   (when (required (name k)) "<span class=\"required\">*</span>")
+                                   ": " (schema-to-html v (inc indent)))))
                "\n" pad "}")))
 
       (= "array" (:type schema))
@@ -95,10 +95,10 @@
   (str "<div class=\"toc-module\">
     <h3><a href=\"#module-" (escape-html module-name) "\">" (escape-html module-name) "</a> <span class=\"count\">(" (count tools) ")</span></h3>
     <ul class=\"toc-list\">"
-    (str/join ""
-      (for [tool tools]
-        (str "<li><a href=\"#" (escape-html (:name tool)) "\">" (escape-html (:name tool)) "</a></li>")))
-    "</ul></div>"))
+       (str/join ""
+                 (for [tool tools]
+                      (str "<li><a href=\"#" (escape-html (:name tool)) "\">" (escape-html (:name tool)) "</a></li>")))
+       "</ul></div>"))
 
 (defn- module-section-html
   "Generate HTML section for a module's tools."
@@ -106,8 +106,8 @@
   (str "<section class=\"module-section\" id=\"module-" (escape-html module-name) "\">
     <h2 class=\"module-heading\">" (escape-html module-name) " <span class=\"tool-count\">(" (count tools) " tools)</span></h2>
     <p class=\"module-endpoint\"><code>GET /api/modules/" (escape-html module-name) "/tools</code></p>"
-    (str/join "" (map tool-card-html tools))
-    "</section>"))
+       (str/join "" (map tool-card-html tools))
+       "</section>"))
 
 (defn generate-html
   "Generate complete HTML documentation page.
@@ -328,18 +328,18 @@
     <nav class=\"toc\">
       <h2>Modules &amp; Tools</h2>
       <div class=\"toc-modules\">"
-    (str/join "\n"
-      (for [[module-name mod-tools] by-module]
-        (module-toc-html module-name mod-tools)))
-    "
+         (str/join "\n"
+                   (for [[module-name mod-tools] by-module]
+                        (module-toc-html module-name mod-tools)))
+         "
       </div>
     </nav>
 
     <main>"
-    (str/join "\n"
-      (for [[module-name mod-tools] by-module]
-        (module-section-html module-name mod-tools)))
-    "
+         (str/join "\n"
+                   (for [[module-name mod-tools] by-module]
+                        (module-section-html module-name mod-tools)))
+         "
     </main>
 
     <footer>

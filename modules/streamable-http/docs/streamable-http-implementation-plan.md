@@ -26,11 +26,18 @@ This is an **upgrade to bb's HTTP server stack**, providing an alternative to We
 2. **REST APIs** - Same tools exposed via REST with real-time features
 3. **Any bb project** - Reusable session/SSE infrastructure
 
-**Status:** Phase 7 Complete - REST API Transport
+**Status:** Phase 7 Complete - REST API Transport with Documentation
 **Date:** 2025-11-22
-**Last Updated:** 2025-11-23 (Phase 7 REST API implemented)
+**Last Updated:** 2025-11-23
 **Design Doc:** `streamable-http-transport-design.md`
 **Review:** `streamable-http-transport-review.md` (Approved)
+
+**Recent additions (Phase 7.5):**
+- `/api/server` endpoint for server introspection
+- `/api/openapi.json` OpenAPI 3.0 spec generation
+- `/api/docs` HTML documentation page
+- Module-based REST routing (`/api/modules/:module/tools/:name`)
+- `moduleToolSeparator` exposed in MCP initialize and REST `/api/server`
 
 ---
 
@@ -778,19 +785,20 @@ Each tool declares which transports it supports:
 | `:rest` | RESTful API | Dashboards, web UIs |
 
 **Tasks:**
-- [ ] Extend registry schema to include `:transports` field
-- [ ] Add `list-tools-for-transport` function to registry
-- [ ] Design REST API routes mapping to tools
-  - `GET /api/tools` → list REST-enabled tools only
-  - `GET /api/tools/:name` → tool metadata
-  - `POST /api/tools/:name/call` → invoke tool (if REST-enabled)
-  - `GET /api/sessions` → list active sessions
-- [ ] Implement REST router in `streamable-http/handlers/rest.clj`
-- [ ] Implement REST→MCP adapter (convert REST requests to internal tool calls)
-- [ ] Add content negotiation middleware (JSON, EDN, Transit)
-- [ ] Generate OpenAPI/Swagger spec from REST-enabled tools
-- [ ] Integration tests for REST endpoints
-- [ ] Document REST API and transport routing in README
+- [x] Extend registry schema to include `:transports` field
+- [x] Add `list-tools-for-transport` function to registry
+- [x] Design REST API routes with module-based routing
+  - `GET /api/server` → server info (name, version, moduleToolSeparator)
+  - `GET /api/modules` → list all modules
+  - `GET /api/modules/:module/tools` → list tools in module
+  - `GET /api/modules/:module/tools/:name` → tool metadata
+  - `POST /api/modules/:module/tools/:name` → invoke tool
+- [x] Implement REST router in `streamable-http/handlers/rest.clj`
+- [x] Implement REST handlers (direct tool invocation, no MCP adapter needed)
+- [x] Generate OpenAPI 3.0 spec (`/api/openapi.json`)
+- [x] Generate HTML documentation (`/api/docs`)
+- [x] Integration tests for REST endpoints (99 tests, 231 assertions)
+- [ ] Document REST API in module README (deferred to Phase 6)
 
 **Architecture:**
 ```
@@ -811,15 +819,18 @@ Each tool declares which transports it supports:
 ```
 src/streamable_http/
 ├── handlers/
-│   └── rest.clj          # REST endpoint handlers (NEW)
-└── openapi.clj           # OpenAPI spec generation (NEW)
+│   └── rest.clj          # REST endpoint handlers (module-based routes)
+├── openapi.clj           # OpenAPI 3.0 spec generation
+└── docs.clj              # HTML documentation generation
 
 test/streamable_http/
-└── rest_test.clj         # REST integration tests (NEW)
+└── rest_test.clj         # REST integration tests
+
+src/bb_mcp_server/
+└── registry.clj          # Added module-tool-separator, module listing fns
 ```
 
-**Dependencies:** Phase 6 (Documentation)
-**Deliverable:** RESTful API works alongside MCP JSON-RPC
+**Deliverable:** RESTful API works alongside MCP JSON-RPC ✅
 
 ---
 
@@ -1032,12 +1043,15 @@ Day 6: Hardening & Docs
 ### Phase 7 Complete When:
 - [x] Registry supports `:transports` field on tools
 - [x] `list-tools-for-transport` filters tools by transport
-- [x] `GET /api/tools` returns only REST-enabled tools
-- [x] `POST /api/tools/:name` invokes tools (respects transport whitelist)
-- [x] `GET /api/tools/:name` returns tool metadata
+- [x] `GET /api/modules` returns list of modules
+- [x] `GET /api/modules/:module/tools` returns tools in module
+- [x] `GET /api/modules/:module/tools/:name` returns tool metadata
+- [x] `POST /api/modules/:module/tools/:name` invokes tool
+- [x] `GET /api/server` returns server info with `moduleToolSeparator`
+- [x] `GET /api/openapi.json` returns OpenAPI 3.0 spec
+- [x] `GET /api/docs` returns HTML documentation
 - [x] Same tools accessible via MCP and REST (when whitelisted)
-- [x] REST integration tests passing (95 tests, 207 assertions)
-- [ ] OpenAPI spec generated from REST-enabled tools (deferred)
+- [x] REST integration tests passing (99 tests, 231 assertions)
 
 ---
 

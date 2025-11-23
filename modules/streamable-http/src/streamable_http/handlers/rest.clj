@@ -1,5 +1,5 @@
 (ns streamable-http.handlers.rest
-  "REST API handlers for tool operations.
+    "REST API handlers for tool operations.
 
    Provides HTTP REST endpoints for tools registered with :rest transport support.
 
@@ -20,10 +20,10 @@
    - Status codes for errors (400, 404, 500)
    - JSON request/response bodies
    - Module and tool name in URL path (prevents name collisions)"
-  (:require [streamable-http.util :as util]
-            [streamable-http.openapi :as openapi]
-            [streamable-http.docs :as docs]
-            [taoensso.trove :as log]))
+    (:require [streamable-http.util :as util]
+              [streamable-http.openapi :as openapi]
+              [streamable-http.docs :as docs]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Response Helpers
@@ -51,7 +51,7 @@
   [message & [details]]
   (json-response 400 (cond-> {:error "Bad Request"
                               :message message}
-                       details (assoc :details details))))
+                             details (assoc :details details))))
 
 (defn- not-found-response
   "Create not found response (404)."
@@ -73,7 +73,7 @@
   [message & [details]]
   (json-response 500 (cond-> {:error "Internal Server Error"
                               :message message}
-                       details (assoc :details details))))
+                             details (assoc :details details))))
 
 ;; =============================================================================
 ;; Tool Transformation
@@ -94,7 +94,7 @@
              :description (:description tool)
              :inputSchema (:inputSchema tool)
              :href href}
-      module (assoc :module module))))
+            module (assoc :module module))))
 
 ;; =============================================================================
 ;; Request Parsing
@@ -112,16 +112,16 @@
       (if (empty? body)
         [{} nil]
         (if-let [parsed (util/parse-json body)]
-          [parsed nil]
-          [nil "Invalid JSON"]))
+                [parsed nil]
+                [nil "Invalid JSON"]))
 
       (instance? java.io.InputStream body)
       (let [content (slurp body)]
         (if (empty? content)
           [{} nil]
           (if-let [parsed (util/parse-json content)]
-            [parsed nil]
-            [nil "Invalid JSON"])))
+                  [parsed nil]
+                  [nil "Invalid JSON"])))
 
       :else
       [nil "Unsupported body type"])))
@@ -132,7 +132,7 @@
    /api/modules/nrepl/tools/... -> 'nrepl'"
   [uri]
   (when-let [[_ module] (re-matches #"/api/modules/([^/]+)(?:/.*|$)" uri)]
-    module))
+            module))
 
 (defn- extract-module-tool
   "Extract module and tool name from URI path.
@@ -140,7 +140,7 @@
    /api/modules/nrepl/tools/nrepl-eval -> {:module 'nrepl', :tool 'nrepl-eval'}"
   [uri]
   (when-let [[_ module tool] (re-matches #"/api/modules/([^/]+)/tools/([^/]+)" uri)]
-    {:module module :tool tool}))
+            {:module module :tool tool}))
 
 ;; =============================================================================
 ;; OpenAPI Handler
@@ -272,9 +272,9 @@
              :msg   "Getting module tool metadata"
              :data  {:module module-name :tool-name tool-name}})
   (if-let [tool (get-tool-in-module-fn module-name tool-name)]
-    (success-response (tool-to-rest-format
-                        (select-keys tool [:name :description :inputSchema :module])))
-    (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))))
+          (success-response (tool-to-rest-format
+                             (select-keys tool [:name :description :inputSchema :module])))
+          (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))))
 
 (defn handle-call-module-tool
   "Handle POST /api/modules/:module/tools/:name - call a tool.
@@ -296,37 +296,37 @@
   ;; Get the tool (includes handler) by module + short name
   (if-let [tool (get-tool-in-module-fn module-name tool-name)]
     ;; Parse body
-    (let [[params error] (parse-json-body request)]
-      (if error
-        (bad-request-response error)
+          (let [[params error] (parse-json-body request)]
+            (if error
+              (bad-request-response error)
 
         ;; Call handler from tool record
-        (if-let [handler (:handler tool)]
-          (try
-            (let [result (handler params)]
-              (log/log! {:level :info
-                         :id    ::module-tool-success
-                         :msg   "Module tool call succeeded"
-                         :data  {:module module-name :tool-name tool-name}})
-              (created-response {:result result
-                                 :module module-name
-                                 :tool tool-name}))
-            (catch Exception e
-              (log/log! {:level :error
-                         :id    ::module-tool-error
-                         :msg   "Module tool call failed"
-                         :data  {:module module-name
-                                 :tool-name tool-name
-                                 :error (.getMessage e)}})
-              (internal-error-response
-                "Tool execution failed"
-                {:module module-name
-                 :tool tool-name
-                 :message (.getMessage e)})))
-          (internal-error-response "Tool handler not found"))))
+              (if-let [handler (:handler tool)]
+                      (try
+                       (let [result (handler params)]
+                         (log/log! {:level :info
+                                    :id    ::module-tool-success
+                                    :msg   "Module tool call succeeded"
+                                    :data  {:module module-name :tool-name tool-name}})
+                         (created-response {:result result
+                                            :module module-name
+                                            :tool tool-name}))
+                       (catch Exception e
+                              (log/log! {:level :error
+                                         :id    ::module-tool-error
+                                         :msg   "Module tool call failed"
+                                         :data  {:module module-name
+                                                 :tool-name tool-name
+                                                 :error (.getMessage e)}})
+                              (internal-error-response
+                               "Tool execution failed"
+                               {:module module-name
+                                :tool tool-name
+                                :message (.getMessage e)})))
+                      (internal-error-response "Tool handler not found"))))
 
     ;; Tool not found
-    (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))))
+          (not-found-response (str "Tool '" tool-name "' not found in module '" module-name "'"))))
 
 ;; =============================================================================
 ;; Router
@@ -379,17 +379,17 @@
         ;; GET /api/modules/:module/tools - list module tools
         (and (re-matches #"/api/modules/[^/]+/tools" uri) (= method :get))
         (when-let [module (extract-module-name uri)]
-          (handle-list-module-tools request module list-tools-for-module-fn))
+                  (handle-list-module-tools request module list-tools-for-module-fn))
 
         ;; POST /api/modules/:module/tools/:name - call a tool in module
         (and (re-matches #"/api/modules/[^/]+/tools/[^/]+" uri) (= method :post))
         (when-let [{:keys [module tool]} (extract-module-tool uri)]
-          (handle-call-module-tool request module tool get-tool-in-module-fn))
+                  (handle-call-module-tool request module tool get-tool-in-module-fn))
 
         ;; GET /api/modules/:module/tools/:name - get tool metadata in module
         (and (re-matches #"/api/modules/[^/]+/tools/[^/]+" uri) (= method :get))
         (when-let [{:keys [module tool]} (extract-module-tool uri)]
-          (handle-get-module-tool request module tool get-tool-in-module-fn))
+                  (handle-get-module-tool request module tool get-tool-in-module-fn))
 
         ;; =================================================================
         ;; Common routes

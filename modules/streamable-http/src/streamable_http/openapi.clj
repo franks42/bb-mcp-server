@@ -1,9 +1,9 @@
 (ns streamable-http.openapi
-  "OpenAPI 3.0 specification generator for REST API tools.
+    "OpenAPI 3.0 specification generator for REST API tools.
 
    Dynamically generates OpenAPI spec from registered tools that
    support the :rest transport."
-  (:require [streamable-http.util :as util]))
+    (:require [streamable-http.util :as util]))
 
 (def openapi-version "3.0.3")
 
@@ -14,7 +14,7 @@
   (when schema
     (cond-> schema
       ;; Remove any MCP-specific extensions if present
-      true identity)))
+            true identity)))
 
 (defn- tool-to-path-item
   "Convert a tool definition to an OpenAPI path item.
@@ -76,18 +76,18 @@
           :description description}
    :servers [{:url server-url}]
    :paths (into
-            {"/api/tools" {:get {:summary "List all REST-enabled tools"
-                                 :operationId "list-tools"
-                                 :tags ["tools"]
-                                 :responses {"200" {:description "List of tools"
-                                                    :content {"application/json"
-                                                              {:schema {:type "object"
-                                                                        :properties {:tools {:type "array"
-                                                                                             :items {:type "object"}}
-                                                                                     :count {:type "integer"}}}}}}}}}}
-            (for [tool tools]
-              [(str "/api/tools/" (:name tool))
-               (tool-to-path-item tool)]))
+           {"/api/tools" {:get {:summary "List all REST-enabled tools"
+                                :operationId "list-tools"
+                                :tags ["tools"]
+                                :responses {"200" {:description "List of tools"
+                                                   :content {"application/json"
+                                                             {:schema {:type "object"
+                                                                       :properties {:tools {:type "array"
+                                                                                            :items {:type "object"}}
+                                                                                    :count {:type "integer"}}}}}}}}}}
+           (for [tool tools]
+                [(str "/api/tools/" (:name tool))
+                 (tool-to-path-item tool)]))
    :components {:schemas {}}
    :tags [{:name "tools"
            :description "Tool operations"}]})
