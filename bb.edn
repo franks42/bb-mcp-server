@@ -37,17 +37,23 @@
   ;; Server Tasks
   ;; ==========================================================================
 
-  server:stdio {:doc "Run MCP server over stdio"
-                :task (load-file "scripts/stdio_server.clj")}
+  server {:doc "Run MCP server [--stdio] [--http [port]] [--help]"
+          :task (apply (requiring-resolve 'bb-mcp-server.main/-main) *command-line-args*)}
 
-  server:http {:doc "Run MCP server over HTTP [port] (alias for server:streamable)"
-               :depends [server:streamable]}
-
-  server:streamable {:doc "Run MCP server over Streamable HTTP [port] (default 3000)"
-                     :task (load-file "scripts/streamable_http_server.clj")}
-
-  server:stop {:doc "Stop server running on [port] (default 3000)"
+  server:stop {:doc "Stop HTTP server running on [port] (default 3000)"
                :task (load-file "scripts/stop_server.clj")}
+
+  ;; Legacy aliases (deprecated - use 'bb server' with flags instead)
+  server:stdio {:doc "[DEPRECATED] Use: bb server --stdio"
+                :task (apply (requiring-resolve 'bb-mcp-server.main/-main) ["--stdio"])}
+
+  server:http {:doc "[DEPRECATED] Use: bb server --http [port]"
+               :task (apply (requiring-resolve 'bb-mcp-server.main/-main)
+                            (cons "--http" *command-line-args*))}
+
+  server:streamable {:doc "[DEPRECATED] Use: bb server --http [port]"
+                     :task (apply (requiring-resolve 'bb-mcp-server.main/-main)
+                                  (cons "--http" *command-line-args*))}
 
   ;; ==========================================================================
   ;; HTTP Test Tasks

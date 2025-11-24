@@ -1,8 +1,9 @@
 # Transport Layer Modularization
 
-**Status: Phase 9 Complete (v0.9.0)**
+**Status: Phase 11 In Progress**
 
 Clean separation of transport layer into independent modules with clear dependencies.
+Now implementing unified entry point for "Triple Interface" vision.
 
 ## Current State
 
@@ -309,16 +310,43 @@ Currently `mcp-stdio.core` hardcodes dependency on `bb-mcp-server.protocol.proce
 
 **Benefit**: Makes mcp-stdio a pure transport library usable with any MCP implementation.
 
-### Unified Entry Point
+### ✅ Phase 11: Unified Entry Point
 
-Currently separate scripts for each transport (`server:stdio`, `server:streamable`).
+*Implemented - replacing the Future Improvement note*
 
-**Recommendation**: Create `src/bb_mcp_server/main.clj` with CLI argument parsing:
+**Goal**: Single `bb server` command that can run any combination of transports.
+
+**Before:**
+- `bb server:stdio` - Stdio only
+- `bb server:streamable` - HTTP only
+- No way to run both in one process
+
+**After:**
 ```bash
-bb -m bb-mcp-server.main --transport stdio,http --port 3000
+bb server              # stdio (default, Claude Desktop)
+bb server --http       # HTTP only on port 3000
+bb server --http 8080  # HTTP only on port 8080
+bb server --stdio --http       # both transports simultaneously
+bb server --stdio --http 8080  # both, HTTP on 8080
+bb server --help       # show usage
 ```
 
-**Benefit**: Single server instance managing multiple interfaces ("Triple Interface" vision).
+**Implementation:**
+- `src/bb_mcp_server/main.clj` - Unified entry point with CLI parsing
+- Single initialization (modules, handlers, registry loaded once)
+- Transports run as peers, sharing state
+- HTTP runs async, stdio blocks on stdin
+
+**Files Changed:**
+- NEW: `src/bb_mcp_server/main.clj`
+- UPDATE: `bb.edn` - single `server` task replacing `server:stdio`, `server:http`
+- DEPRECATED: `scripts/stdio_server.clj`, `scripts/streamable_http_server.clj`
+
+**Benefits:**
+- Single mental model - one command, flags for behavior
+- Resource efficient - no duplicate module loading
+- Shared state - single registry, single notification dispatch
+- Operational simplicity - one PID, one process, one log stream
 
 ### Cross-Transport Integration Tests
 
