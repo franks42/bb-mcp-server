@@ -1,0 +1,22 @@
+;; MCP HTTP Transport Module
+;;
+;; MCP JSON-RPC over HTTP with SSE notifications.
+;; Implements MCP Streamable HTTP spec (2025-03-26).
+
+{:name "mcp-http"
+ :version "0.1.0"
+ :description "MCP JSON-RPC over HTTP with SSE notifications"
+ :requires ["http-core"]
+ :entry "mcp-http.core/module"
+
+ ;; External deps (must be in bb.edn)
+ :bb-deps {http-kit/http-kit {:mvn/version "2.8.1"}
+           cheshire/cheshire {:mvn/version "6.1.0"}}
+
+ :defaults {:port 3000
+            :host "0.0.0.0"
+            :path "/mcp"
+            :health-path "/health"
+            :session-timeout-ms 3600000        ; 1 hour
+            :session-cleanup-interval-ms 60000 ; Check every minute
+            }}

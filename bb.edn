@@ -11,6 +11,7 @@
          "modules/calculate/src" "modules/calculate/test"
          "modules/local-eval/src"
          "modules/http-core/src" "modules/http-core/test"
+         "modules/mcp-http/src" "modules/mcp-http/test"
          "modules/streamable-http/src" "modules/streamable-http/test"]
 
  :tasks
@@ -84,6 +85,9 @@
   test:http-core {:doc "Run http-core module tests"
                   :task (load-file "modules/http-core/test/run_tests.clj")}
 
+  test:mcp-http {:doc "Run mcp-http module tests"
+                 :task (load-file "modules/mcp-http/test/run_tests.clj")}
+
   test:stdio {:doc "Run stdio transport tests"
               :task (load-file "test/run_stdio_tests.clj")}
 
@@ -93,6 +97,7 @@
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)
+                          (run 'test:mcp-http)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 

@@ -6,7 +6,7 @@
 {:name "streamable-http"
  :version "0.2.0"
  :description "MCP Streamable HTTP Transport (spec 2025-03-26)"
- :requires ["http-core"]  ; Shared HTTP infrastructure
+ :requires ["mcp-http"]  ; mcp-http → http-core (transitive)
  :entry "streamable-http.core/module"
 
  ;; External deps (must be in bb.edn)

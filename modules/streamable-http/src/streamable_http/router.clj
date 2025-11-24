@@ -2,36 +2,19 @@
     "Request routing for MCP Streamable HTTP transport.
 
    Routes requests to appropriate handlers based on method and path.
-   Supports both MCP JSON-RPC (/mcp) and REST API (/api/*) endpoints."
-    (:require [streamable-http.handlers.post :as post]
-              [streamable-http.handlers.get :as get-handler]
-              [streamable-http.handlers.delete :as delete]
+   Supports both MCP JSON-RPC (/mcp) and REST API (/api/*) endpoints.
+
+   Note: MCP routing is delegated to mcp-http.router. This namespace
+   adds REST API support on top."
+    (:require [mcp-http.router :as mcp-router]
               [streamable-http.handlers.rest :as rest-handler]
-              [streamable-http.util :as util]
+              [http-core.util :as util]
+              [clojure.string :as str]
               [taoensso.trove :as log]))
-
-;; =============================================================================
-;; CORS Headers
-;; =============================================================================
-
-(def ^:private cors-headers
-     "Default CORS headers for preflight responses."
-     {"Access-Control-Allow-Origin" "*"
-      "Access-Control-Allow-Methods" "GET, POST, DELETE, OPTIONS"
-      "Access-Control-Allow-Headers" "Content-Type, Accept, Mcp-Session-Id, Last-Event-ID"
-      "Access-Control-Expose-Headers" "Mcp-Session-Id"
-      "Access-Control-Max-Age" "86400"})
 
 ;; =============================================================================
 ;; Standard Responses
 ;; =============================================================================
-
-(defn- options-response
-  "Handle OPTIONS preflight request."
-  []
-  {:status 204
-   :headers cors-headers
-   :body ""})
 
 (defn- not-found-response
   "Handle unknown path."
@@ -41,31 +24,15 @@
    :body (util/generate-json {:error "Not found"
                               :path (:uri request)})})
 
-(defn- method-not-allowed-response
-  "Handle unsupported method."
-  [request]
-  {:status 405
-   :headers {"Content-Type" "application/json"
-             "Allow" "GET, POST, DELETE, OPTIONS"}
-   :body (util/generate-json {:error "Method not allowed"
-                              :method (name (:request-method request))})})
-
-(defn- health-response
-  "Handle health check request."
-  []
-  {:status 200
-   :headers {"Content-Type" "application/json"}
-   :body (util/generate-json {:status "ok"})})
-
 ;; =============================================================================
-;; Router
+;; Combined Router (MCP + REST)
 ;; =============================================================================
 
 (defn create-router
   "Create a router function for MCP and REST endpoints.
 
    Arguments:
-     json-rpc-handler - Function (fn [json-rpc-msg] -> json-rpc-response)
+     json-rpc-handler - Function (fn [ctx msg] -> json-rpc-response)
      config           - Configuration map with:
                         :path        - MCP endpoint path (default: /mcp)
                         :health-path - Health check path (default: /health)
@@ -79,59 +46,32 @@
      Ring handler function."
   [json-rpc-handler {:keys [path health-path rest-config]
                      :or {path "/mcp"
-                          health-path "/health"}}]
-  (let [rest-router (when rest-config
+                          health-path "/health"}
+                     :as config}]
+  (let [;; Create MCP router (handles /mcp and /health)
+        mcp-handler (mcp-router/create-router json-rpc-handler
+                                               {:path path
+                                                :health-path health-path})
+        ;; Create REST router if configured
+        rest-router (when rest-config
                       (rest-handler/create-rest-router rest-config))]
     (fn [request]
-      (let [uri (:uri request)
-            method (:request-method request)]
-
+      (let [uri (:uri request)]
         (log/log! {:level :trace
                    :id    ::route-request
                    :msg   "Routing request"
                    :data  {:uri uri
-                           :method method}})
+                           :method (:request-method request)}})
 
         (cond
-          ;; Health check
-          (and (= uri health-path) (= method :get))
-          (health-response)
-
           ;; REST API endpoints (if configured)
-          (and rest-router (clojure.string/starts-with? uri "/api/"))
+          (and rest-router (str/starts-with? uri "/api/"))
           (or (rest-router request)
               (not-found-response request))
 
-          ;; MCP endpoint
-          (= uri path)
-          (case method
-            :options (options-response)
-            :post    (post/handle-post request json-rpc-handler)
-            :get     (get-handler/handle-get request)
-            :delete  (delete/handle-delete request)
-            (method-not-allowed-response request))
-
-          ;; Unknown path
+          ;; MCP and health endpoints
           :else
-          (not-found-response request))))))
+          (mcp-handler request))))))
 
-;; =============================================================================
-;; Convenience Functions
-;; =============================================================================
-
-(defn wrap-cors
-  "Add CORS headers to all responses.
-
-   Arguments:
-     handler - Ring handler function
-
-   Returns:
-     Wrapped handler with CORS headers."
-  [handler]
-  (fn [request]
-    (let [response (handler request)]
-      (if response
-        (update response :headers merge
-                {"Access-Control-Allow-Origin" "*"
-                 "Access-Control-Expose-Headers" "Mcp-Session-Id"})
-        response))))
+;; Re-export wrap-cors from mcp-http.router
+(def wrap-cors mcp-router/wrap-cors)

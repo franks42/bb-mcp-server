@@ -61,41 +61,64 @@ Key insight: Stdio and HTTP-MCP share JSON-RPC dispatch. REST bypasses it entire
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Potential Module Structure
+## Module Structure
 
+**Phase 8: Transport Module Extraction** (In Progress)
+
+### Completed Modules
+
+✅ **Phase 8.1: http-core** (50 tests, 105 assertions)
 ```
-modules/
-  core/                    # Shared by all transports
-    registry.clj           # Tool registry
-    handlers/              # Business logic (pure functions)
+modules/http-core/
+  src/http_core/
+    util.clj              # JSON helpers, UUID, headers
+    sse.clj               # SSE formatting and channel ops
+  test/http_core/
+    util_test.clj
+    sse_test.clj
+```
 
-  json-rpc/                # JSON-RPC protocol (no I/O)
-    router.clj             # Method dispatch
-    message.clj            # Message formatting
-    errors.clj             # Error codes
+✅ **Phase 8.2: mcp-http** (31 tests, 62 assertions)
+```
+modules/mcp-http/
+  src/mcp_http/
+    session.clj           # Session CRUD, cleanup task
+    handlers/
+      post.clj            # JSON-RPC via POST
+      get.clj             # SSE stream opening
+      delete.clj          # Session termination
+    router.clj            # MCP-only routing (/mcp, /health)
+    server.clj            # http-kit lifecycle
+    core.clj              # Module entry point
+  test/mcp_http/
+    session_test.clj
+    handlers_test.clj
+  (depends on: http-core)
+```
 
-  stdio/                   # Stdin/stdout transport
-    transport.clj          # Line-based I/O loop
-    (depends on: json-rpc)
+### Current State: streamable-http
 
-  http-core/               # Shared HTTP infrastructure
-    server.clj             # http-kit wrapper
-    session.clj            # Session management
-    sse.clj                # Server-Sent Events
-    middleware.clj         # CORS, auth, rate limiting
+With http-core and mcp-http extracted, streamable-http now provides:
+- Re-exports from mcp-http (backwards compatibility)
+- REST API handlers (rest.clj, openapi.clj, docs.clj)
+- Combined router (MCP + REST)
+- Middleware (CORS, rate-limit, auth, logging)
 
-  mcp-http/                # MCP over HTTP transport
-    handlers.clj           # POST/GET/DELETE handlers
-    (depends on: json-rpc, http-core)
+### Pending Modules
 
-  rest-api/                # REST API transport
-    handlers.clj           # Module/tool routes
-    openapi.clj            # OpenAPI spec generation
-    docs.clj               # HTML documentation
-    (depends on: http-core, NOT json-rpc)
+⏳ **Phase 8.3: rest-api** (future)
+```
+modules/rest-api/
+  handlers.clj            # Module/tool routes
+  openapi.clj             # OpenAPI spec generation
+  docs.clj                # HTML documentation
+  (depends on: http-core, NOT mcp-http)
+```
 
-  sente-lite/              # Future: bidirectional channels
-    (depends on: http-core)
+⏳ **sente-lite** (future)
+```
+modules/sente-lite/       # Bidirectional channels
+  (depends on: http-core)
 ```
 
 ## Dependencies
