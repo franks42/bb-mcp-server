@@ -287,6 +287,32 @@ This is correct and should stay separate.
 
 ## Future Improvements
 
+### Decouple mcp-stdio from Processor
+
+Currently `mcp-stdio.core` hardcodes dependency on `bb-mcp-server.protocol.processor`.
+
+**Recommendation**: Refactor `run-stdio-loop!` to accept a `handler-fn` argument:
+```clojure
+(defn run-stdio-loop! [handler-fn] ...)
+```
+
+**Benefit**: Makes mcp-stdio a pure transport library usable with any MCP implementation.
+
+### Unified Entry Point
+
+Currently separate scripts for each transport (`server:stdio`, `server:streamable`).
+
+**Recommendation**: Create `src/bb_mcp_server/main.clj` with CLI argument parsing:
+```bash
+bb -m bb-mcp-server.main --transport stdio,http --port 3000
+```
+
+**Benefit**: Single server instance managing multiple interfaces ("Triple Interface" vision).
+
+### Cross-Transport Integration Tests
+
+**Recommendation**: Test suite that runs both `mcp-http` and `mcp-stdio` against the same mock handler to verify identical behavior for the same JSON-RPC messages.
+
 ### REST API: GET vs POST Revisit
 
 The current REST API uses:
