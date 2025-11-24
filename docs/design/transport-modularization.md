@@ -1,6 +1,6 @@
 # Transport Layer Modularization
 
-**Status: Phase 8 Complete (v0.8.5)**
+**Status: Phase 8 Complete (v0.8.6)**
 
 Clean separation of transport layer into independent modules with clear dependencies.
 
@@ -9,17 +9,19 @@ Clean separation of transport layer into independent modules with clear dependen
 ```
 src/bb_mcp_server/
   protocol/router.clj      # JSON-RPC dispatch (method → handler)
+  protocol/processor.clj   # Unified JSON-RPC processor with context
   protocol/message.clj     # JSON-RPC message formatting
-  transport/stdio.clj      # Stdin/stdout wire protocol
+  transport/stdio.clj      # Re-export → mcp-stdio.core (DEPRECATED)
+  transport/http.clj       # Re-export → mcp-http.core (DEPRECATED)
   handlers/                # MCP method handlers (initialize, tools/*)
   registry.clj             # Tool registry
 
-modules/streamable-http/
-  handlers/post.clj        # MCP JSON-RPC over HTTP
-  handlers/rest.clj        # REST API (bypasses JSON-RPC)
-  handlers/get.clj         # SSE stream
-  handlers/delete.clj      # Session termination
-  session.clj, sse.clj     # Shared HTTP infrastructure
+modules/
+  mcp-stdio/               # Stdio transport module
+  http-core/               # Shared HTTP infrastructure
+  mcp-http/                # MCP JSON-RPC over HTTP
+  rest-api/                # REST API endpoints
+  streamable-http/         # Combined MCP+REST (convenience)
 ```
 
 ## Request Flow Analysis
@@ -65,7 +67,7 @@ Key insight: Stdio and HTTP-MCP share JSON-RPC dispatch. REST bypasses it entire
 
 ## Module Structure
 
-**Phase 8: Transport Module Extraction** (In Progress)
+**Phase 8: Transport Module Extraction** ✅ Complete
 
 ### Completed Modules
 
@@ -121,6 +123,15 @@ modules/mcp-stdio/
   (no module dependencies - uses core protocol.processor)
 ```
 
+✅ **Phase 8.5: Legacy Cleanup**
+
+Cleaned up legacy transport code:
+- Deleted `transport/protocol.clj` (unused)
+- Deleted `scripts/http_server.clj` (redundant)
+- Converted `transport/http.clj` to re-export from `mcp-http.core`
+- Fixed `server.clj` broken function reference
+- `bb server:http` now alias for `bb server:streamable`
+
 ### Current State: streamable-http
 
 With http-core, mcp-http, and rest-api extracted, streamable-http now provides:
@@ -128,7 +139,7 @@ With http-core, mcp-http, and rest-api extracted, streamable-http now provides:
 - Combined router (MCP + REST)
 - Middleware (CORS, rate-limit, auth, logging)
 
-### Pending Modules
+### Future Modules
 
 ⏳ **sente-lite** (future)
 ```
@@ -158,46 +169,30 @@ modules/sente-lite/       # Bidirectional channels
               (future: sente-lite)
 ```
 
-## Why Defer?
+## Future Considerations
 
-1. **Works fine as-is** - Current structure is functional
-2. **Module system maturity** - Need more experience with bb-module patterns
-3. **Coupling is manageable** - Not deeply entangled, just co-located
-4. **Refactoring cost** - Would touch many files, tests
-5. **Future transports** - Adding sente-lite will clarify natural boundaries
-
-## When to Revisit
+### When to Revisit
 
 - When adding sente-lite transport
 - When the http-core infrastructure needs to be shared elsewhere
 - When json-rpc needs to be used outside bb-mcp-server
-- When the current structure becomes painful to maintain
 - **When implementing progress notifications** (requires transport-aware delivery)
 
-## Questions to Answer Later
+### Open Questions
 
 1. Should `registry.clj` move to a core module?
 2. Should MCP handlers (initialize, tools/*) be separate from tool handlers?
 3. Can json-rpc be a standalone bb library?
-4. What's the right granularity for http-core vs mcp-http vs rest-api?
 
 ---
 
-## Implementation Plan: Unified Processor with Context
+## Unified Processor Architecture
 
-*Based on architecture review (2025-11-22)*
+*Implemented in Phase 8 (v0.8.0+)*
 
-### The Problem: Duplicate Processing Logic
+### Solution: `protocol.processor` with Context
 
-Currently, JSON-RPC processing is duplicated:
-- `test-harness.clj` → used by Stdio transport
-- `streamable-http/handlers/post.clj` → used by HTTP transport
-
-Both do: Parse JSON → Validate → Route → Format Response
-
-### The Solution: `protocol.processor` with Context
-
-Create a unified processor that accepts a **context object** (`ctx`) carrying transport-specific capabilities.
+The unified processor accepts a **context object** (`ctx`) carrying transport-specific capabilities.
 
 ```
 ┌──────────────┐      ┌──────────────┐
