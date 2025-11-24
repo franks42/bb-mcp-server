@@ -21,7 +21,7 @@
 (println "    MCP Spec: 2025-03-26")
 
 ;; Initialize module system from config file
-(println "\n[1/5] Loading modules from system.edn...")
+(println "\n[1/6] Loading modules from system.edn...")
 (let [create-result (sys/create-system-from-config)]
   (if (:error create-result)
     (do
@@ -30,7 +30,7 @@
     (println "  Modules configured:" (get-in create-result [:success :modules]))))
 
 ;; Start module system
-(println "\n[2/5] Starting module system...")
+(println "\n[2/6] Starting module system...")
 (let [start-result (sys/start-system!)]
   (if (:error start-result)
     (do
@@ -39,12 +39,12 @@
     (println "  Started:" (get-in start-result [:success :started]))))
 
 ;; Set up MCP handlers (initialize, tools/list, tools/call)
-(println "\n[3/5] Setting up MCP handlers...")
+(println "\n[3/6] Setting up MCP handlers...")
 (harness/setup-handlers-only!)
 (println "  Handlers registered")
 
 ;; Write PID file for server management
-(println "\n[4/5] Registering process...")
+(println "\n[4/6] Registering process...")
 (pid-util/write-pid-file! port)
 
 ;; Create the JSON-RPC handler for streamable-http
@@ -64,7 +64,7 @@
   (router/route-request ctx request))
 
 ;; Start Streamable HTTP server with REST API support
-(println (str "\n[5/5] Starting Streamable HTTP server on port " port "..."))
+(println (str "\n[5/6] Starting Streamable HTTP server on port " port "..."))
 (def server
      "Running Streamable HTTP server instance."
      (shttp/start-server! json-rpc-handler
@@ -93,6 +93,14 @@
 (registry/set-list-changed-callback!
  #(shttp/broadcast-notification! "notifications/tools/list_changed" {}))
 (println "  Tool list change notifications enabled")
+
+;; Validate transport availability
+(println "\n[6/6] Validating transport compatibility...")
+(let [available #{:mcp-http :rest}  ; transports this server provides
+      validation (registry/validate-transports available)]
+  (println (str "  " (:summary validation)))
+  (when-not (:valid? validation)
+    (println "  ⚠ Some tools may be unreachable via this server")))
 
 (println (str "\n✓ Server ready! http://localhost:" port))
 (println "  MCP Endpoints:")

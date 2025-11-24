@@ -87,7 +87,7 @@ modules/
 
 ---
 
-### 8.1 Extract `http-core`
+### 8.1 Extract `http-core` ✅
 
 **Goal:** Create shared HTTP infrastructure module
 
@@ -95,30 +95,32 @@ modules/
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 8.1.1 | Create `modules/http-core/` structure | ⏳ | Directory and module.edn |
-| 8.1.2 | Move `util.clj` → `http-core.util` | ⏳ | Namespace renamed |
-| 8.1.3 | Move `sse.clj` → `http-core.sse` | ⏳ | Namespace renamed |
-| 8.1.4 | Move `middleware.clj` → `http-core.middleware` | ⏳ | Namespace renamed |
-| 8.1.5 | Move `server.clj` → `http-core.server` | ⏳ | Namespace renamed |
-| 8.1.6 | Move relevant tests | ⏳ | Tests pass in new location |
-| 8.1.7 | Update `streamable-http` requires | ⏳ | Uses `http-core.*` |
-| 8.1.8 | Update `system.edn` and `bb.edn` | ⏳ | Module loads correctly |
-| 8.1.9 | Run all tests | ⏳ | `bb test:modules` passes |
+| 8.1.1 | Create `modules/http-core/` structure | ✅ | Directory and module.edn |
+| 8.1.2 | Move `util.clj` → `http-core.util` | ✅ | Namespace renamed |
+| 8.1.3 | Move `sse.clj` → `http-core.sse` | ✅ | Namespace renamed |
+| 8.1.4 | Move `middleware.clj` → `http-core.middleware` | ✅ | Namespace renamed |
+| 8.1.5 | Move `server.clj` → `http-core.server` | ⏳ | Deferred - kept in streamable-http |
+| 8.1.6 | Move relevant tests | ✅ | 50 tests, 105 assertions |
+| 8.1.7 | Update `streamable-http` requires | ✅ | Re-exports for backwards compat |
+| 8.1.8 | Update `system.edn` and `bb.edn` | ✅ | Paths added, tasks work |
+| 8.1.9 | Run all tests | ✅ | 149 tests pass |
+
+**Note:** `server.clj` was kept in `streamable-http` as it contains MCP-specific lifecycle logic. May move to `http-core` in Phase 8.2 if needed.
 
 **Module Manifest:**
 ```clojure
 ;; modules/http-core/module.edn
 {:name "http-core"
  :version "0.1.0"
- :description "Shared HTTP infrastructure: SSE, middleware, server lifecycle"
+ :description "Shared HTTP infrastructure: SSE, middleware, utilities"
  :requires []
  :entry "http-core.core/module"}
 ```
 
 **Success Criteria:**
-- [ ] `bb test:modules` passes
-- [ ] `bb server:streamable` works unchanged
-- [ ] No code duplication
+- [x] `bb test:modules` passes
+- [x] `bb server:streamable` works unchanged
+- [x] No code duplication (re-exports in streamable-http)
 
 ---
 
@@ -284,6 +286,28 @@ bb server:streamable 19878  # Manual smoke test
 
 ---
 
+## Future Improvements
+
+### Transport-Module Coupling (Revisit Later)
+
+**Current State (v0.8.x):** Transport validation is purely a startup-time warning. The `registry/validate-transports` function checks if registered tools have compatible transports available and logs warnings, but does not prevent tools from being loaded.
+
+**How it works today:**
+- Tools can optionally specify `:transports #{:rest :mcp-http :mcp-stdio}`
+- Default is all transports if not specified
+- Server startup calls `validate-transports` with its available transports
+- Warnings are logged for tools with no compatible transport
+
+**Potential improvements to explore:**
+1. **Declarative transport requirements in `module.edn`** - Let modules declare preferred transports at the module level, not just per-tool
+2. **Transport as module dependencies** - Make transports loadable modules that handler modules can depend on
+3. **Automatic transport loading** - When a tool requires a transport, auto-load it (requires careful design to avoid circular dependencies)
+4. **Transport capability negotiation** - At runtime, transports advertise capabilities, tools query what's available
+
+**Why defer:** Current approach is simple, non-breaking, and provides observability. More sophisticated approaches need more real-world usage patterns to guide design.
+
+---
+
 ## References
 
 - [Transport Modularization Design](docs/design/transport-modularization.md)
@@ -293,4 +317,4 @@ bb server:streamable 19878  # Manual smoke test
 
 ---
 
-*Last Updated: 2025-11-23*
+*Last Updated: 2025-11-24*

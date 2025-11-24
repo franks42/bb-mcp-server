@@ -1,106 +1,18 @@
 (ns streamable-http.util
-    "Utility functions for Streamable HTTP transport.
+    "DEPRECATED: Use http-core.util directly.
 
-   JSON helpers, UUID generation, and common utilities."
-    (:require [cheshire.core :as json]
-              [clojure.string :as str]
-              [taoensso.trove :as log]))
+   This namespace re-exports http-core.util for backwards compatibility.
+   New code should require http-core.util instead."
+    (:require [http-core.util :as core-util]))
 
-;; =============================================================================
-;; JSON Helpers
-;; =============================================================================
-
-(defn parse-json
-  "Parse JSON string to Clojure data with keyword keys.
-   Arrays are converted to vectors for (vector? ...) checks.
-   Returns nil on parse failure."
-  [s]
-  (when s
-    (try
-     (let [parsed (json/parse-string s true)]
-        ;; Convert lazy seqs to vectors for array detection
-       (if (and (sequential? parsed) (not (vector? parsed)))
-         (vec parsed)
-         parsed))
-     (catch Exception e
-            (log/log! {:level :warn
-                       :id    ::parse-json-failed
-                       :msg   "Failed to parse JSON"
-                       :error e
-                       :data  {:input-length (count s)}})
-            nil))))
-
-(defn generate-json
-  "Generate JSON string from Clojure data.
-   Returns nil on generation failure."
-  [data]
-  (try
-   (json/generate-string data)
-   (catch Exception e
-          (log/log! {:level :warn
-                     :id    ::generate-json-failed
-                     :msg   "Failed to generate JSON"
-                     :error e
-                     :data  {:data-type (type data)}})
-          nil)))
-
-;; =============================================================================
-;; UUID Generation
-;; =============================================================================
-
-(defn generate-uuid
-  "Generate a random UUID string."
-  []
-  (str (java.util.UUID/randomUUID)))
-
-;; =============================================================================
-;; Time Utilities
-;; =============================================================================
-
-(defn current-time-ms
-  "Current time in milliseconds since epoch."
-  []
-  (System/currentTimeMillis))
-
-(defn elapsed-ms
-  "Calculate elapsed time in ms since start-time."
-  [start-time]
-  (- (current-time-ms) start-time))
-
-;; =============================================================================
-;; Header Utilities
-;; =============================================================================
-
-(defn get-header
-  "Get header value from request, case-insensitive."
-  [request header-name]
-  (get-in request [:headers (str/lower-case header-name)]))
-
-(defn accepts?
-  "Check if request accepts a given content type."
-  [request content-type]
-  (when-let [accept (get-header request "accept")]
-            (str/includes? accept content-type)))
-
-;; =============================================================================
-;; JSON-RPC Helpers
-;; =============================================================================
-
-(defn json-rpc-error
-  "Create a JSON-RPC 2.0 error response map."
-  [{:keys [id code message data]}]
-  (cond-> {:jsonrpc "2.0"
-           :error {:code code
-                   :message message}
-           :id id}
-          data (assoc-in [:error :data] data)))
-
-(defn json-rpc-error-response
-  "Create an HTTP response with JSON-RPC error."
-  [{:keys [status id code message data]}]
-  {:status (or status 400)
-   :headers {"Content-Type" "application/json"}
-   :body (generate-json (json-rpc-error {:id id
-                                         :code code
-                                         :message message
-                                         :data data}))})
+;; Re-export all public vars from http-core.util
+(def generate-json core-util/generate-json)
+(def parse-json core-util/parse-json)
+(def generate-uuid core-util/generate-uuid)
+(def current-time-ms core-util/current-time-ms)
+(def elapsed-ms core-util/elapsed-ms)
+(def get-header core-util/get-header)
+(def accepts? core-util/accepts?)
+(def json-rpc-error core-util/json-rpc-error)
+(def json-rpc-response core-util/json-rpc-response)
+(def json-rpc-error-response core-util/json-rpc-error-response)

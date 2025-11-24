@@ -1,0 +1,11 @@
+;; HTTP Core Module
+;;
+;; Shared HTTP infrastructure: SSE, middleware, server lifecycle.
+;; Used by mcp-http and rest-api modules.
+
+{:name "http-core"
+ :version "0.1.0"
+ :description "Shared HTTP infrastructure: SSE, middleware, server lifecycle"
+ :requires []
+ :tools []  ; No tools - infrastructure only
+ :entry "http-core.core/module"}

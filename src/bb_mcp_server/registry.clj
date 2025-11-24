@@ -21,7 +21,8 @@
     (get-tool \"math.add\")      ; => full tool record
     (get-handler \"math.add\")   ; => handler function
     (list-tools)                 ; => seq of tool definitions (no handlers)"
-    (:require [clojure.string :as str]
+    (:require [clojure.set :as set]
+              [clojure.string :as str]
               [malli.core :as m]
               [malli.error :as me]
               [taoensso.trove :as log]))
@@ -466,6 +467,50 @@
   [module-name short-name]
   (let [full-name (make-full-name module-name short-name)]
     (get-tool full-name)))
+
+;; -----------------------------------------------------------------------------
+;; Transport Validation API
+;; -----------------------------------------------------------------------------
+
+(defn validate-transports
+  "Validate that registered tools have compatible transports available.
+
+  Args:
+    available-transports - Set of transport keywords this server provides
+                          (e.g., #{:mcp-http :rest} for Streamable HTTP server)
+
+  Returns:
+    Map with:
+      :valid?   - true if all tools have at least one available transport
+      :warnings - Seq of warning maps for tools with no compatible transports
+      :summary  - Human-readable summary string
+
+  This is a startup validation helper - tools can still function if a transport
+  becomes available later. The function logs warnings but does not throw."
+  [available-transports]
+  (let [all-tools (list-tools)
+        warnings (->> all-tools
+                      (map (fn [tool]
+                             (let [tool-transports (get-tool-transports tool)
+                                   compatible (set/intersection tool-transports available-transports)]
+                               (when (empty? compatible)
+                                 {:tool-name (:name tool)
+                                  :module (:module tool)
+                                  :tool-transports tool-transports
+                                  :available-transports available-transports
+                                  :message (str "Tool '" (:name tool) "' requires " tool-transports
+                                                " but server provides " available-transports)}))))
+                      (remove nil?))]
+    (doseq [warn warnings]
+           (log/log! {:level :warn
+                      :id ::transport-mismatch
+                      :msg "Tool has no compatible transport"
+                      :data warn}))
+    {:valid? (empty? warnings)
+     :warnings (vec warnings)
+     :summary (if (empty? warnings)
+                (str "All " (count all-tools) " tools have compatible transports")
+                (str (count warnings) " of " (count all-tools) " tools have no compatible transport"))}))
 
 ;; -----------------------------------------------------------------------------
 ;; Introspection API

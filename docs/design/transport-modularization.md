@@ -250,6 +250,33 @@ This is correct and should stay separate.
 
 ---
 
+## Future Improvements
+
+### REST API: GET vs POST Revisit
+
+The current REST API uses:
+- `GET /api/modules/:module/tools/:name` - Get tool metadata
+- `POST /api/modules/:module/tools/:name` - Call tool
+
+**Questions to revisit:**
+1. Should idempotent tools (read-only) support GET for invocation?
+2. Could we add `?call` query param to GET for simple tools?
+3. Should there be explicit `/:name/metadata` vs `/:name/call` endpoints?
+4. How do OpenAPI/Swagger UIs expect tool invocation patterns?
+
+**Design considerations:**
+- REST purists prefer GET for idempotent operations
+- POST for tool calls matches RPC semantics
+- MCP tools may have side effects, so POST is safer default
+- OpenAPI generation currently assumes POST-only invocation
+
+This should be revisited when:
+- User feedback indicates GET would be more convenient
+- Adding support for cURL-friendly quick calls
+- Integrating with OpenAPI tooling that expects specific patterns
+
+---
+
 ## Related
 
 - [naming-conventions.md](naming-conventions.md) - Module-tool separator design
