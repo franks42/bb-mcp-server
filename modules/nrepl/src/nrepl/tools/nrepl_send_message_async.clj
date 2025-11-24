@@ -58,9 +58,10 @@
                                {:pretty true})}]
              :isError true}))))
 
-(def tool-name "nrepl-send-message-async")
+(def tool-name "Tool name identifier." "nrepl-send-message-async")
 
 (def metadata
+     "MCP tool metadata for nrepl-send-message-async."
      {:description "⚠️ INTERNAL TOOL: Low-level async message sending used internally by other tools. DO NOT USE DIRECTLY - use nrepl-eval for code evaluation or nrepl-send-message for other nREPL operations. This tool is part of the async infrastructure and requires manual result retrieval."
       :inputSchema {:type "object"
                     :properties {:message {:type "object"

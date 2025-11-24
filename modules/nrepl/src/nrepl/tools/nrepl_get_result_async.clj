@@ -70,9 +70,10 @@
                            {:pretty true})}]
          :isError true}))))
 
-(def tool-name "nrepl-get-result-async")
+(def tool-name "Tool name identifier." "nrepl-get-result-async")
 
 (def metadata
+     "MCP tool metadata for nrepl-get-result-async."
      {:description "⚠️ INTERNAL TOOL: Low-level async result retrieval used internally by other tools. DO NOT USE DIRECTLY - this is part of the async infrastructure. Use nrepl-eval for automatic result handling or nrepl-send-message for synchronous operations."
       :inputSchema {:type "object"
                     :properties {:message-id {:type "string"

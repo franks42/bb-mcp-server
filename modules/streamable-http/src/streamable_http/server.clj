@@ -6,7 +6,7 @@
     (:require [mcp-http.server :as core-server]))
 
 ;; Re-export all public vars from mcp-http.server
-(def start-server! core-server/start-server!)
-(def stop-server! core-server/stop-server!)
-(def server-status core-server/server-status)
-(def draining? core-server/draining?)
+(def start-server! "See mcp-http.server/start-server!" core-server/start-server!)
+(def stop-server! "See mcp-http.server/stop-server!" core-server/stop-server!)
+(def server-status "See mcp-http.server/server-status" core-server/server-status)
+(def draining? "See mcp-http.server/draining?" core-server/draining?)

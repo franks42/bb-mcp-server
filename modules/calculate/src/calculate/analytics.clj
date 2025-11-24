@@ -5,7 +5,7 @@
               [clojure.string :as str]
               [taoensso.trove :as log]))
 
-(def log-file "calculator-usage.edn")
+(def log-file "Log file path for calculator usage analytics." "calculator-usage.edn")
 
 (defn extract-function-names
   "Extract top-level function symbols from expression"

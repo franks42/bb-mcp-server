@@ -6,6 +6,7 @@
 
 ;; Math function definitions - 50+ pre-loaded functions
 (def math-fns
+     "Core mathematical functions map for SCI bindings."
      {;; Core arithmetic
       '+ +, '- -, '* *, '/ /
       'mod mod, 'quot quot, 'rem rem
@@ -1194,6 +1195,7 @@
 
 ;; Add token conversion functions to math-fns for use in expressions
 (def token-conversion-fns
+     "Token conversion functions for SCI context."
      {'token-convert token-convert
       'portfolio-value portfolio-value
       'rate rate
@@ -1212,12 +1214,14 @@
 
 ;; Merge all functions for SCI context
 (def all-math-fns
+     "All mathematical functions merged for SCI context."
      (merge math-fns token-conversion-fns))
 
 ;; SCI context for safe evaluation
 ;; Note: No :allow list - we want to allow our math-fns bindings
 ;; No :deny list - security is non-issue (nrepl-eval already allows arbitrary code)
 (def sci-ctx
+     "SCI context for safe mathematical evaluation."
      (sci/init
       {:bindings all-math-fns
        :realize-max 10000}))  ; prevent infinite sequences

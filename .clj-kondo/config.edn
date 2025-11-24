@@ -6,8 +6,7 @@
            :unused-namespace {:level :warning}
            :unused-referred-var {:level :warning}
            :redefined-var {:level :warning}
-           ;; Docstrings encouraged but not required - reduces noise from re-exports
-           :missing-docstring {:level :off}
+           :missing-docstring {:level :warning}
            :misplaced-docstring {:level :error}
            :redundant-do {:level :warning}
            :redundant-let {:level :warning}

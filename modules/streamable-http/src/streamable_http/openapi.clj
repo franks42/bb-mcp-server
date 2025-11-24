@@ -6,6 +6,6 @@
     (:require [rest-api.openapi :as core-openapi]))
 
 ;; Re-export public API
-(def openapi-version core-openapi/openapi-version)
-(def generate-spec core-openapi/generate-spec)
-(def generate-json core-openapi/generate-json)
+(def openapi-version "See rest-api.openapi/openapi-version" core-openapi/openapi-version)
+(def generate-spec "See rest-api.openapi/generate-spec" core-openapi/generate-spec)
+(def generate-json "See rest-api.openapi/generate-json" core-openapi/generate-json)

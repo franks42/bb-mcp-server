@@ -140,9 +140,10 @@
 ;; Tool Metadata
 ;; =============================================================================
 
-(def tool-name "local-nrepl-server")
+(def tool-name "Tool name identifier." "local-nrepl-server")
 
 (def metadata
+     "MCP tool metadata for local-nrepl-server."
      {:description "🖥️ SERVER MANAGER: Control built-in Babashka nREPL server for testing and development. Operations: start (launch server), stop (shutdown), status (check state), restart (cycle). Useful for creating test environments and local development servers."
       :inputSchema {:type "object"
                     :properties {:op {:type "string"

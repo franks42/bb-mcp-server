@@ -28,21 +28,21 @@
 ;; =============================================================================
 
 ;; Server lifecycle
-(def start-server! server/start-server!)
-(def stop-server! server/stop-server!)
-(def server-status server/server-status)
-(def draining? server/draining?)
+(def start-server! "See mcp-http.server/start-server!" server/start-server!)
+(def stop-server! "See mcp-http.server/stop-server!" server/stop-server!)
+(def server-status "See mcp-http.server/server-status" server/server-status)
+(def draining? "See mcp-http.server/draining?" server/draining?)
 
 ;; Session management
-(def create-session! session/create-session!)
-(def get-session session/get-session)
-(def valid-session? session/valid-session?)
-(def destroy-session! session/destroy-session!)
-(def list-sessions session/list-sessions)
-(def session-count session/session-count)
-(def session-stats session/session-stats)
-(def all-sse-channels session/all-sse-channels)
+(def create-session! "See mcp-http.session/create-session!" session/create-session!)
+(def get-session "See mcp-http.session/get-session" session/get-session)
+(def valid-session? "See mcp-http.session/valid-session?" session/valid-session?)
+(def destroy-session! "See mcp-http.session/destroy-session!" session/destroy-session!)
+(def list-sessions "See mcp-http.session/list-sessions" session/list-sessions)
+(def session-count "See mcp-http.session/session-count" session/session-count)
+(def session-stats "See mcp-http.session/session-stats" session/session-stats)
+(def all-sse-channels "See mcp-http.session/all-sse-channels" session/all-sse-channels)
 
 ;; Router
-(def create-router router/create-router)
-(def wrap-cors router/wrap-cors)
+(def create-router "See mcp-http.router/create-router" router/create-router)
+(def wrap-cors "See mcp-http.router/wrap-cors" router/wrap-cors)

@@ -46,9 +46,10 @@
 ;; Tool Metadata
 ;; =============================================================================
 
-(def tool-name "nrepl-eval-local-file")
+(def tool-name "Tool name identifier." "nrepl-eval-local-file")
 
 (def metadata
+     "MCP tool metadata for nrepl-eval-local-file."
      {:description "📂 FILE EVALUATOR: Evaluate a local Clojure file via nREPL by reading and sending its content as code. Useful for nREPL servers without filesystem access."
       :inputSchema {:type "object"
                     :properties {:file-path {:type "string"

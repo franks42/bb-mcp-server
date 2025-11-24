@@ -5,7 +5,7 @@
    support the :rest transport."
     (:require [http-core.util :as util]))
 
-(def openapi-version "3.0.3")
+(def openapi-version "OpenAPI specification version." "3.0.3")
 
 (defn- json-schema-to-openapi
   "Convert MCP JSON Schema to OpenAPI schema.

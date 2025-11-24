@@ -6,4 +6,4 @@
     (:require [rest-api.docs :as core-docs]))
 
 ;; Re-export public API
-(def generate-html core-docs/generate-html)
+(def generate-html "See rest-api.docs/generate-html" core-docs/generate-html)

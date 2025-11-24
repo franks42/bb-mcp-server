@@ -74,9 +74,10 @@
                                     {:message-id msg-id :timeout timeout-ms}))
         send-result)))) ; Propagate send error
 
-(def tool-name "nrepl-send-message")
+(def tool-name "Tool name identifier." "nrepl-send-message")
 
 (def metadata
+     "MCP tool metadata for nrepl-send-message."
      {:description "⚠️ LOW-LEVEL nREPL: Raw nREPL protocol access for advanced users only. Most users should use nrepl-eval for code evaluation instead. This tool provides direct protocol operations (info, completions, sessions) but requires nREPL protocol knowledge. Use nrepl-eval for all code execution tasks."
       :inputSchema {:type "object"
                     :properties {:message {:type "object"

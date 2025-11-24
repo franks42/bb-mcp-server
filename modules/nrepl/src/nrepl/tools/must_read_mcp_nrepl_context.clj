@@ -271,9 +271,10 @@ You now understand the MCP-nREPL system architecture, capabilities, and usage pa
     {:content [{:type "text"
                 :text markdown-content}]}))
 
-(def tool-name "must-read-mcp-nrepl-context")
+(def tool-name "Tool name identifier." "must-read-mcp-nrepl-context")
 
 (def metadata
+     "MCP tool metadata for must-read-mcp-nrepl-context."
      {:description "🎯 MUST-READ FIRST: Essential AI agent onboarding guide for MCP-nREPL system. Provides comprehensive overview of architecture, tool selection, base64 enhancements, VS Code integration, and usage patterns. READ THIS BEFORE using any other tools!"
       :inputSchema {:type "object"
                     :properties {}

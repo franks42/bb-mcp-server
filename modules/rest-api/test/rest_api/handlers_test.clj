@@ -33,30 +33,39 @@
                     :transports #{:mcp-stdio}
                     :handler (fn [{:keys [code]}] {:result code})}})
 
-(defn list-tools-fn [transport]
+(defn list-tools-fn
+  "List tools filtered by transport."
+  [transport]
   (->> (vals test-tools)
        (filter (fn [tool]
                  (let [transports (or (:transports tool) #{:rest :mcp-http :mcp-stdio})]
                    (contains? transports transport))))
        (map #(select-keys % [:name :description :inputSchema :transports :module]))))
 
-(defn list-modules-fn []
+(defn list-modules-fn
+  "List all unique module names."
+  []
   (->> (vals test-tools)
        (map :module)
        distinct
        sort))
 
-(defn list-tools-for-module-fn [module-name]
+(defn list-tools-for-module-fn
+  "List tools for a specific module."
+  [module-name]
   (->> (vals test-tools)
        (filter #(= module-name (:module %)))
        (map #(select-keys % [:name :description :inputSchema :module]))))
 
-(defn get-tool-in-module-fn [module-name tool-name]
+(defn get-tool-in-module-fn
+  "Get a specific tool within a module."
+  [module-name tool-name]
   (when-let [tool (get test-tools tool-name)]
             (when (= module-name (:module tool))
               tool)))
 
 (def test-config
+     "Test configuration for REST handler tests."
      {:list-tools-fn            list-tools-fn
       :list-modules-fn          list-modules-fn
       :list-tools-for-module-fn list-tools-for-module-fn

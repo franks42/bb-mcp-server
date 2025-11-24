@@ -257,9 +257,10 @@
                        {:pretty true})}]
      :isError true}))
 
-(def tool-name "nrepl-connection")
+(def tool-name "Tool name identifier." "nrepl-connection")
 
 (def metadata
+     "MCP tool metadata for nrepl-connection."
      {:description "🔗 CONNECTION MANAGER: Essential tool for nREPL server connections. REQUIRED FIRST STEP before code evaluation. Operations: connect (establish link), disconnect (clean shutdown), status (check health), list (show all), disconnect-all (cleanup). Supports multiple connections with nicknames for easy switching."
       :inputSchema {:type "object"
                     :properties {:op {:type "string"

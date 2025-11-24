@@ -6,6 +6,7 @@
 
 ;; Add test paths
 (def test-namespaces
+     "List of test namespaces to run."
      '[;; State management tests
        nrepl.state.connection-test
        nrepl.state.messages-test

@@ -33,9 +33,10 @@
    (catch Exception e
           (shared/handle-load-file-error e "nrepl-load-file" file-path))))
 
-(def tool-name "nrepl-load-file")
+(def tool-name "Tool name identifier." "nrepl-load-file")
 
 (def metadata
+     "MCP tool metadata for nrepl-load-file."
      {:description "📁 NREPL FILE LOADER: Load and evaluate Clojure files in connected nREPL server's runtime using Clojure's built-in load-file function. Executes in the nREPL server's environment (Clojure JVM, ClojureScript, Babashka SCI, etc.). Use for loading application code, namespaces, and project files. Recommend absolute file paths for reliability."
       :inputSchema {:type "object"
                     :properties {:file-path {:type "string"

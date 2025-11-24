@@ -6,4 +6,4 @@
     (:require [mcp-http.handlers.get :as core-get]))
 
 ;; Re-export public API
-(def handle-get core-get/handle-get)
+(def handle-get "See mcp-http.handlers.get/handle-get" core-get/handle-get)

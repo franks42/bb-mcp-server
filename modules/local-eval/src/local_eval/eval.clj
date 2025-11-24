@@ -128,9 +128,10 @@
 ;; Tool Definition
 ;; =============================================================================
 
-(def tool-name "local-eval")
+(def tool-name "Tool name identifier." "local-eval")
 
 (def tool-definition
+     "MCP tool definition for local-eval."
      {:name tool-name
       :module "local-eval"
       :description "Execute Clojure code within MCP server runtime for introspection and debugging.

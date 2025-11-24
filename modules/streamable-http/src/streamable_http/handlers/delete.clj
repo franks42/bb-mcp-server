@@ -6,4 +6,4 @@
     (:require [mcp-http.handlers.delete :as core-delete]))
 
 ;; Re-export public API
-(def handle-delete core-delete/handle-delete)
+(def handle-delete "See mcp-http.handlers.delete/handle-delete" core-delete/handle-delete)

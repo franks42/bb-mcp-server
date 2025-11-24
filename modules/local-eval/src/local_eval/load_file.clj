@@ -48,9 +48,10 @@
 ;; Tool Definition
 ;; =============================================================================
 
-(def tool-name "local-load-file")
+(def tool-name "Tool name identifier." "local-load-file")
 
 (def tool-definition
+     "MCP tool definition for local-load-file."
      {:name tool-name
       :module "local-eval"
       :description "Load and evaluate Clojure files in MCP server's runtime.

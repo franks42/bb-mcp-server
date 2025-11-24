@@ -160,9 +160,10 @@
 ;; Tool Metadata
 ;; =============================================================================
 
-(def tool-name "nrepl-eval")
+(def tool-name "Tool name identifier." "nrepl-eval")
 
 (def metadata
+     "MCP tool metadata for nrepl-eval."
      {:description "🚀 PRIMARY TOOL: Execute Clojure code in connected nREPL server with full language support and VS Code API access. RECOMMENDED for most AI agent tasks including code evaluation, file operations, and VS Code automation. Features: timeout protection (1-300s), base64 encoding for complex code, multi-stream output (stdout/stderr/result), connection management, and EDN-to-JSON conversion for structured data."
       :inputSchema {:type "object"
                     :properties {:code {:type "string"
