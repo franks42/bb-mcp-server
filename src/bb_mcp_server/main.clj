@@ -117,32 +117,50 @@ TRANSPORTS:
 
    Returns true on success, exits on failure."
   [verbose?]
-  ;; Load modules from system.edn
-  (when verbose? (println "[1/3] Loading modules from system.edn..."))
-  (let [create-result (sys/create-system-from-config)]
-    (if (:error create-result)
-      (do (binding [*out* *err*]
-                   (println "ERROR: Failed to create system:" (:error create-result)))
-          (System/exit 1))
-      (when verbose?
-        (println "      Modules:" (get-in create-result [:success :modules])))))
+  (log/log! {:level :info
+             :id    ::system-initializing
+             :msg   "Initializing bb-mcp-server"})
+  (let [start (System/currentTimeMillis)]
 
-  ;; Start module system
-  (when verbose? (println "[2/3] Starting modules..."))
-  (let [start-result (sys/start-system!)]
-    (if (:error start-result)
-      (do (binding [*out* *err*]
-                   (println "ERROR: Failed to start system:" (:error start-result)))
-          (System/exit 1))
-      (when verbose?
-        (println "      Started:" (get-in start-result [:success :started])))))
+    ;; Load modules from system.edn
+    (when verbose? (println "[1/3] Loading modules from system.edn..."))
+    (let [create-result (sys/create-system-from-config)]
+      (if (:error create-result)
+        (do (log/log! {:level :error
+                       :id    ::system-create-failed
+                       :msg   "Failed to create system"
+                       :data  {:error (:error create-result)}})
+            (binding [*out* *err*]
+                     (println "ERROR: Failed to create system:" (:error create-result)))
+            (System/exit 1))
+        (when verbose?
+          (println "      Modules:" (get-in create-result [:success :modules])))))
 
-  ;; Register MCP handlers
-  (when verbose? (println "[3/3] Registering MCP handlers..."))
-  (harness/setup-handlers-only!)
-  (when verbose? (println "      Done"))
+    ;; Start module system
+    (when verbose? (println "[2/3] Starting modules..."))
+    (let [start-result (sys/start-system!)]
+      (if (:error start-result)
+        (do (log/log! {:level :error
+                       :id    ::system-start-failed
+                       :msg   "Failed to start module system"
+                       :data  {:error (:error start-result)}})
+            (binding [*out* *err*]
+                     (println "ERROR: Failed to start system:" (:error start-result)))
+            (System/exit 1))
+        (when verbose?
+          (println "      Started:" (get-in start-result [:success :started])))))
 
-  true)
+    ;; Register MCP handlers
+    (when verbose? (println "[3/3] Registering MCP handlers..."))
+    (harness/setup-handlers-only!)
+    (when verbose? (println "      Done"))
+
+    (let [duration (- (System/currentTimeMillis) start)]
+      (log/log! {:level :info
+                 :id    ::system-initialized
+                 :msg   "System initialization complete"
+                 :data  {:duration-ms duration}}))
+    true))
 
 ;; =============================================================================
 ;; Transport Starters
@@ -151,6 +169,10 @@ TRANSPORTS:
 (defn start-http!
   "Start HTTP transport on given port. Returns server instance."
   [port]
+  (log/log! {:level :info
+             :id    ::http-starting
+             :msg   "Starting HTTP transport"
+             :data  {:port port}})
   (println (str "\n=== Starting HTTP transport on port " port " ==="))
 
   ;; Write PID file
@@ -181,6 +203,14 @@ TRANSPORTS:
     (registry/set-list-changed-callback!
      #(shttp/broadcast-notification! "notifications/tools/list_changed" {}))
 
+    (log/log! {:level :info
+               :id    ::http-started
+               :msg   "HTTP transport started"
+               :data  {:port port
+                       :mcp-path "/mcp"
+                       :rest-path "/api/"
+                       :docs-path "/api/docs"}})
+
     (println (str "    MCP:  http://localhost:" port "/mcp"))
     (println (str "    REST: http://localhost:" port "/api/"))
     (println (str "    Docs: http://localhost:" port "/api/docs"))
@@ -190,7 +220,9 @@ TRANSPORTS:
 (defn start-stdio!
   "Start stdio transport. Blocks until stdin closes."
   []
-  (log/log! {:level :info :msg "Starting stdio transport"})
+  (log/log! {:level :info
+             :id    ::stdio-starting
+             :msg   "Starting stdio transport"})
   (let [ctx (processor/make-stdio-ctx)
         handler (fn [line] (processor/process-request-str ctx line))]
     (stdio/run-stdio-loop! handler)))
@@ -223,9 +255,16 @@ TRANSPORTS:
             (.addShutdownHook
              (Runtime/getRuntime)
              (Thread. (fn []
+                        (log/log! {:level :info
+                                   :id    ::shutdown-initiated
+                                   :msg   "Shutdown initiated"
+                                   :data  {:transport :http}})
                         (println "\nShutting down...")
                         (shttp/stop-server! server)
                         (pid-util/delete-pid-file! (:port opts))
+                        (log/log! {:level :info
+                                   :id    ::shutdown-complete
+                                   :msg   "Shutdown complete"})
                         (println "Goodbye!"))))
             (println "\nServer ready. Press Ctrl+C to stop.")
             ;; Keep running
@@ -233,7 +272,11 @@ TRANSPORTS:
 
       ;; Both transports
       (and (:stdio opts) (:http opts))
-      (do (println "\n=== BB MCP Server (Dual Transport) ===")
+      (do (log/log! {:level :info
+                     :id    ::dual-transport-mode
+                     :msg   "Starting dual transport mode"
+                     :data  {:http-port (:port opts)}})
+          (println "\n=== BB MCP Server (Dual Transport) ===")
           (initialize-system! true)
 
           ;; Start HTTP in background
@@ -241,9 +284,16 @@ TRANSPORTS:
             (.addShutdownHook
              (Runtime/getRuntime)
              (Thread. (fn []
+                        (log/log! {:level :info
+                                   :id    ::shutdown-initiated
+                                   :msg   "Shutdown initiated"
+                                   :data  {:transport :dual}})
                         (println "\nShutting down...")
                         (shttp/stop-server! server)
                         (pid-util/delete-pid-file! (:port opts))
+                        (log/log! {:level :info
+                                   :id    ::shutdown-complete
+                                   :msg   "Shutdown complete"})
                         (println "Goodbye!")))))
 
           (println "\n=== Starting stdio transport ===")

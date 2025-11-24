@@ -423,6 +423,41 @@ bb server --help       # show usage
 
 ---
 
+## Phase 12: Telemetry Audit ✅
+
+**Goal:** Ensure all key operations in Phases 9-11 code have proper telemetry per `docs/AI_TELEMETRY_GUIDE.md`.
+
+**Files audited:**
+- `src/bb_mcp_server/main.clj` - Unified entry point
+- `modules/mcp-stdio/src/mcp_stdio/core.clj` - Stdio transport
+- `modules/mcp-http/src/mcp_http/server.clj` - HTTP server lifecycle
+- `modules/mcp-http/src/mcp_http/session.clj` - Session management
+- `modules/mcp-http/src/mcp_http/handlers/*.clj` - Request handlers
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 12.1 | Audit `main.clj` telemetry | ✅ | Added: system-initializing, system-initialized, system-create-failed, system-start-failed, http-starting, http-started, stdio-starting, shutdown-initiated, shutdown-complete, dual-transport-mode |
+| 12.2 | Audit `mcp-stdio/core.clj` telemetry | ✅ | Already has good coverage (entry, success, failure, debug) |
+| 12.3 | Audit `mcp-http/server.clj` telemetry | ✅ | Already has: server-started, server-stopping, server-stopped, notifying-sse-clients |
+| 12.4 | Audit `mcp-http/session.clj` telemetry | ✅ | Already has: session-created, session-destroyed, cleanup events, SSE channel add/remove |
+| 12.5 | Audit `mcp-http/handlers/*.clj` telemetry | ✅ | Already has: handle-initialize, initialize-complete, request-complete, parse-error, session-terminated |
+| 12.6 | Add missing telemetry calls | ✅ | Added 10 telemetry calls to main.clj |
+| 12.7 | Run lint/format/test verification | ✅ | 0 errors, 0 warnings, 125 tests pass |
+
+**Telemetry added to main.clj:**
+- `::system-initializing` - Entry point for initialization
+- `::system-initialized` - Success with duration-ms
+- `::system-create-failed` - Failure creating module system
+- `::system-start-failed` - Failure starting modules
+- `::http-starting` - HTTP transport entry
+- `::http-started` - HTTP transport success with endpoints
+- `::stdio-starting` - Stdio transport entry
+- `::shutdown-initiated` - Shutdown hook triggered
+- `::shutdown-complete` - Clean shutdown
+- `::dual-transport-mode` - Both transports starting
+
+---
+
 ## Future Improvements
 
 ### Transport-Module Coupling (Revisit Later)
