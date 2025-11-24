@@ -18,4 +18,4 @@
                   :protocol "MCP 2025-03-26"
                   :mode "stdio"}})
 
-(stdio/run-stdio-server!)
+(stdio/run-stdio-loop!)

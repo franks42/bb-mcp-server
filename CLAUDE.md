@@ -32,7 +32,7 @@ bb-mcp-server/
 │   └── streamable-http/         # HTTP transport module
 ├── scripts/                     # Server startup scripts
 │   ├── streamable_http_server.clj
-│   ├── http_server.clj
+│   ├── stdio_server.clj
 │   └── pid_util.clj             # PID file management
 ├── docs/design/                 # Design documents
 └── bb.edn                       # Babashka config
@@ -75,4 +75,4 @@ bb test:modules
 
 ---
 
-*Last Updated: 2025-11-22*
+*Last Updated: 2025-11-23*

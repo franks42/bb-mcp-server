@@ -40,8 +40,8 @@
   server:stdio {:doc "Run MCP server over stdio"
                 :task (load-file "scripts/stdio_server.clj")}
 
-  server:http {:doc "Run MCP server over HTTP [port] (default 3000)"
-               :task (load-file "scripts/http_server.clj")}
+  server:http {:doc "Run MCP server over HTTP [port] (alias for server:streamable)"
+               :depends [server:streamable]}
 
   server:streamable {:doc "Run MCP server over Streamable HTTP [port] (default 3000)"
                      :task (load-file "scripts/streamable_http_server.clj")}
