@@ -593,6 +593,397 @@ User Request: "Deploy my Clojure app to AWS"
 
 ---
 
+## Dedicated MCP Servers Per Expert Domain
+
+### The Advantage
+
+**Problem:** Single MCP server exposes ALL tools to ALL experts
+- Context pollution - experts see 50+ irrelevant tools
+- Security risk - experts access tools they shouldn't
+- Wasted tokens - tool listings consume context
+
+**Solution:** Each expert gets curated MCP server with only relevant tools
+- **clojure-coder** → MCP server with: nrepl, clj-kondo, cljfmt, local-eval
+- **aws-deployment** → MCP server with: aws-serverless tools only
+- **documentation** → MCP server with: github, memory tools only
+
+**Benefits:**
+1. **Focus** - 80% reduction in tool list size
+2. **Security** - Principle of least privilege
+3. **Performance** - Faster startup, smaller registry
+4. **Isolation** - Independent lifecycles
+5. **Flexibility** - Mix local and cloud MCP servers
+
+---
+
+### Option A: Stdio-Based Dedicated Servers
+
+**Pattern:** Claude subprocess spawns MCP server as child process
+
+```
+┌────────────────────────────────────────┐
+│  Claude Process (expert instance)      │
+│  Command: claude --mcp-server ...     │
+└────────────────────────────────────────┘
+         ↓ spawns & connects via stdio
+┌────────────────────────────────────────┐
+│  Dedicated MCP Server (subprocess)     │
+│  Command: bb server:clojure-tools      │
+│  Modules: nrepl, clj-kondo, cljfmt    │
+└────────────────────────────────────────┘
+```
+
+**Implementation:**
+
+**1. Create config files per domain:**
+```clojure
+;; config/clojure-tools.edn
+{:modules [:nrepl :local-eval :clj-kondo :cljfmt]}
+
+;; config/aws-tools.edn
+{:modules [:aws-serverless]}
+
+;; config/documentation.edn
+{:modules [:github :memory]}
+```
+
+**2. Add bb tasks for each server:**
+```clojure
+;; bb.edn
+{:tasks
+ {:server:clojure-tools
+  {:doc "MCP server with Clojure development tools only"
+   :task (do
+           (System/setProperty "mcp.config" "config/clojure-tools.edn")
+           (apply (requiring-resolve 'bb-mcp-server.main/-main)
+                  (cons "--stdio" *command-line-args*)))}
+
+  :server:aws-tools
+  {:doc "MCP server with AWS deployment tools only"
+   :task (do
+           (System/setProperty "mcp.config" "config/aws-tools.edn")
+           (apply (requiring-resolve 'bb-mcp-server.main/-main)
+                  (cons "--stdio" *command-line-args*)))}}}
+```
+
+**3. Expert manifest references bb task:**
+```clojure
+;; curricula/clojure-coder/manifest.edn
+{:expert-id :clojure-coder
+ :mcp-server {:command ["bb" "server:clojure-tools" "--stdio"]
+              :transport :stdio}
+ ...}
+```
+
+**4. Spawn expert with dedicated server:**
+```clojure
+(start-expert! :clojure-coder)
+;; Behind the scenes:
+;; 1. Load manifest
+;; 2. Build Claude command:
+;;    ["claude"
+;;     "--mcp-server" "bb server:clojure-tools --stdio"
+;;     "--model" "claude-3-5-haiku"]
+;; 3. Start Claude process
+;;    - Claude spawns bb server as subprocess
+;;    - Claude connects via stdio
+;;    - MCP server lifecycle tied to Claude
+```
+
+**Pros:**
+- ✅ Simple - Claude manages subprocess lifecycle
+- ✅ No ports - stdio connection (no conflicts)
+- ✅ Lightweight - same binary, different config
+- ✅ Auto-cleanup - server dies with Claude
+
+**Cons:**
+- ❌ Stdio only - can't connect multiple clients
+- ❌ No remote servers - must be local subprocess
+- ❌ Hard to debug - stdio streams are opaque
+- ❌ No dynamic tool addition - must restart
+
+---
+
+### Option B: HTTP-Based Dedicated Servers (RECOMMENDED)
+
+**Pattern:** Independent MCP servers on different ports, Claude connects via HTTP
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Claude Process (expert instance)                     │
+│  Config: --mcp-server http://localhost:19880         │
+└──────────────────────────────────────────────────────┘
+         ↓ HTTP connection (MCP Streamable HTTP)
+┌──────────────────────────────────────────────────────┐
+│  Dedicated MCP Server (independent process)          │
+│  Port: 19880                                         │
+│  Command: bb server:clojure-tools --http 19880       │
+│  Modules: nrepl, clj-kondo, cljfmt                   │
+│  PID file: .pid/19880.pid                            │
+└──────────────────────────────────────────────────────┘
+```
+
+**Implementation:**
+
+**1. Port allocation strategy:**
+```clojure
+;; Port ranges per domain
+(def domain-port-ranges
+  {:clojure-tools   [19880 19889]  ; 10 possible experts
+   :aws-tools       [19890 19899]
+   :documentation   [19900 19909]
+   :research        [19910 19919]})
+
+(defn allocate-port [domain]
+  (let [[start end] (get domain-port-ranges domain)
+        available (filter port-available? (range start (inc end)))]
+    (first available)))
+```
+
+**2. Start dedicated server:**
+```clojure
+(defn start-dedicated-mcp-server!
+  "Start domain-specific MCP server on available port.
+
+   Arguments:
+     domain - Domain keyword (:clojure-tools, :aws-tools)
+     config - Optional config overrides
+
+   Returns:
+     {:port ... :server ... :url ...}"
+  [domain & [config]]
+  (let [port (allocate-port domain)
+        config-file (str "config/" (name domain) ".edn")
+
+        ;; Start server in background
+        cmd ["bb" "server" "--http" (str port)
+             "--config" config-file]
+        proc (p/process cmd {:out :inherit
+                             :err :inherit})]
+
+    ;; Wait for server to be ready
+    (wait-for-health (str "http://localhost:" port "/health"))
+
+    {:domain domain
+     :port port
+     :proc proc
+     :url (str "http://localhost:" port)
+     :health-url (str "http://localhost:" port "/health")
+     :mcp-url (str "http://localhost:" port "/mcp")}))
+```
+
+**3. Expert manifest with HTTP server:**
+```clojure
+;; curricula/clojure-coder/manifest.edn
+{:expert-id :clojure-coder
+ :mcp-server {:domain :clojure-tools  ; Allocates port from range
+              :transport :http
+              :lifecycle :dedicated}   ; vs :shared
+ ...}
+```
+
+**4. Start expert with HTTP-based server:**
+```clojure
+(defn start-expert! [expert-id]
+  (let [expert-def (get-expert expert-id)
+        mcp-config (:mcp-server expert-def)
+
+        ;; 1. Start (or reuse) dedicated MCP server
+        mcp-server (case (:lifecycle mcp-config)
+                     :dedicated (start-dedicated-mcp-server! (:domain mcp-config))
+                     :shared    (get-or-start-shared-server! (:domain mcp-config)))
+
+        ;; 2. Build Claude command with HTTP MCP server
+        claude-cmd ["claude"
+                    "--mcp-server" (:mcp-url mcp-server)
+                    "--model" (:model expert-def)
+                    "--input-format" "stream-json"
+                    "--output-format" "stream-json"]
+
+        ;; 3. Start Claude subprocess
+        claude-proc (p/process claude-cmd {:shutdown p/destroy-tree})]
+
+    ;; 4. Return expert instance with both processes
+    {:name expert-id
+     :claude-proc claude-proc
+     :mcp-server mcp-server
+     :expert-def expert-def}))
+
+(defn stop-expert! [expert-instance]
+  ;; 1. Stop Claude process
+  (p/destroy-tree (:claude-proc expert-instance))
+
+  ;; 2. Stop dedicated MCP server (if not shared)
+  (when (= :dedicated (get-in expert-instance [:expert-def :mcp-server :lifecycle]))
+    (stop-mcp-server! (:mcp-server expert-instance))))
+```
+
+**Pros:**
+- ✅ **Remote servers** - Can run MCP servers in cloud
+- ✅ **Shared servers** - Multiple experts can use same server
+- ✅ **Dynamic tools** - Can hot-reload modules without restart
+- ✅ **Debuggable** - HTTP requests visible in logs
+- ✅ **Multiple clients** - Same MCP server, multiple AI instances
+- ✅ **Service discovery** - Can query available servers
+- ✅ **Health checks** - Monitor server availability
+- ✅ **REST API** - Tools also available via `/api/` endpoints
+
+**Cons:**
+- ❌ Port management - Need to allocate ports
+- ❌ Cleanup complexity - Must stop servers explicitly
+- ❌ Network overhead - HTTP vs stdio (minimal)
+
+---
+
+### Option C: Hybrid (Best of Both Worlds)
+
+**Local experts:** Stdio (simpler)
+**Remote/shared experts:** HTTP (flexible)
+
+```clojure
+;; Expert manifest with flexible transport
+{:expert-id :clojure-coder
+
+ ;; Option 1: Local stdio (simple)
+ :mcp-server {:transport :stdio
+              :command ["bb" "server:clojure-tools" "--stdio"]}
+
+ ;; Option 2: Local HTTP (debuggable)
+ :mcp-server {:transport :http
+              :domain :clojure-tools
+              :lifecycle :dedicated}
+
+ ;; Option 3: Shared HTTP (efficient)
+ :mcp-server {:transport :http
+              :domain :clojure-tools
+              :lifecycle :shared}
+
+ ;; Option 4: Cloud HTTP (scalable)
+ :mcp-server {:transport :http
+              :url "https://clojure-tools.example.com/mcp"
+              :auth {:type :api-key
+                     :key-env "CLOJURE_TOOLS_API_KEY"}}}
+```
+
+---
+
+### HTTP MCP Server: Advanced Features
+
+#### 1. Dynamic Module Loading
+
+```clojure
+;; Start with base modules
+(start-mcp-server! :clojure-tools {:modules [:nrepl :clj-kondo]})
+
+;; Expert needs additional tool
+(add-module! :clojure-tools :cljfmt)
+;; Server hot-reloads, no restart needed
+
+;; Broadcast tools/list_changed to all connected clients
+(broadcast-tool-list-changed! :clojure-tools)
+```
+
+#### 2. Shared Server Pool
+
+Multiple experts share same MCP server (resource efficient):
+
+```clojure
+;; Start shared server (first expert)
+(start-expert! :clojure-coder-1)
+;=> Creates MCP server on port 19880
+
+;; Second expert reuses same server
+(start-expert! :clojure-coder-2)
+;=> Connects to existing server on port 19880
+
+;; Both experts see same tools
+;; Both contribute to server costs
+```
+
+#### 3. Cloud MCP Servers
+
+Run MCP servers in cloud, experts connect remotely:
+
+```clojure
+;; Deploy MCP server to cloud
+;; (One-time setup)
+$ bb server --http 3000 --config config/clojure-tools.edn
+$ # Deploy to Fly.io, Railway, or any cloud
+
+;; Expert manifests reference cloud server
+{:expert-id :clojure-coder
+ :mcp-server {:transport :http
+              :url "https://clojure-tools.fly.dev/mcp"
+              :auth {:type :bearer
+                     :token-env "MCP_AUTH_TOKEN"}}}
+
+;; All experts worldwide use same MCP server
+;; Centralized logging, monitoring, updates
+```
+
+#### 4. Service Discovery
+
+```clojure
+;; List available MCP servers
+(list-available-servers)
+;=> [{:domain :clojure-tools :port 19880 :health :healthy}
+;    {:domain :aws-tools :port 19890 :health :healthy}]
+
+;; Check server health
+(check-mcp-server-health "http://localhost:19880")
+;=> {:status :healthy :tools-count 5 :uptime-seconds 3600}
+
+;; Get server info
+(GET "http://localhost:19880/api/server")
+;=> {:name "bb-mcp-server"
+;    :version "0.11.0"
+;    :modules [:nrepl :clj-kondo :cljfmt]
+;    :tool-count 5}
+```
+
+---
+
+### Comparison: Stdio vs HTTP
+
+| Feature | Stdio | HTTP | Winner |
+|---------|-------|------|--------|
+| **Simplicity** | Simple subprocess | Port management | Stdio |
+| **Cleanup** | Auto (child process) | Manual stop | Stdio |
+| **Debugging** | Opaque streams | HTTP logs | HTTP |
+| **Remote access** | ❌ Local only | ✅ Cloud-ready | HTTP |
+| **Shared servers** | ❌ One client | ✅ Multiple clients | HTTP |
+| **Dynamic tools** | ❌ Must restart | ✅ Hot-reload | HTTP |
+| **Tool introspection** | Limited | REST API | HTTP |
+| **Network overhead** | None | Minimal (~10ms) | Stdio |
+| **Port conflicts** | ❌ None | ⚠️ Need allocation | Stdio |
+| **Service discovery** | ❌ Not possible | ✅ Query endpoints | HTTP |
+
+**Recommendation:** HTTP for production, stdio for quick prototyping
+
+---
+
+### Implementation Roadmap
+
+**Phase 1: Stdio proof-of-concept (13E)**
+- 3 config files (clojure-tools, aws-tools, documentation)
+- 3 bb tasks (server:clojure-tools, etc.)
+- Expert manifests reference bb tasks
+- Validate concept works
+
+**Phase 2: HTTP migration (13F)**
+- Port allocation strategy
+- Shared vs dedicated lifecycle
+- Health monitoring
+- Dynamic module loading
+
+**Phase 3: Cloud deployment (14+)**
+- Deploy MCP servers to cloud
+- Authentication/authorization
+- Centralized monitoring
+- Load balancing
+
+---
+
 ## Phased Implementation Proposal
 
 ### Phase 13E: File-Based Expert Registry (MVP)
