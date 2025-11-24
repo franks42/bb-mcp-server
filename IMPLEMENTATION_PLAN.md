@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 10 Complete (v0.10.0)
-**Last Updated:** 2025-11-24
+**Status:** Phase 11 Complete (v0.11.0)
+**Last Updated:** 2025-11-23
 
 ---
 
@@ -326,6 +326,17 @@ bb server:streamable 19878  # Manual smoke test
 - 0 lint warnings, 0 errors
 - 125 tests, 340 assertions total
 
+### Phase 10: Decouple mcp-stdio ✅ (v0.10.0)
+- `mcp-stdio` now a pure transport with zero bb-mcp-server dependencies
+- `run-stdio-loop!` accepts `handler-fn` argument
+- 165 tests, 492 assertions total
+
+### Phase 11: Unified Entry Point ✅ (v0.11.0)
+- Single `bb server` command with composable flags
+- `--stdio`, `--http [port]`, `--port`, `--help`
+- Supports running both transports simultaneously
+- Deleted deprecated `scripts/stdio_server.clj`, `scripts/streamable_http_server.clj`
+
 ---
 
 ### Phase 10: Decouple mcp-stdio ✅
@@ -365,6 +376,50 @@ bb server:streamable 19878  # Manual smoke test
       handler (fn [line] (processor/process-request-str ctx line))]
   (stdio/run-stdio-loop! handler))
 ```
+
+---
+
+## Phase 11: Unified Entry Point ✅ (v0.11.0)
+
+**Goal:** Single `bb server` command that can run any combination of transports.
+
+**Before:**
+- `bb server:stdio` - Stdio only
+- `bb server:streamable` - HTTP only
+- No way to run both in one process
+
+**After:**
+```bash
+bb server              # stdio (default, Claude Desktop)
+bb server --http       # HTTP only on port 3000
+bb server --http 8080  # HTTP only on port 8080
+bb server --stdio --http       # both transports simultaneously
+bb server --stdio --http 8080  # both, HTTP on 8080
+bb server --help       # show usage
+```
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 11.1 | Create `src/bb_mcp_server/main.clj` | ✅ | CLI parsing, unified entry point |
+| 11.2 | Implement `parse-args` | ✅ | Returns `{:stdio :http :port :help}` |
+| 11.3 | Implement `initialize-system!` | ✅ | Shared module/handler initialization |
+| 11.4 | Implement `start-http!` | ✅ | HTTP transport with PID file |
+| 11.5 | Implement `start-stdio!` | ✅ | Stdio transport blocking |
+| 11.6 | Support dual transport mode | ✅ | HTTP async + stdio blocking |
+| 11.7 | Update `bb.edn` with unified `server` task | ✅ | Deprecate old tasks |
+| 11.8 | Delete deprecated scripts | ✅ | `scripts/stdio_server.clj`, `scripts/streamable_http_server.clj` |
+| 11.9 | Test all combinations | ✅ | --stdio, --http, both |
+
+**Key Files:**
+- NEW: `src/bb_mcp_server/main.clj` (258 lines)
+- MODIFIED: `bb.edn` - unified `server` task
+- DELETED: `scripts/stdio_server.clj`, `scripts/streamable_http_server.clj`
+
+**Benefits:**
+- Single mental model - one command, flags for behavior
+- Resource efficient - no duplicate module loading
+- Shared state - single registry, single notification dispatch
+- Operational simplicity - one PID, one process, one log stream
 
 ---
 
