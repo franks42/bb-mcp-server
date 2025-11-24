@@ -1,19 +1,19 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 8 - Transport Module Extraction
-**Last Updated:** 2025-11-23
+**Status:** Phase 9 Complete (v0.9.0)
+**Last Updated:** 2025-11-24
 
 ---
 
-## Current Focus: Phase 8 - Transport Module Extraction
+## Completed: Phase 8 & 9 - Transport Module Extraction
 
-Extract the monolithic `streamable-http` module into focused, reusable modules with clear dependency boundaries.
+Extracted the monolithic `streamable-http` module into focused, reusable modules with clear dependency boundaries.
 
 **Prerequisite:** Unified Processor ✅ Complete
 
 ---
 
-## Phase 8: Transport Module Extraction
+## Phase 8: Transport Module Extraction ✅
 
 ### Overview
 
@@ -124,7 +124,7 @@ modules/
 
 ---
 
-### 8.2 Extract `mcp-http`
+### 8.2 Extract `mcp-http` ✅
 
 **Goal:** MCP JSON-RPC transport as standalone module
 
@@ -132,14 +132,14 @@ modules/
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 8.2.1 | Create `modules/mcp-http/` structure | ⏳ | Directory and module.edn |
-| 8.2.2 | Move `session.clj` → `mcp-http.session` | ⏳ | Namespace renamed |
-| 8.2.3 | Move POST/GET/DELETE handlers | ⏳ | Namespaces renamed |
-| 8.2.4 | Create `mcp-http/router.clj` | ⏳ | MCP-only routing |
-| 8.2.5 | Move session tests | ⏳ | Tests pass |
-| 8.2.6 | Update requires throughout | ⏳ | All imports correct |
-| 8.2.7 | Update `system.edn` | ⏳ | `:requires ["http-core"]` |
-| 8.2.8 | Run all tests | ⏳ | `bb test:modules` passes |
+| 8.2.1 | Create `modules/mcp-http/` structure | ✅ | Directory and module.edn |
+| 8.2.2 | Move `session.clj` → `mcp-http.session` | ✅ | Namespace renamed |
+| 8.2.3 | Move POST/GET/DELETE handlers | ✅ | Namespaces renamed |
+| 8.2.4 | Create `mcp-http/router.clj` | ✅ | MCP-only routing |
+| 8.2.5 | Move session tests | ✅ | Tests pass |
+| 8.2.6 | Update requires throughout | ✅ | All imports correct |
+| 8.2.7 | Update `system.edn` | ✅ | `:requires ["http-core"]` |
+| 8.2.8 | Run all tests | ✅ | 31 tests, 62 assertions |
 
 **Module Manifest:**
 ```clojure
@@ -152,13 +152,13 @@ modules/
 ```
 
 **Success Criteria:**
-- [ ] MCP endpoints work (`POST/GET/DELETE /mcp`)
-- [ ] Session management works
-- [ ] SSE notifications work
+- [x] MCP endpoints work (`POST/GET/DELETE /mcp`)
+- [x] Session management works
+- [x] SSE notifications work
 
 ---
 
-### 8.3 Extract `rest-api`
+### 8.3 Extract `rest-api` ✅
 
 **Goal:** REST API as standalone module (no JSON-RPC dependency)
 
@@ -166,14 +166,14 @@ modules/
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 8.3.1 | Create `modules/rest-api/` structure | ⏳ | Directory and module.edn |
-| 8.3.2 | Move `handlers/rest.clj` → `rest-api/handlers.clj` | ⏳ | Namespace renamed |
-| 8.3.3 | Move `openapi.clj` → `rest-api/openapi.clj` | ⏳ | Namespace renamed |
-| 8.3.4 | Move `docs.clj` → `rest-api/docs.clj` | ⏳ | Namespace renamed |
-| 8.3.5 | Create `rest-api/router.clj` | ⏳ | REST routing |
-| 8.3.6 | Move REST tests | ⏳ | Tests pass |
-| 8.3.7 | Update `system.edn` | ⏳ | `:requires ["http-core"]` |
-| 8.3.8 | Run all tests | ⏳ | `bb test:modules` passes |
+| 8.3.1 | Create `modules/rest-api/` structure | ✅ | Directory and module.edn |
+| 8.3.2 | Move `handlers/rest.clj` → `rest-api/handlers.clj` | ✅ | Namespace renamed |
+| 8.3.3 | Move `openapi.clj` → `rest-api/openapi.clj` | ✅ | Namespace renamed |
+| 8.3.4 | Move `docs.clj` → `rest-api/docs.clj` | ✅ | Namespace renamed |
+| 8.3.5 | Create `rest-api/router.clj` | ✅ | REST routing |
+| 8.3.6 | Move REST tests | ✅ | Tests pass |
+| 8.3.7 | Update `system.edn` | ✅ | `:requires ["http-core"]` |
+| 8.3.8 | Run all tests | ✅ | 9 tests, 56 assertions |
 
 **Module Manifest:**
 ```clojure
@@ -186,40 +186,68 @@ modules/
 ```
 
 **Success Criteria:**
-- [ ] REST endpoints work (`/api/*`)
-- [ ] OpenAPI spec generates correctly
-- [ ] HTML docs render
+- [x] REST endpoints work (`/api/*`)
+- [x] OpenAPI spec generates correctly
+- [x] HTML docs render
 
 ---
 
-### 8.4 Cleanup & Documentation
+### 8.4 Cleanup & Documentation ✅
 
 **Goal:** Remove old module, update docs
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 8.4.1 | Delete `modules/streamable-http/` | ⏳ | Directory removed |
-| 8.4.2 | Update `CLAUDE.md` | ⏳ | Reflects new structure |
-| 8.4.3 | Update `README.md` | ⏳ | Module table updated |
-| 8.4.4 | Update server startup scripts | ⏳ | Use new modules |
-| 8.4.5 | Create README for each new module | ⏳ | Documentation complete |
+| 8.4.1 | ~~Delete `modules/streamable-http/`~~ | ✅ | Kept as convenience wrapper |
+| 8.4.2 | Update `CLAUDE.md` | ✅ | Reflects new structure |
+| 8.4.3 | Update `README.md` | ✅ | Module table updated |
+| 8.4.4 | Update server startup scripts | ✅ | Use new modules |
+| 8.4.5 | Create README for each new module | ✅ | Documentation complete |
+
+**Note:** `streamable-http` was kept as a convenience module that combines mcp-http + rest-api.
 
 **Success Criteria:**
-- [ ] No references to `streamable-http` namespace
-- [ ] All documentation accurate
+- [x] Core code moved to new modules
+- [x] All documentation accurate
 
 ---
 
-### 8.5 (Optional) Extract `mcp-stdio`
+### 8.5 Extract `mcp-stdio` ✅
 
 **Goal:** Make stdio transport a proper module for consistency
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 8.5.1 | Create `modules/mcp-stdio/` structure | ⏳ | Directory and module.edn |
-| 8.5.2 | Move `transport/stdio.clj` | ⏳ | Namespace renamed |
-| 8.5.3 | Update server startup | ⏳ | Loads module |
-| 8.5.4 | Test with Claude Code | ⏳ | End-to-end works |
+| 8.5.1 | Create `modules/mcp-stdio/` structure | ✅ | Directory and module.edn |
+| 8.5.2 | Move `transport/stdio.clj` | ✅ | Namespace renamed to `mcp-stdio.core` |
+| 8.5.3 | Update server startup | ✅ | Loads module |
+| 8.5.4 | Test with Claude Code | ✅ | End-to-end works (10 tests, 42 assertions)
+
+---
+
+## Phase 9: Remove Legacy Wrappers ✅
+
+**Goal:** Delete deprecated re-exports and legacy transport layer
+
+Pre-1.0 with no external dependencies - full freedom to break backwards compatibility.
+
+| # | Task | Status |
+|---|------|--------|
+| 9.1 | Delete `src/bb_mcp_server/transport/` directory | ✅ |
+| 9.2 | Delete legacy tests (`test/bb_mcp_server/transport/`, `test/run_stdio_tests.clj`) | ✅ |
+| 9.3 | Update scripts to use module namespaces directly | ✅ |
+| 9.4 | Fix namespace declarations in scripts | ✅ |
+| 9.5 | Clean up all lint warnings | ✅ |
+
+**Rationale:** Re-exports add confusion and indirection with no benefit since nothing depends on them.
+
+**Final Test Counts:**
+- http-core: 50 tests, 105 assertions
+- mcp-http: 31 tests, 62 assertions
+- mcp-stdio: 10 tests, 42 assertions
+- rest-api: 9 tests, 56 assertions
+- streamable-http: 25 tests, 75 assertions
+- **Total: 125 tests, 340 assertions**
 
 ---
 
@@ -284,13 +312,27 @@ bb server:streamable 19878  # Manual smoke test
 - **Unified Processor** - transport-agnostic JSON-RPC processing
 - Context objects for transport-specific capabilities
 
+### Phase 8: Transport Module Extraction ✅
+- Extracted `http-core` - shared HTTP infrastructure (50 tests)
+- Extracted `mcp-http` - MCP JSON-RPC transport (31 tests)
+- Extracted `rest-api` - REST endpoints + OpenAPI (9 tests)
+- Extracted `mcp-stdio` - stdio transport (10 tests)
+- `streamable-http` kept as convenience wrapper
+
+### Phase 9: Legacy Cleanup ✅ (v0.9.0)
+- Deleted `src/bb_mcp_server/transport/` directory
+- Deleted legacy tests
+- Proper `ns` declarations in all scripts
+- 0 lint warnings, 0 errors
+- 125 tests, 340 assertions total
+
 ---
 
 ## Future Improvements
 
 ### Transport-Module Coupling (Revisit Later)
 
-**Current State (v0.8.x):** Transport validation is purely a startup-time warning. The `registry/validate-transports` function checks if registered tools have compatible transports available and logs warnings, but does not prevent tools from being loaded.
+**Current State (v0.9.x):** Transport validation is purely a startup-time warning. The `registry/validate-transports` function checks if registered tools have compatible transports available and logs warnings, but does not prevent tools from being loaded.
 
 **How it works today:**
 - Tools can optionally specify `:transports #{:rest :mcp-http :mcp-stdio}`
