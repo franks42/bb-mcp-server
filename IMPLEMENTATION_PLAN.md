@@ -497,6 +497,50 @@ modules/claude-manager/
 
 **Next:** Phase 13B - Replace mock with real Claude CLI integration
 
+### Phase 13.5: Stdio Transport Safety ✅ Complete
+
+**Status:** Safety improvements complete - all verification passing
+
+**Problem identified:** Any `println` statement in production code corrupts JSON-RPC stream when stdio transport is active (e.g., Claude Desktop spawning bb-mcp-server).
+
+**What was implemented:**
+1. **Scanned codebase** - Found violation in `main.clj` lines 299-301 (dual-transport mode startup banner)
+2. **Fixed main.clj** - Replaced all problematic `println` with telemetry calls
+3. **Added lint rule** - Added `:discouraged-var` to `.clj-kondo/config.edn` to forbid `println/prn/print`
+4. **Created checklist** - New `docs/CODE_REVIEW_CHECKLIST.md` with stdio safety as top priority
+5. **Improved tooling** - Created `bb fix-parens` task with user-friendly parmezan wrapper
+6. **Updated docs** - Fixed parmezan documentation in `docs/CLOJURE_EXPERT_CONTEXT.md`
+
+**Files modified:**
+- `src/bb_mcp_server/main.clj` - Replaced 3 println calls with telemetry (lines 279, 291, 299-301)
+- `.clj-kondo/config.edn` - Added `:discouraged-var` linter with error level
+- `bb.edn` - Added `fix-parens` task
+- `docs/CLOJURE_EXPERT_CONTEXT.md` - Corrected parmezan usage (was using wrong `--in-place` flag)
+- `docs/CODE_REVIEW_CHECKLIST.md` - Created comprehensive code review checklist
+- `docs/design/claude-subprocess-spawning-architecture.md` - Updated status to reflect Phase 13A completion
+
+**Verification:**
+```bash
+$ clj-kondo --lint src/bb_mcp_server/main.clj
+linting took 82ms, 0 errors, 0 warnings  ✅
+
+$ cljfmt check src/bb_mcp_server/main.clj
+All files formatted correctly.  ✅
+
+$ bb test:modules
+125 tests, 293 assertions, 0 failures  ✅
+```
+
+**Critical Note:** Existing `println` in `modules/mcp-stdio/src/mcp_stdio/core.clj` and `src/bb_mcp_server/protocol/processor.clj` are VALID - they ARE the stdio transport implementation.
+
+**Lint rule added:**
+```clojure
+:discouraged-var {:level :error
+                  :symbols {clojure.core/println {:message "Use taoensso.trove/log! instead. println breaks stdio transport."}
+                            clojure.core/prn {:message "Use taoensso.trove/log! instead. prn breaks stdio transport."}
+                            clojure.core/print {:message "Use taoensso.trove/log! instead. print breaks stdio transport."}}}
+```
+
 ### Key Features
 
 1. **Claude-as-a-tool** - Invoke Claude instances from MCP tools
