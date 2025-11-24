@@ -1,7 +1,7 @@
 (ns run-tests
-  "Test runner for rest-api module."
-  (:require [clojure.test :as test]
-            [rest-api.handlers-test]))
+    "Test runner for rest-api module."
+    (:require [clojure.test :as test]
+              [rest-api.handlers-test]))
 
 (defn run-tests
   "Run all rest-api module tests and return results."
