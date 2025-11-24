@@ -1,14 +1,17 @@
 (ns mcp-stdio.core-test
     "Tests for mcp-stdio transport module.
 
-  Tests the complete stdio request/response cycle including:
-  - Normal request processing
-  - Error handling
-  - I/O protocol compliance"
+  Tests the transport layer behavior independent of the processor:
+  - Handler invocation
+  - I/O protocol compliance
+  - Error handling for handler exceptions
+  - Response formatting"
     (:require [clojure.string :as str]
               [clojure.test :refer [deftest is testing]]
+              [mcp-stdio.core :as stdio]
               [bb-mcp-server.telemetry :as telemetry]
-              [bb-mcp-server.test-harness :as test-harness]
+              [bb-mcp-server.test-harness :as harness]
+              [bb-mcp-server.protocol.processor :as processor]
               [cheshire.core :as json]))
 
 ;; =============================================================================
@@ -35,7 +38,7 @@
               *out* output-writer]
              (let [result (f)]
                (.flush output-writer)
-               {:output (vec (str/split-lines (.toString output-stream)))
+               {:output (vec (remove empty? (str/split-lines (.toString output-stream))))
                 :result result}))))
 
 ;; =============================================================================
@@ -44,241 +47,150 @@
 
 (deftest module-metadata-test
          (testing "Module has correct metadata"
-                  (let [module (requiring-resolve 'mcp-stdio.core/module)]
-                    (is (= "mcp-stdio" (:name @module)))
-                    (is (= "0.1.0" (:version @module)))
-                    (is (string? (:description @module))))))
+                  (is (= "mcp-stdio" (:name stdio/module)))
+                  (is (= "0.1.0" (:version stdio/module)))
+                  (is (string? (:description stdio/module)))))
 
 ;; =============================================================================
-;; Request/Response Tests
+;; Transport Tests (using mock handlers)
 ;; =============================================================================
 
-(deftest test-successful-request-response
-         (testing "Process valid initialize request"
-                  (let [request (json/generate-string
-                                 {:jsonrpc "2.0"
-                                  :method "initialize"
-                                  :params {:protocolVersion "1.0"
-                                           :clientInfo {:name "test-client"
-                                                        :version "1.0.0"}}
-                                  :id 1})
-                        {:keys [output]} (with-stdio-capture [request ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
+(deftest test-handler-called-for-each-line
+         (testing "Handler is called for each input line"
+                  (let [calls (atom [])
+                        mock-handler (fn [line]
+                                       (swap! calls conj line)
+                                       (json/generate-string {:jsonrpc "2.0" :result "ok" :id 1}))
+                        {:keys [output]} (with-stdio-capture ["line1" "line2" "line3"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 3 (count @calls)))
+                    (is (= ["line1" "line2" "line3"] @calls))
+                    (is (= 3 (count output))))))
 
-                    (is (= 1 (count output))
-                        "Should output one response")
-
+(deftest test-handler-response-written-to-stdout
+         (testing "Handler response is written to stdout"
+                  (let [mock-handler (fn [_line]
+                                       (json/generate-string {:jsonrpc "2.0" :result {:echo "test"} :id 42}))
+                        {:keys [output]} (with-stdio-capture ["input"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 1 (count output)))
                     (let [response (json/parse-string (first output) true)]
                       (is (= "2.0" (:jsonrpc response)))
-                      (is (= 1 (:id response)))
-                      (is (contains? response :result))
-                      (is (not (contains? response :error)))))))
+                      (is (= 42 (:id response)))
+                      (is (= {:echo "test"} (:result response)))))))
 
-(deftest test-multiple-requests
-         (testing "Process multiple requests in sequence"
-                  (let [init-req (json/generate-string
+(deftest test-nil-response-not-written
+         (testing "Nil response (notification) is not written to stdout"
+                  (let [mock-handler (fn [_line] nil)  ; Return nil for notifications
+                        {:keys [output]} (with-stdio-capture ["notification1" "notification2"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 0 (count output))
+                        "No output for nil responses"))))
+
+(deftest test-mixed-responses-and-notifications
+         (testing "Mix of responses and notifications"
+                  (let [call-count (atom 0)
+                        mock-handler (fn [_line]
+                                       (let [n (swap! call-count inc)]
+                                         (if (odd? n)
+                                           (json/generate-string {:jsonrpc "2.0" :result n :id n})
+                                           nil)))  ; Even calls return nil
+                        {:keys [output]} (with-stdio-capture ["a" "b" "c" "d"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 2 (count output))
+                        "Only odd calls produce output")
+                    (let [r1 (json/parse-string (first output) true)
+                          r2 (json/parse-string (second output) true)]
+                      (is (= 1 (:id r1)))
+                      (is (= 3 (:id r2)))))))
+
+(deftest test-handler-exception-produces-error-response
+         (testing "Handler exception produces JSON-RPC error response"
+                  (let [mock-handler (fn [_line]
+                                       (throw (ex-info "Handler failed" {:reason "test"})))
+                        {:keys [output]} (with-stdio-capture ["input"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 1 (count output)))
+                    (let [response (json/parse-string (first output) true)]
+                      (is (= "2.0" (:jsonrpc response)))
+                      (is (contains? response :error))
+                      (is (= -32603 (get-in response [:error :code])))
+                      (is (= "Internal error" (get-in response [:error :message])))
+                      (is (str/includes? (get-in response [:error :data]) "Handler failed"))))))
+
+(deftest test-multiple-lines-with-one-exception
+         (testing "Exception on one line doesn't stop processing"
+                  (let [call-count (atom 0)
+                        mock-handler (fn [_line]
+                                       (let [n (swap! call-count inc)]
+                                         (if (= n 2)
+                                           (throw (ex-info "Error on line 2" {}))
+                                           (json/generate-string {:jsonrpc "2.0" :result n :id n}))))
+                        {:keys [output]} (with-stdio-capture ["a" "b" "c"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 3 (count output))
+                        "All three lines produce output")
+                    (let [r1 (json/parse-string (first output) true)
+                          r2 (json/parse-string (second output) true)
+                          r3 (json/parse-string (nth output 2) true)]
+                      ;; First response is success
+                      (is (= 1 (:result r1)))
+                      ;; Second response is error
+                      (is (contains? r2 :error))
+                      (is (= -32603 (get-in r2 [:error :code])))
+                      ;; Third response is success (processing continues)
+                      (is (= 3 (:result r3)))))))
+
+(deftest test-empty-lines-skipped
+         (testing "Empty lines are passed to handler (handler decides what to do)"
+                  (let [calls (atom [])
+                        mock-handler (fn [line]
+                                       (swap! calls conj line)
+                                       ;; Only respond to non-empty lines
+                                       (when-not (empty? line)
+                                         (json/generate-string {:jsonrpc "2.0" :result "ok" :id 1})))
+                        {:keys [output]} (with-stdio-capture ["" "valid" ""]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    ;; All lines passed to handler (including empty ones)
+                    (is (= 3 (count @calls)))
+                    ;; Only non-empty line produces output
+                    (is (= 1 (count output))))))
+
+(deftest test-response-is-single-line
+         (testing "Each response is a single line (no embedded newlines)"
+                  (let [mock-handler (fn [_line]
+                                       ;; Response with data that might be multi-line if pretty-printed
+                                       (json/generate-string
+                                        {:jsonrpc "2.0"
+                                         :result {:nested {:data "value"
+                                                           :list [1 2 3]}}
+                                         :id 1}))
+                        {:keys [output]} (with-stdio-capture ["input"]
+                                                             #(stdio/run-stdio-loop! mock-handler))]
+                    (is (= 1 (count output)))
+                    (is (not (str/includes? (first output) "\n"))
+                        "Response should be single line"))))
+
+;; =============================================================================
+;; Integration Tests (with real processor - optional)
+;; =============================================================================
+
+(deftest test-with-real-processor
+         (testing "Integration with real processor"
+                  (harness/setup!)
+
+                  (let [ctx (processor/make-stdio-ctx)
+                        handler (fn [line] (processor/process-request-str ctx line))
+                        init-req (json/generate-string
                                   {:jsonrpc "2.0"
                                    :method "initialize"
                                    :params {:protocolVersion "1.0"
                                             :clientInfo {:name "test" :version "1.0"}}
                                    :id 1})
-                        list-req (json/generate-string
-                                  {:jsonrpc "2.0"
-                                   :method "tools/list"
-                                   :params {}
-                                   :id 2})
-                        {:keys [output]} (with-stdio-capture [init-req list-req ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 2 (count output))
-                        "Should output two responses")
-
-                    (let [response1 (json/parse-string (first output) true)]
-                      (is (= 1 (:id response1)))
-                      (is (contains? response1 :result)))
-
-                    (let [response2 (json/parse-string (second output) true)]
-                      (is (= 2 (:id response2)))
-                      (is (contains? response2 :result))))))
-
-(deftest test-invalid-json-handling
-         (testing "Handle invalid JSON input"
-                  (let [invalid-json "this is not json"
-                        {:keys [output]} (with-stdio-capture [invalid-json ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 1 (count output))
-                        "Should output one error response")
-
+                        {:keys [output]} (with-stdio-capture [init-req]
+                                                             #(stdio/run-stdio-loop! handler))]
+                    (is (= 1 (count output)))
                     (let [response (json/parse-string (first output) true)]
                       (is (= "2.0" (:jsonrpc response)))
-                      (is (contains? response :error))
-                      (is (= -32700 (get-in response [:error :code])))))))
-
-(deftest test-invalid-request-handling
-         (testing "Handle invalid JSON-RPC request"
-                  (let [invalid-req (json/generate-string
-                                     {:jsonrpc "2.0"
-                                      ;; Missing method field
-                                      :id 1})
-                        {:keys [output]} (with-stdio-capture [invalid-req ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 1 (count output)))
-
-                    (let [response (json/parse-string (first output) true)]
-                      (is (contains? response :error))
-                      (is (= -32600 (get-in response [:error :code])))))))
-
-(deftest test-unknown-method-handling
-         (testing "Handle unknown method"
-                  (let [unknown-method (json/generate-string
-                                        {:jsonrpc "2.0"
-                                         :method "unknown/method"
-                                         :params {}
-                                         :id 1})
-                        {:keys [output]} (with-stdio-capture [unknown-method ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 1 (count output)))
-
-                    (let [response (json/parse-string (first output) true)]
-                      (is (contains? response :error))
-                      (is (= -32601 (get-in response [:error :code])))))))
-
-(deftest test-empty-line-handling
-         (testing "Handle empty lines gracefully"
-                  (let [request (json/generate-string
-                                 {:jsonrpc "2.0"
-                                  :method "initialize"
-                                  :params {:protocolVersion "1.0"
-                                           :clientInfo {:name "test" :version "1.0"}}
-                                  :id 1})
-                        {:keys [output]} (with-stdio-capture ["" request "" ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 1 (count output))
-                        "Should output one response, ignoring empty lines")
-
-                    (let [response (json/parse-string (first output) true)]
                       (is (= 1 (:id response)))
                       (is (contains? response :result))))))
-
-(deftest test-tools-call-request
-         (testing "Process tools/call request"
-                  (let [init-req (json/generate-string
-                                  {:jsonrpc "2.0"
-                                   :method "initialize"
-                                   :params {:protocolVersion "1.0"
-                                            :clientInfo {:name "test" :version "1.0"}}
-                                   :id 1})
-                        call-req (json/generate-string
-                                  {:jsonrpc "2.0"
-                                   :method "tools/call"
-                                   :params {:name "test.hello"
-                                            :arguments {:name "World"}}
-                                   :id 2})
-                        {:keys [output]} (with-stdio-capture [init-req call-req ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 2 (count output)))
-
-                    (let [response2 (json/parse-string (second output) true)]
-                      (is (= 2 (:id response2)))
-                      (is (contains? response2 :result))
-                      (is (= "text" (get-in response2 [:result :content 0 :type])))
-                      (is (str/includes?
-                           (get-in response2 [:result :content 0 :text])
-                           "Hello, World!"))))))
-
-(deftest test-request-id-preservation
-         (testing "Response IDs match request IDs"
-                  (let [requests (for [i (range 5)]
-                                      (json/generate-string
-                                       {:jsonrpc "2.0"
-                                        :method "tools/list"
-                                        :params {}
-                                        :id i}))
-                        {:keys [output]} (with-stdio-capture (conj (vec requests) "")
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 5 (count output)))
-
-                    (doseq [[idx line] (map-indexed vector output)]
-                           (let [response (json/parse-string line true)]
-                             (is (= idx (:id response))))))))
-
-(deftest test-response-format
-         (testing "Responses are valid JSON with newlines"
-                  (let [request (json/generate-string
-                                 {:jsonrpc "2.0"
-                                  :method "initialize"
-                                  :params {:protocolVersion "1.0"
-                                           :clientInfo {:name "test" :version "1.0"}}
-                                  :id 1})
-                        {:keys [output]} (with-stdio-capture [request ""]
-                                                             (fn []
-                                                               (test-harness/setup!)
-                                                               (doseq [line (line-seq (java.io.BufferedReader. *in*))]
-                                                                      (when-not (empty? line)
-                                                                        (let [response (test-harness/process-json-rpc line)]
-                                                                          (println response)
-                                                                          (flush))))))]
-
-                    (is (= 1 (count output)))
-
-                    (let [line (first output)]
-                      (is (string? line))
-                      (is (not (str/includes? line "\n")))
-
-                      (let [parsed (json/parse-string line true)]
-                        (is (map? parsed))
-                        (is (= "2.0" (:jsonrpc parsed))))))))

@@ -6,6 +6,7 @@
     "Stdio MCP Server startup script with module system."
     (:require [mcp-stdio.core :as stdio]
               [bb-mcp-server.module.system :as sys]
+              [bb-mcp-server.protocol.processor :as processor]
               [bb-mcp-server.test-harness :as harness]
               [taoensso.trove :as log]))
 
@@ -37,5 +38,8 @@
 ;; Setup MCP handlers only (tools already registered by modules)
 (harness/setup-handlers-only!)
 
-;; Run the stdio server (reads stdin, writes stdout)
-(stdio/run-stdio-loop!)
+;; Create stdio context and handler
+;; The handler processes JSON-RPC requests using the unified processor
+(let [ctx (processor/make-stdio-ctx)
+      handler (fn [line] (processor/process-request-str ctx line))]
+  (stdio/run-stdio-loop! handler))

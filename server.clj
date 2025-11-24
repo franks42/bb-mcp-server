@@ -5,6 +5,7 @@
 (ns server
     "Main entry point for bb-mcp-server stdio transport."
     (:require [mcp-stdio.core :as stdio]
+              [bb-mcp-server.protocol.processor :as processor]
               [bb-mcp-server.telemetry :as telemetry]
               [taoensso.trove :as log]))
 
@@ -19,4 +20,8 @@
                   :protocol "MCP 2025-03-26"
                   :mode "stdio"}})
 
-(stdio/run-stdio-loop!)
+;; Create stdio context and handler
+;; The handler processes JSON-RPC requests using the unified processor
+(let [ctx (processor/make-stdio-ctx)
+      handler (fn [line] (processor/process-request-str ctx line))]
+  (stdio/run-stdio-loop! handler))
