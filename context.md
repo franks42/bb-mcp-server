@@ -1,123 +1,140 @@
-# Streamable HTTP Transport - Session Context
+# bb-mcp-server - Session Context
 
-**Status:** PHASES 1-5 COMPLETE ✅
-**Remaining:** Phase 6 (Documentation)
-
----
-
-## What's Done
-
-All implementation phases complete:
-- ✅ Phase 1: Foundation (util, sse, session)
-- ✅ Phase 2: HTTP Handlers (post, get, delete, router)
-- ✅ Phase 2.5: Ring Middleware (CORS, rate-limit, auth, logging, api-key)
-- ✅ Phase 3: Server Lifecycle (core.clj, server.clj)
-- ✅ Phase 4: bb-mcp-server Integration
-- ✅ Phase 5: Production Hardening (graceful shutdown, error handling)
-
-### Key Files
-```
-modules/streamable-http/
-├── src/streamable_http/
-│   ├── core.clj          # Public API: start-server!, stop-server!
-│   ├── server.clj        # http-kit lifecycle
-│   ├── session.clj       # Session mgmt (in-memory atom)
-│   ├── router.clj        # Request routing, CORS
-│   ├── middleware.clj    # Ring middleware suite
-│   ├── handlers/
-│   │   ├── post.clj      # POST /mcp (initialize, tools/list, tools/call)
-│   │   ├── get.clj       # GET /mcp (SSE streams)
-│   │   └── delete.clj    # DELETE /mcp (session termination)
-│   ├── sse.clj           # SSE utilities
-│   └── util.clj          # JSON, UUID helpers
-└── test/                 # 90 tests, 175 assertions passing
-
-scripts/
-├── streamable_http_server.clj  # Startup script
-└── test_streamable_http.sh     # Integration test (curl-based)
-```
-
-### bb.edn Tasks
-- `bb server:streamable [port]` - Start server (default 3000)
-- `bb test:streamable` - Module unit tests
-- `bb test:streamable-http [port]` - Integration tests
+**Status:** v0.11.0 - Phase 11 Complete (Unified Entry Point)
+**Updated:** 2025-11-23
 
 ---
 
-## Current Server Status
+## Critical Reminders for Claude
+
+### 1. Plan Before Code
+**ALWAYS update `IMPLEMENTATION_PLAN.md` BEFORE implementing.** The user will remind you if you forget. This is the single source of truth for planning - NOT docs/design/*.md files.
+
+### 2. Verification Workflow
+Run before every commit:
+```bash
+clj-kondo --lint <files>
+cljfmt check <files>
+bb test:modules
+```
+
+### 3. Key Files
+- **CLAUDE.md** - Project instructions (READ THIS)
+- **IMPLEMENTATION_PLAN.md** - Single source of truth for planning
+- **system.edn** - Module configuration
+- **src/bb_mcp_server/main.clj** - Unified entry point
+
+---
+
+## Current State (v0.11.0)
+
+### Unified Entry Point
+```bash
+bb server              # stdio (default, Claude Desktop)
+bb server --http       # HTTP only on port 3000
+bb server --http 8080  # HTTP on custom port
+bb server --stdio --http       # both transports simultaneously
+bb server --help       # show usage
+```
+
+### Test Counts
+- Core: 40 tests, 161 assertions
+- nrepl: 34 tests, 131 assertions
+- http-core: 50 tests, 105 assertions
+- mcp-http: 31 tests, 62 assertions
+- mcp-stdio: 10 tests, 33 assertions
+- rest-api: 9 tests, 56 assertions
+- **Total: ~175 tests**
+
+### Transports
+1. **Stdio** (`bb server --stdio`) - JSON-RPC over stdin/stdout (Claude Desktop)
+2. **HTTP MCP** (`bb server --http`) - Streamable HTTP with SSE
+3. **REST API** (`/api/*`) - Direct HTTP calls
+
+### REST API Endpoints
+```
+GET  /api/server                       - Server info
+GET  /api/modules                      - List all modules
+GET  /api/modules/:module/tools        - List tools in module
+GET  /api/modules/:module/tools/:name  - Tool metadata
+POST /api/modules/:module/tools/:name  - Call tool
+GET  /api/openapi.json                 - OpenAPI 3.0 spec
+GET  /api/docs                         - HTML documentation
+GET  /health                           - Health check
+```
+
+---
+
+## Architecture
+
+```
+┌──────────────┐      ┌──────────────┐
+│  Stdio       │      │  HTTP (SSE)  │
+│  Transport   │      │  Transport   │
+└──────┬───────┘      └──────┬───────┘
+       │                     │
+       ▼                     ▼
+┌────────────────────────────────────┐
+│         Unified Processor          │
+│ (bb-mcp-server.protocol.processor) │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────┐
+│              Router                │
+│ (bb-mcp-server.protocol.router)    │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+┌──────────────┐      ┌──────────────┐
+│  Handlers    │      │  Registry    │
+└──────────────┘      └──────────────┘
+```
+
+REST API bypasses JSON-RPC - calls registry/handlers directly.
+
+---
+
+## Module Structure
+
+```
+modules/
+├── http-core/     # Shared HTTP infrastructure (SSE, middleware)
+├── mcp-http/      # MCP JSON-RPC over HTTP with sessions
+├── mcp-stdio/     # Stdio transport (pure, no bb-mcp-server deps)
+├── rest-api/      # REST endpoints + OpenAPI
+├── streamable-http/  # Convenience wrapper (mcp-http + rest-api)
+├── nrepl/         # nREPL integration (9 tools)
+├── calculate/     # Calculator tool
+├── local-eval/    # Local Clojure eval
+├── echo/, strings/, math/, hello/  # Example modules
+```
+
+---
+
+## Completed Phases
+
+- **Phase 1-7**: Foundation, transports, module system, REST API
+- **Phase 8**: Transport module extraction (http-core, mcp-http, rest-api)
+- **Phase 9**: Legacy cleanup (deleted transport/ directory)
+- **Phase 10**: Decoupled mcp-stdio (pure transport layer)
+- **Phase 11**: Unified entry point (`bb server` with flags)
+
+---
+
+## bb.edn Tasks
 
 ```bash
-# Server running on port 19878
-bb server:streamable 19878
-
-# MCP config in ~/.claude.json:
-"bb-mcp-http": {
-  "type": "http",
-  "url": "http://localhost:19878/mcp"
-}
+bb server [flags]        # Run server (see --help)
+bb server:stop <port>    # Stop server via PID file
+bb test:modules          # All module tests
+bb lint                  # clj-kondo
+bb format                # cljfmt
 ```
-
----
-
-## Claude Code Integration - Key Findings
-
-### Session Management
-- Sessions in-memory: `session-id -> session-data`
-- `Mcp-Session-Id` header on initialize, required for subsequent requests
-- Error code `-32003` = invalid/missing session
-
-### Claude Code Client Behavior
-| Scenario | What Happens |
-|----------|--------------|
-| Session startup | `initialize` → `tools/list` → tools available |
-| Add server mid-session | `initialize` only, NO `tools/list` → no tools |
-| `/mcp` reconnect (had tools) | `initialize` → `tools/list` → tools restored |
-| `/mcp` reconnect (never had tools) | `initialize` only → still no tools |
-| `-32003` error | Triggers full reconnect with `tools/list` |
-| Status display | Cached, doesn't ping server |
-
-### Repeatable Test
-```bash
-# Terminal 1
-bb server:streamable 19878
-
-# Terminal 2
-bb test:streamable-http 19878
-# All 7 tests should pass
-```
-
-### Claude Code Test
-1. Start server: `bb server:streamable 19878`
-2. Config: `claude mcp add --transport http bb-mcp-http http://localhost:19878/mcp`
-3. Start FRESH Claude session (tools load at startup only)
-4. Test: `add(5,3)` → should return `8`
-
----
-
-## Why This Session Had No Tools
-
-This Claude session couldn't access bb-mcp-http tools because:
-1. Session started when bb-mcp-http was configured for wrong port (3000)
-2. Server wasn't running OR wrong port → connection failed at startup
-3. Tools never loaded → tool list frozen as empty
-4. `/mcp` reconnect doesn't help (nothing to reconnect)
-5. Fix: restart Claude session with correct config already in place
-
----
-
-## Remaining Work
-
-### Phase 6: Documentation
-- [ ] README.md for streamable-http module
-- [ ] Update main project docs
-- [ ] Usage examples
-- [ ] API documentation
 
 ---
 
 ## References
-- Implementation plan: `docs/design/streamable-http-implementation-plan.md`
-- Design doc: `docs/design/streamable-http-transport-design.md`
-- MCP Spec: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
-
-*Updated: 2025-11-22 14:45 PST*
+- IMPLEMENTATION_PLAN.md - The plan (single source of truth)
+- docs/design/ - Design documents (reference only)
+- MCP Spec: https://modelcontextprotocol.io/specification/2025-03-26/
