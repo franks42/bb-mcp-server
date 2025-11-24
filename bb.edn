@@ -28,6 +28,19 @@
   format {:doc "Format code with cljfmt"
           :task (shell "cljfmt" "fix" "src")}
 
+  fix-parens {:doc "Fix unbalanced parens in file with parmezan (usage: bb fix-parens <file>)"
+              :requires ([babashka.process :as p])
+              :task (let [file (first *command-line-args*)]
+                      (when-not file
+                        (println "Usage: bb fix-parens <file>")
+                        (System/exit 1))
+                      (let [{:keys [exit]} (p/shell {:continue true} "parmezan" "--file" file "--write")]
+                        (case exit
+                          0 (println "✓ No changes needed -" file)
+                          1 (println "✓ Fixed parens in" file)
+                          (do (println "✗ Failed to fix" file)
+                              (System/exit 1)))))}
+
   test {:doc "Run tests"
         :task (clojure "-M:test" "-m" "cognitect.test-runner")}
 

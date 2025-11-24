@@ -1,8 +1,8 @@
 # Claude Subprocess Spawning - Architecture & Design
 
-**Status:** Draft / Planning
-**Phase:** 13 (proposed)
-**Date:** 2025-11-23
+**Status:** Phase 13A Complete - Real CLI Integration In Progress
+**Phase:** 13A Complete, 13B In Progress
+**Date:** 2025-11-24 (Updated)
 **Reviewed by:** Gemini (see gemini-claude-subprocess-spawning-review.md)
 
 ---
@@ -379,35 +379,70 @@ Claude's stream-json output is:
 
 ## Implementation Phases
 
-### Phase 13A: Core Spawning
+### Phase 13A: Core Scaffolding ✅ COMPLETE
 
-- [ ] Create `modules/claude-spawner/` structure
-- [ ] Implement process spawn with babashka.process
-- [ ] JSONL message parsing/formatting
-- [ ] Basic send/receive (blocking)
-- [ ] Single instance registry
+**What was implemented:**
+- [x] Created `modules/claude-manager/` structure (renamed from claude-spawner)
+- [x] Implemented Dedicated Reader Loop pattern (critical fix from Gemini review)
+- [x] Process spawn with babashka.process
+- [x] JSONL message parsing/formatting
+- [x] Promise-based async with request-ID generation
+- [x] Response routing by request-id
+- [x] Multi-instance registry with state management
+- [x] Mock testing with `mock_claude.clj` (JSONL echo for CI)
+- [x] Tests: 12 tests, 23 assertions - all passing
+- [x] Verification: 0 lint errors, 0 warnings
 
-### Phase 13B: Async & Queues
+**Key Achievement:** Implemented Dedicated Reader Loop pattern that solves concurrency issues from clay-noj-ai prototype. Single background future per instance reads stdout continuously and dispatches by message type.
 
-- [ ] Request queue (FIFO)
-- [ ] Request-ID generation
-- [ ] Response routing by request-id
-- [ ] Callback/promise resolution
-- [ ] Timeout handling
+**Files created:**
+```
+modules/claude-manager/
+├── module.edn
+├── src/claude_manager/
+│   ├── core.clj          # Public API (spawn!, ask, kill!, list-instances)
+│   ├── process.clj       # Process spawning & dedicated reader loop
+│   └── registry.clj      # Instance tracking & state management
+└── test/
+    ├── mock_claude.clj   # JSONL echo mock for testing
+    ├── claude_manager/core_test.clj
+    └── run_tests.clj
+```
 
-### Phase 13C: MCP Integration
+### Phase 13B: Real Claude CLI Integration (IN PROGRESS)
 
-- [ ] claude_spawn tool
-- [ ] claude_message tool
-- [ ] claude_list tool
-- [ ] claude_stop tool
-- [ ] Integration tests
+**Goal:** Replace mock with real Claude CLI subprocess
 
-### Phase 13D: Session Management
+- [ ] Update process spawning to use real `claude` command
+- [ ] Add Claude CLI argument construction from clay-noj-ai:
+  - `--input-format stream-json`
+  - `--output-format stream-json`
+  - `--permission-mode bypassPermissions`
+  - `-p --verbose`
+- [ ] Add model selection (`:model` option)
+- [ ] Parse session-id from system/init messages
+- [ ] Test with real Claude CLI
+- [ ] Update tests to work with both mock and real CLI
+- [ ] Configuration: make claude-path configurable
 
-- [ ] Session ID tracking from init message
-- [ ] Fork support (`--resume`)
-- [ ] Session persistence (optional)
+**Reference:** clay-noj-ai's `spawn!` function demonstrates the CLI invocation pattern.
+
+### Phase 13C: MCP Tool Exposure
+
+- [ ] Register MCP tools in module.edn
+- [ ] `claude_spawn` - Start new Claude instance
+- [ ] `claude_message` - Send message and get response
+- [ ] `claude_list` - List running instances
+- [ ] `claude_stop` - Stop instance
+- [ ] Integration tests with bb-mcp-server
+
+### Phase 13D: Advanced Session Management
+
+- [ ] `claude_fork` tool - Fork from existing session
+- [ ] Session ID tracking and lineage
+- [ ] `--resume session-id` support
+- [ ] Session info queries
+- [ ] Cost tracking from result messages
 
 ### Future Phases
 

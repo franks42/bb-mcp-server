@@ -14,7 +14,12 @@
            :not-empty? {:level :warning}
            :deprecated-var {:level :warning}
            ;; Duplicate requires are expected in standalone bb scripts
-           :duplicate-require {:level :off}}
+           :duplicate-require {:level :off}
+           ;; Forbid println/prn in production code (breaks stdio transport)
+           :discouraged-var {:level :error
+                             :symbols {clojure.core/println {:message "Use taoensso.trove/log! instead. println breaks stdio transport."}
+                                       clojure.core/prn {:message "Use taoensso.trove/log! instead. prn breaks stdio transport."}
+                                       clojure.core/print {:message "Use taoensso.trove/log! instead. print breaks stdio transport."}}}}
 
  :output {:canonical-paths true}
 

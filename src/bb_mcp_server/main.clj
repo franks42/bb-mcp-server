@@ -276,7 +276,6 @@ TRANSPORTS:
                      :id    ::dual-transport-mode
                      :msg   "Starting dual transport mode"
                      :data  {:http-port (:port opts)}})
-          (println "\n=== BB MCP Server (Dual Transport) ===")
           (initialize-system! true)
 
           ;; Start HTTP in background
@@ -288,21 +287,20 @@ TRANSPORTS:
                                    :id    ::shutdown-initiated
                                    :msg   "Shutdown initiated"
                                    :data  {:transport :dual}})
-                        (println "\nShutting down...")
                         (shttp/stop-server! server)
                         (pid-util/delete-pid-file! (:port opts))
                         (log/log! {:level :info
                                    :id    ::shutdown-complete
-                                   :msg   "Shutdown complete"})
-                        (println "Goodbye!")))))
+                                   :msg   "Shutdown complete"}))))
 
-          (println "\n=== Starting stdio transport ===")
-          (println "    Reading from stdin, writing to stdout")
-          (println "    (HTTP continues running in background)\n")
+            (log/log! {:level :info
+                       :id    ::stdio-transport-starting
+                       :msg   "Starting stdio transport with HTTP in background"
+                       :data  {:http-port (:port opts)}})
 
           ;; Stdio blocks
-          (start-stdio!)))))
+            (start-stdio!)))))
 
 ;; Run main when loaded as script
-(when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+  (when (= *file* (System/getProperty "babashka.file"))
+    (apply -main *command-line-args*)))

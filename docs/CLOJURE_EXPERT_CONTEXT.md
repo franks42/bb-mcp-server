@@ -110,12 +110,47 @@ $ bb test
 ```
 
 ### Handling Parentheses Issues
-After 2 failed manual attempts:
-1. Extract form to `/tmp/form.clj`
-2. Run `parmezan --in-place /tmp/form.clj` (if available)
-3. Re-lint the temp file
-4. Copy back only once clean
-5. If `parmezan` missing, ask user to install or continue manually
+
+**Parmezan** - Auto-fixes unbalanced parens/brackets/braces in Clojure files.
+
+**Installation:**
+```bash
+bbin install io.github.borkdude/parmezan
+```
+
+**Usage:**
+```bash
+# Preview fix (outputs to stdout)
+parmezan --file src/foo.clj
+
+# Fix in place
+parmezan --file src/foo.clj --write
+```
+
+**Important:**
+- Exit code 1 = changes were made (not an error!)
+- Exit code 0 = no changes needed
+- No output with --write = file was modified silently
+- No `--help` flag exists (minimal tool)
+
+**When to use:**
+After 2 failed manual attempts to fix parentheses:
+
+**Recommended (bb task):**
+```bash
+bb fix-parens src/foo.clj
+```
+
+**Direct parmezan usage:**
+```bash
+parmezan --file src/foo.clj --write
+```
+
+**Workflow:**
+1. Run `bb fix-parens <file>` (or `parmezan --file <file> --write`)
+2. Re-lint: `clj-kondo --lint <file>`
+3. If still broken, extract problematic form to `/tmp/form.clj` and repeat
+4. If `parmezan` unavailable, ask user to install: `bbin install io.github.borkdude/parmezan`
 
 ---
 
