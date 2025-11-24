@@ -72,6 +72,17 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 
 ---
 
+## Required Reading for AI Assistants
+
+**MUST read at start of every new session:**
+
+1. **CLAUDE.md** (this file) - Project instructions and workflow
+2. **docs/CLOJURE_EXPERT_CONTEXT.md** - Clojure development standards, honesty requirements, verification workflow
+3. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
+4. **IMPLEMENTATION_PLAN.md** - Current phase, tasks, and progress (single source of truth for planning)
+
+---
+
 ## Key Technical Notes
 
 1. **Babashka compatible** - All code must run in bb, not just JVM Clojure
@@ -79,6 +90,7 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 3. **Ring middleware pattern** - `(fn [handler] (fn [req] ...))`
 4. **Module system** - Modules in `system.edn`, loaded via `ns_loader.clj`
 5. **Tool notifications** - Registry broadcasts `notifications/tools/list_changed` on changes
+6. **Telemetry required** - Use `taoensso.trove` for all logging (see AI_TELEMETRY_GUIDE.md)
 
 ---
 
@@ -109,4 +121,4 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2025-11-23*
+*Last Updated: 2025-11-24*
