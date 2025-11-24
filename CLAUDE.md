@@ -19,26 +19,24 @@
 ```
 bb-mcp-server/
 ├── src/bb_mcp_server/           # Core server code
+│   ├── main.clj                 # Unified entry point (v0.11.0)
 │   ├── handlers/                # MCP message handlers
 │   ├── module/                  # Module system
-│   │   └── ns_loader.clj        # Dynamic module loading
-│   ├── protocol/                # JSON-RPC routing
+│   ├── protocol/                # JSON-RPC routing & processor
 │   └── registry.clj             # Tool registry
 ├── modules/                     # Loadable modules
-│   ├── mcp-stdio/               # Stdio transport (stdin/stdout)
-│   ├── mcp-http/                # HTTP MCP transport
-│   ├── rest-api/                # REST API endpoints
+│   ├── mcp-stdio/               # Stdio transport (pure, no deps)
+│   ├── mcp-http/                # HTTP MCP transport with SSE
+│   ├── rest-api/                # REST API + OpenAPI
 │   ├── http-core/               # Shared HTTP infrastructure
 │   ├── streamable-http/         # Combined HTTP (convenience)
 │   ├── nrepl/                   # nREPL integration (9 tools)
 │   ├── calculate/               # Calculator tool
 │   ├── local-eval/              # Local Clojure eval
 │   └── echo/, strings/, math/   # Example modules
-├── scripts/                     # Server startup scripts
-│   ├── streamable_http_server.clj
-│   ├── stdio_server.clj
+├── scripts/                     # Utility scripts
 │   └── pid_util.clj             # PID file management
-├── docs/design/                 # Design documents
+├── docs/design/                 # Design documents (reference only)
 └── bb.edn                       # Babashka config
 ```
 
@@ -48,9 +46,12 @@ bb-mcp-server/
 
 ```bash
 bb tasks                        # List available tasks
-bb server:streamable [port]     # Run Streamable HTTP server (default 3000)
+bb server                       # Run stdio (default, Claude Desktop)
+bb server --http                # Run HTTP only on port 3000
+bb server --http 8080           # Run HTTP on custom port
+bb server --stdio --http        # Run both transports
+bb server --help                # Show usage
 bb server:stop [port]           # Stop server on port
-bb server:stdio                 # Run stdio server
 bb test:modules                 # Run all module tests
 bb lint                         # Lint with clj-kondo
 bb format                       # Format with cljfmt
@@ -93,4 +94,19 @@ Do NOT create or update alternative plan documents (e.g., in `docs/design/` or m
 
 ---
 
-*Last Updated: 2025-11-24*
+## Session Health & Compaction Awareness
+
+After auto-compaction, I lose context and may become less effective. If you notice me:
+- Forgetting which files to update (e.g., using wrong plan file)
+- Missing verification steps (lint/format/test)
+- Being corrected for things already discussed
+- Asking questions I should know the answer to
+- Repeating earlier mistakes
+
+**Tell the user:** "I may be degraded from context compaction. Consider starting a fresh Claude session."
+
+Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more productive than continuing.
+
+---
+
+*Last Updated: 2025-11-23*
