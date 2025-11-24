@@ -1,6 +1,8 @@
 # Transport Layer Modularization
 
-Future consideration for cleaner separation of transports. Not urgent - defer until more experience with bb-module system.
+**Status: Phase 8 Complete (v0.8.5)**
+
+Clean separation of transport layer into independent modules with clear dependencies.
 
 ## Current State
 

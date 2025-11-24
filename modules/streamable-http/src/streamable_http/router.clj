@@ -46,12 +46,11 @@
      Ring handler function."
   [json-rpc-handler {:keys [path health-path rest-config]
                      :or {path "/mcp"
-                          health-path "/health"}
-                     :as config}]
+                          health-path "/health"}}]
   (let [;; Create MCP router (handles /mcp and /health)
         mcp-handler (mcp-router/create-router json-rpc-handler
-                                               {:path path
-                                                :health-path health-path})
+                                              {:path path
+                                               :health-path health-path})
         ;; Create REST router if configured
         rest-router (when rest-config
                       (rest-handler/create-rest-router rest-config))]
@@ -74,4 +73,4 @@
           (mcp-handler request))))))
 
 ;; Re-export wrap-cors from mcp-http.router
-(def wrap-cors mcp-router/wrap-cors)
+(def wrap-cors "CORS middleware. See mcp-http.router/wrap-cors." mcp-router/wrap-cors)

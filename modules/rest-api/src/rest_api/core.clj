@@ -27,32 +27,32 @@
 
 ;; Router
 (def create-rest-router
-  "Create a router for REST API endpoints.
+     "Create a router for REST API endpoints.
    See rest-api.handlers/create-rest-router for details."
-  handlers/create-rest-router)
+     handlers/create-rest-router)
 
 ;; Individual handlers (for custom routing)
-(def handle-openapi handlers/handle-openapi)
-(def handle-docs handlers/handle-docs)
-(def handle-server-info handlers/handle-server-info)
-(def handle-list-modules handlers/handle-list-modules)
-(def handle-list-module-tools handlers/handle-list-module-tools)
-(def handle-get-module-tool handlers/handle-get-module-tool)
-(def handle-call-module-tool handlers/handle-call-module-tool)
+(def handle-openapi "Handle GET /api/openapi.json request." handlers/handle-openapi)
+(def handle-docs "Handle GET /api/docs request." handlers/handle-docs)
+(def handle-server-info "Handle GET /api/server request." handlers/handle-server-info)
+(def handle-list-modules "Handle GET /api/modules request." handlers/handle-list-modules)
+(def handle-list-module-tools "Handle GET /api/modules/:module/tools request." handlers/handle-list-module-tools)
+(def handle-get-module-tool "Handle GET /api/modules/:module/tools/:name request." handlers/handle-get-module-tool)
+(def handle-call-module-tool "Handle POST /api/modules/:module/tools/:name request." handlers/handle-call-module-tool)
 
 ;; OpenAPI generation
 (def generate-spec
-  "Generate OpenAPI 3.0 specification from tools.
+     "Generate OpenAPI 3.0 specification from tools.
    See rest-api.openapi/generate-spec for details."
-  openapi/generate-spec)
+     openapi/generate-spec)
 
 (def generate-openapi-json
-  "Generate OpenAPI spec as JSON string.
+     "Generate OpenAPI spec as JSON string.
    See rest-api.openapi/generate-json for details."
-  openapi/generate-json)
+     openapi/generate-json)
 
 ;; HTML documentation
 (def generate-html
-  "Generate HTML documentation page.
+     "Generate HTML documentation page.
    See rest-api.docs/generate-html for details."
-  docs/generate-html)
+     docs/generate-html)
