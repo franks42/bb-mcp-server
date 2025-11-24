@@ -328,6 +328,177 @@ bb server:streamable 19878  # Manual smoke test
 
 ---
 
+## Current Focus: Phase 10 - Decouple mcp-stdio
+
+**Goal:** Make `mcp-stdio` a true peer to `mcp-http` by removing hardcoded dependencies on `bb-mcp-server.protocol.processor`.
+
+### Problem Statement
+
+Currently `mcp-stdio.core` has hardcoded coupling:
+
+```clojure
+;; mcp-stdio/core.clj (current)
+(:require [bb-mcp-server.protocol.processor :as processor])
+
+(defn run-stdio-loop! []
+  (let [ctx (processor/make-stdio-ctx)]        ; ← hardcoded
+    (doseq [line ...]
+      (processor/process-request-str ctx line)))) ; ← hardcoded
+```
+
+This prevents `mcp-stdio` from being a generic transport library - it can only work with `bb-mcp-server`.
+
+### Target Architecture
+
+Both transports should be "dumb pipes" that accept a handler function:
+
+```clojure
+;; mcp-stdio (proposed)
+(defn run-stdio-loop! [handler-fn]
+  (doseq [line ...]
+    (handler-fn line)))
+
+;; mcp-http (already works this way)
+(defn start-server! [handler-fn opts]
+  ...)
+```
+
+### Phase 10 Tasks
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 10.1 | Refactor `run-stdio-loop!` signature | ⏳ | Accept `handler-fn` argument |
+| 10.2 | Move context creation to caller | ⏳ | `make-stdio-ctx` called in scripts, not module |
+| 10.3 | Update `server.clj` | ⏳ | Pass processor to `run-stdio-loop!` |
+| 10.4 | Update `scripts/stdio_server.clj` | ⏳ | Pass processor to `run-stdio-loop!` |
+| 10.5 | Update mcp-stdio tests | ⏳ | Tests use mock handler |
+| 10.6 | Remove processor require from mcp-stdio | ⏳ | No bb-mcp-server imports |
+| 10.7 | Standardize context structure | ⏳ | Document ctx map shape |
+| 10.8 | Run all tests | ⏳ | `bb test:modules` passes |
+
+### 10.1 Refactor `run-stdio-loop!` Signature
+
+**Current:**
+```clojure
+(defn run-stdio-loop! []
+  ...)
+```
+
+**Proposed:**
+```clojure
+(defn run-stdio-loop!
+  "Run stdio transport loop with provided handler.
+
+  Args:
+    handler-fn - Function (fn [line] -> response-string-or-nil)
+                 Returns nil for notifications (no response needed)
+
+  The handler is responsible for:
+    - Parsing JSON-RPC
+    - Processing request
+    - Returning JSON string response"
+  [handler-fn]
+  (doseq [line (line-seq (java.io.BufferedReader. *in*))]
+    (when-let [response (handler-fn line)]
+      (println response)
+      (flush))))
+```
+
+### 10.2 Move Context Creation to Caller
+
+**Current:** `processor/make-stdio-ctx` called inside mcp-stdio
+**Proposed:** Context created in startup scripts, passed to processor
+
+```clojure
+;; In server.clj or scripts/stdio_server.clj
+(defn make-handler []
+  (let [ctx (processor/make-stdio-ctx)]
+    (fn [line]
+      (processor/process-request-str ctx line))))
+
+(stdio/run-stdio-loop! (make-handler))
+```
+
+### 10.3-10.4 Update Entry Points
+
+Both `server.clj` and `scripts/stdio_server.clj` need updates:
+
+```clojure
+;; server.clj (proposed)
+(ns server
+  (:require [mcp-stdio.core :as stdio]
+            [bb-mcp-server.protocol.processor :as processor]
+            ...))
+
+(defn -main []
+  (telemetry/ensure-initialized!)
+  (let [ctx (processor/make-stdio-ctx)
+        handler (fn [line] (processor/process-request-str ctx line))]
+    (stdio/run-stdio-loop! handler)))
+```
+
+### 10.5 Update mcp-stdio Tests
+
+Tests should use mock handlers to verify transport behavior independent of processor:
+
+```clojure
+(deftest test-stdio-loop-calls-handler
+  (let [calls (atom [])
+        mock-handler (fn [line]
+                       (swap! calls conj line)
+                       "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":1}")]
+    ;; Test that handler is called for each line
+    ...))
+```
+
+### 10.6 Remove Processor Dependency
+
+After refactoring, `mcp-stdio.core` should have NO requires from `bb-mcp-server`:
+
+```clojure
+(ns mcp-stdio.core
+  (:require [cheshire.core :as json]      ; For error responses only
+            [taoensso.trove :as log]))    ; For logging
+
+;; No bb-mcp-server imports!
+```
+
+### 10.7 Standardize Context Structure
+
+Document the standard context map that all transports must provide:
+
+```clojure
+;; Standard MCP transport context
+{:transport            :stdio | :http | :test
+ :send-notification!   (fn [notification-map] ...)
+
+ ;; Optional (HTTP only)
+ :session-id           "uuid-string"
+
+ ;; Optional (test only)
+ :notifications        (atom [])}
+```
+
+### Success Criteria
+
+- [ ] `mcp-stdio` has zero imports from `bb-mcp-server.*`
+- [ ] `run-stdio-loop!` accepts handler function argument
+- [ ] Both entry points (`server.clj`, `scripts/stdio_server.clj`) updated
+- [ ] All tests pass with mock handlers
+- [ ] Context structure documented
+- [ ] `bb server:stdio` works end-to-end
+- [ ] Claude Code integration verified
+
+### Risks & Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Breaking existing scripts | Update both entry points in same commit |
+| Error handling regression | Preserve existing try/catch structure |
+| Logging changes | Keep logging in transport, not just handler |
+
+---
+
 ## Future Improvements
 
 ### Transport-Module Coupling (Revisit Later)
