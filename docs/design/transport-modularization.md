@@ -109,6 +109,16 @@ modules/rest-api/
   (depends on: http-core, NOT mcp-http)
 ```
 
+✅ **Phase 8.4: mcp-stdio** (10 tests, 42 assertions)
+```
+modules/mcp-stdio/
+  src/mcp_stdio/
+    core.clj              # Stdio transport (stdin/stdout JSON-RPC)
+  test/mcp_stdio/
+    core_test.clj
+  (no module dependencies - uses core protocol.processor)
+```
+
 ### Current State: streamable-http
 
 With http-core, mcp-http, and rest-api extracted, streamable-http now provides:
@@ -128,18 +138,20 @@ modules/sente-lite/       # Bidirectional channels
 
 ```
               ┌─────────┐
-              │  core   │ (registry, handlers)
+              │  core   │ (registry, handlers, protocol.processor)
               └────┬────┘
                    │
-         ┌─────────┼─────────┐
-         │         │         │
-    ┌────┴────┐    │    ┌────┴────┐
-    │ json-rpc│    │    │http-core│
-    └────┬────┘    │    └────┬────┘
-         │         │         │
-    ┌────┴────┐    │    ┌────┴────┬────────────┐
-    │  stdio  │    │    │ mcp-http│  rest-api  │
-    └─────────┘    │    └─────────┴────────────┘
+    ┌──────────────┼──────────────┐
+    │              │              │
+┌───┴────┐         │         ┌────┴────┐
+│mcp-stdio│        │         │http-core│
+└─────────┘        │         └────┬────┘
+                   │              │
+                   │    ┌─────────┴─────────┐
+                   │    │                   │
+                   │ ┌──┴─────┐      ┌──────┴──┐
+                   │ │mcp-http│      │ rest-api│
+                   │ └────────┘      └─────────┘
                    │
               (future: sente-lite)
 ```

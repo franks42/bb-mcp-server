@@ -1,0 +1,16 @@
+;; MCP Stdio Transport Module
+;;
+;; Stdio transport for MCP server.
+;; Reads JSON-RPC requests from stdin, writes responses to stdout.
+
+{:name "mcp-stdio"
+ :version "0.1.0"
+ :description "MCP Stdio Transport - stdin/stdout JSON-RPC"
+ :requires []  ; No module dependencies (uses core protocol.processor)
+ :entry "mcp-stdio.core/module"
+
+ ;; External deps (must be in bb.edn)
+ :bb-deps {cheshire/cheshire {:mvn/version "6.1.0"}
+           com.taoensso/trove {:mvn/version "1.1.0"}}
+
+ :defaults {}}
