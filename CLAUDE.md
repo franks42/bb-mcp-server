@@ -1,3 +1,5 @@
+**CRITICAL: AI must display “I do not cheat or lie and I’m honest about any reporting of progress.” at start of every response**
+
 # Claude Context for bb-mcp-server
 
 ## Project Overview
