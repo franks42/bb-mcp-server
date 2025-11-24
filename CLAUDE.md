@@ -25,11 +25,15 @@ bb-mcp-server/
 │   ├── protocol/                # JSON-RPC routing
 │   └── registry.clj             # Tool registry
 ├── modules/                     # Loadable modules
+│   ├── mcp-stdio/               # Stdio transport (stdin/stdout)
+│   ├── mcp-http/                # HTTP MCP transport
+│   ├── rest-api/                # REST API endpoints
+│   ├── http-core/               # Shared HTTP infrastructure
+│   ├── streamable-http/         # Combined HTTP (convenience)
 │   ├── nrepl/                   # nREPL integration (9 tools)
 │   ├── calculate/               # Calculator tool
 │   ├── local-eval/              # Local Clojure eval
-│   ├── echo/, strings/, math/   # Example modules
-│   └── streamable-http/         # HTTP transport module
+│   └── echo/, strings/, math/   # Example modules
 ├── scripts/                     # Server startup scripts
 │   ├── streamable_http_server.clj
 │   ├── stdio_server.clj

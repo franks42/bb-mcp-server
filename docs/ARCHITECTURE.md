@@ -38,8 +38,6 @@ The core provides:
 - **protocol/router.clj** - Method dispatch (initialize, tools/list, tools/call)
 - **protocol/message.clj** - JSON-RPC message formatting
 - **handlers/** - MCP method handlers
-- **transport/stdio.clj** - DEPRECATED re-export → `mcp-stdio.core`
-- **transport/http.clj** - DEPRECATED re-export → `mcp-http.core`
 
 ### mcp-stdio (modules/mcp-stdio/)
 
@@ -285,4 +283,4 @@ bb-mcp-server/
 
 ---
 
-*Last updated: 2025-11-23 (Phase 8.6 - Legacy cleanup)*
+*Last updated: 2025-11-23 (Phase 9 - Remove legacy wrappers)*

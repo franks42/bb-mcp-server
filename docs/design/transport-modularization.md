@@ -1,6 +1,6 @@
 # Transport Layer Modularization
 
-**Status: Phase 8 Complete (v0.8.6)**
+**Status: Phase 9 Complete (v0.9.0)**
 
 Clean separation of transport layer into independent modules with clear dependencies.
 
@@ -11,16 +11,14 @@ src/bb_mcp_server/
   protocol/router.clj      # JSON-RPC dispatch (method → handler)
   protocol/processor.clj   # Unified JSON-RPC processor with context
   protocol/message.clj     # JSON-RPC message formatting
-  transport/stdio.clj      # Re-export → mcp-stdio.core (DEPRECATED)
-  transport/http.clj       # Re-export → mcp-http.core (DEPRECATED)
   handlers/                # MCP method handlers (initialize, tools/*)
   registry.clj             # Tool registry
 
 modules/
-  mcp-stdio/               # Stdio transport module
+  mcp-stdio/               # Stdio transport (stdin/stdout JSON-RPC)
   http-core/               # Shared HTTP infrastructure
-  mcp-http/                # MCP JSON-RPC over HTTP
-  rest-api/                # REST API endpoints
+  mcp-http/                # MCP JSON-RPC over HTTP with SSE
+  rest-api/                # REST API endpoints + OpenAPI
   streamable-http/         # Combined MCP+REST (convenience)
 ```
 
@@ -131,6 +129,19 @@ Cleaned up legacy transport code:
 - Converted `transport/http.clj` to re-export from `mcp-http.core`
 - Fixed `server.clj` broken function reference
 - `bb server:http` now alias for `bb server:streamable`
+
+✅ **Phase 9: Remove Legacy Wrappers**
+
+Pre-1.0 with no external dependencies - full freedom to break backwards compatibility.
+
+Deleted deprecated re-exports entirely:
+- Deleted `src/bb_mcp_server/transport/` directory (stdio.clj, http.clj)
+- Deleted legacy tests (`test/bb_mcp_server/transport/`, `test/run_stdio_tests.clj`)
+- Updated scripts to use module namespaces directly:
+  - `server.clj` → `mcp-stdio.core`
+  - `scripts/stdio_server.clj` → `mcp-stdio.core`
+
+**Rationale**: Re-exports add confusion and indirection with no benefit since nothing depends on them.
 
 ### Current State: streamable-http
 

@@ -2,7 +2,7 @@
 ;; Stdio MCP Server startup script with module system
 ;; Usage: bb scripts/stdio_server.clj
 
-(require '[bb-mcp-server.transport.stdio :as stdio]
+(require '[mcp-stdio.core :as stdio]
          '[bb-mcp-server.module.system :as sys]
          '[bb-mcp-server.test-harness :as harness]
          '[taoensso.trove :as log])
