@@ -1,0 +1,18 @@
+;; REST API Module
+;;
+;; HTTP REST endpoints for tool operations.
+;; Provides OpenAPI spec generation and HTML documentation.
+
+{:name "rest-api"
+ :version "0.1.0"
+ :description "REST API endpoints with OpenAPI support"
+ :requires ["http-core"]  ; Shared HTTP infrastructure (NOT mcp-http)
+ :entry "rest-api.core/module"
+
+ ;; External deps (must be in bb.edn)
+ :bb-deps {cheshire/cheshire {:mvn/version "6.1.0"}}
+
+ :defaults {:base-path "/api"
+            :openapi {:title "bb-mcp-server REST API"
+                      :version "1.0.0"
+                      :description "REST API for bb-mcp-server tools"}}}

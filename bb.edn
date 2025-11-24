@@ -12,6 +12,7 @@
          "modules/local-eval/src"
          "modules/http-core/src" "modules/http-core/test"
          "modules/mcp-http/src" "modules/mcp-http/test"
+         "modules/rest-api/src" "modules/rest-api/test"
          "modules/streamable-http/src" "modules/streamable-http/test"]
 
  :tasks
@@ -88,6 +89,9 @@
   test:mcp-http {:doc "Run mcp-http module tests"
                  :task (load-file "modules/mcp-http/test/run_tests.clj")}
 
+  test:rest-api {:doc "Run rest-api module tests"
+                 :task (load-file "modules/rest-api/test/run_tests.clj")}
+
   test:stdio {:doc "Run stdio transport tests"
               :task (load-file "test/run_stdio_tests.clj")}
 
@@ -98,6 +102,7 @@
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)
                           (run 'test:mcp-http)
+                          (run 'test:rest-api)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 

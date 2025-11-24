@@ -96,24 +96,27 @@ modules/mcp-http/
   (depends on: http-core)
 ```
 
+✅ **Phase 8.3: rest-api** (9 tests, 56 assertions)
+```
+modules/rest-api/
+  src/rest_api/
+    handlers.clj          # Module/tool routes, router
+    openapi.clj           # OpenAPI 3.0 spec generation
+    docs.clj              # HTML documentation generator
+    core.clj              # Module entry point
+  test/rest_api/
+    handlers_test.clj
+  (depends on: http-core, NOT mcp-http)
+```
+
 ### Current State: streamable-http
 
-With http-core and mcp-http extracted, streamable-http now provides:
-- Re-exports from mcp-http (backwards compatibility)
-- REST API handlers (rest.clj, openapi.clj, docs.clj)
+With http-core, mcp-http, and rest-api extracted, streamable-http now provides:
+- Re-exports from mcp-http and rest-api (backwards compatibility)
 - Combined router (MCP + REST)
 - Middleware (CORS, rate-limit, auth, logging)
 
 ### Pending Modules
-
-⏳ **Phase 8.3: rest-api** (future)
-```
-modules/rest-api/
-  handlers.clj            # Module/tool routes
-  openapi.clj             # OpenAPI spec generation
-  docs.clj                # HTML documentation
-  (depends on: http-core, NOT mcp-http)
-```
 
 ⏳ **sente-lite** (future)
 ```

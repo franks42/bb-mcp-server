@@ -1,9 +1,10 @@
-(ns streamable-http.rest-test
+(ns rest-api.handlers-test
     "Tests for REST API handlers."
     (:require [clojure.test :refer [deftest testing is]]
-              [streamable-http.handlers.rest :as rest]
-              [streamable-http.openapi :as openapi]
-              [streamable-http.util :as util]))
+              [clojure.string :as str]
+              [rest-api.handlers :as rest]
+              [rest-api.openapi :as openapi]
+              [http-core.util :as util]))
 
 ;; =============================================================================
 ;; Test Fixtures & Helpers
@@ -32,16 +33,12 @@
                     :transports #{:mcp-stdio}
                     :handler (fn [{:keys [code]}] {:result code})}})
 
-;; test-handlers removed - handlers now embedded in test-tools
-
 (defn list-tools-fn [transport]
   (->> (vals test-tools)
        (filter (fn [tool]
                  (let [transports (or (:transports tool) #{:rest :mcp-http :mcp-stdio})]
                    (contains? transports transport))))
        (map #(select-keys % [:name :description :inputSchema :transports :module]))))
-
-;; get-handler-fn removed - handlers now embedded in tools
 
 (defn list-modules-fn []
   (->> (vals test-tools)
@@ -114,7 +111,7 @@
                   (let [response (rest/handle-list-module-tools {} "nonexistent" list-tools-for-module-fn)
                         body (util/parse-json (:body response))]
                     (is (= 404 (:status response)))
-                    (is (clojure.string/includes? (:message body) "not found")))))
+                    (is (str/includes? (:message body) "not found")))))
 
 (deftest handle-get-module-tool-test
          (testing "Returns tool metadata for tool in module"
@@ -150,7 +147,7 @@
                         response (rest/handle-call-module-tool request "math" "add" get-tool-in-module-fn)
                         body (util/parse-json (:body response))]
                     (is (= 400 (:status response)))
-                    (is (clojure.string/includes? (:message body) "Invalid JSON")))))
+                    (is (str/includes? (:message body) "Invalid JSON")))))
 
 ;; =============================================================================
 ;; Router Tests

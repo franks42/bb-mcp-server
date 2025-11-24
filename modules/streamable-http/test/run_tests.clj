@@ -14,12 +14,12 @@
   (cp/add-classpath module-test))
 
 ;; Load test namespaces
+;; Note: REST tests moved to rest-api module
 (require 'streamable-http.sse-test)
 (require 'streamable-http.session-test)
 (require 'streamable-http.handlers-test)
 (require 'streamable-http.router-test)
 (require 'streamable-http.middleware-test)
-(require 'streamable-http.rest-test)
 (require 'streamable-http.integration-test)
 
 (defn run-tests
@@ -30,7 +30,6 @@
                             'streamable-http.handlers-test
                             'streamable-http.router-test
                             'streamable-http.middleware-test
-                            'streamable-http.rest-test
                             'streamable-http.integration-test)]
     (if (and (zero? (:fail result))
              (zero? (:error result)))
