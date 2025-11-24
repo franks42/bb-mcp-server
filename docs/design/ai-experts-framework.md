@@ -984,6 +984,284 @@ $ # Deploy to Fly.io, Railway, or any cloud
 
 ---
 
+## Critical Design Considerations
+
+**Source:** Gemini 3 Pro review (2025-02-25)
+
+### 1. The Expert Driver Pattern
+
+**Problem:** Claude instances are fundamentally *reactive*. They wait for a user message, process it, and return a response. They do not inherently "listen" to a message bus.
+
+**Solution:** Explicitly define the **Expert Driver** component - Clojure code running in the main process that wraps the Claude subprocess.
+
+```
+┌──────────────────────────────────────────┐
+│          core.async Message Bus          │
+│  (orchestrator, experts, tasks)          │
+└──────────────────────────────────────────┘
+              ▲            │
+              │            ▼
+      ┌───────────────────────────┐
+      │    Expert Driver (BB)     │  ◄── This is NEW
+      │  - Subscribes to bus      │
+      │  - Formats messages       │
+      │  - Manages history        │
+      │  - Publishes responses    │
+      └───────────────────────────┘
+              ▲            │
+              │            ▼
+      ┌───────────────────────────┐
+      │  Claude Subprocess        │
+      │  (via stdin/API)          │
+      └───────────────────────────┘
+```
+
+**Driver Responsibilities:**
+
+1. **Bus subscription** - Listen for messages addressed to this expert
+2. **Message formatting** - Convert bus messages to Claude API format
+3. **History management** - Maintain conversation context (see next section)
+4. **Response handling** - Parse Claude output and publish to bus
+5. **Lifecycle** - Start/stop/restart subprocess
+
+**Implementation sketch:**
+
+```clojure
+(defrecord ExpertDriver
+  [expert-id           ; :clojure-coder
+   process             ; Claude subprocess
+   bus-channel         ; core.async channel
+   history             ; atom with message list
+   mcp-server])        ; dedicated MCP endpoint
+
+(defn start-driver! [expert-def]
+  (let [driver (map->ExpertDriver
+                 {:expert-id (:id expert-def)
+                  :history (atom [])
+                  :bus-channel (async/chan)})
+
+        ;; Start dedicated MCP server first
+        mcp (start-dedicated-mcp-server! (:domain expert-def))
+
+        ;; Start Claude subprocess with MCP connection
+        proc (ai-orchestrator/start-instance!
+               (:expert-id driver)
+               {:provider-type :claude-subprocess
+                :model (:model expert-def)
+                :mcp-server (:url mcp)
+                :system-prompt (load-essential-curriculum expert-def)})]
+
+    (assoc driver :process proc :mcp-server mcp)))
+
+(defn driver-loop! [driver]
+  (async/go-loop []
+    (when-let [msg (async/<! (:bus-channel driver))]
+      ;; Format as user message
+      (let [user-msg {:role "user" :content (:content msg)}]
+        ;; Add to history
+        (swap! (:history driver) conj user-msg)
+        ;; Send to Claude
+        (let [response (ai-orchestrator/ask (:expert-id driver) (:content msg))]
+          ;; Add response to history
+          (swap! (:history driver) conj {:role "assistant" :content (:content response)})
+          ;; Publish to bus
+          (async/>! message-bus {:from (:expert-id driver)
+                                  :to (:reply-to msg)
+                                  :content (:content response)})))
+      (recur))))
+```
+
+### 2. State Management & Conversation History
+
+**Question:** Where does the conversation history live?
+
+**Options:**
+- **A:** Inside Claude (implicit) - Process maintains state internally
+- **B:** Managed by BB Server (explicit) - Driver maintains history
+
+**Recommendation:** **Option B - BB Server manages history**
+
+**Why:**
+1. **Pause/Resume** - Kill the process, restart later with replayed history
+2. **Debugging** - Inspect reasoning chain without querying the expert
+3. **Checkpointing** - Save expert state at key points
+4. **Context caching** - Optimize prompt caching with explicit control
+5. **Portability** - Switch between subprocess and HTTP providers
+
+**Implementation:**
+
+```clojure
+;; In ExpertDriver record
+{:history (atom [])  ; Vector of message maps
+ :checkpoints (atom [])  ; Saved states for rollback
+}
+
+;; Add message
+(defn add-to-history! [driver role content]
+  (swap! (:history driver) conj {:role role
+                                  :content content
+                                  :timestamp (System/currentTimeMillis)}))
+
+;; Resume from checkpoint
+(defn resume-from-checkpoint! [driver checkpoint-id]
+  (let [saved-history (get-checkpoint driver checkpoint-id)]
+    (reset! (:history driver) saved-history)
+    ;; Restart process if needed
+    (when-not (process-alive? (:process driver))
+      (restart-with-history! driver))))
+
+;; Replay history to new process
+(defn restart-with-history! [driver]
+  (let [old-history @(:history driver)
+        new-proc (ai-orchestrator/start-instance! (:expert-id driver) {...})]
+    ;; Send all history to warm up context
+    (doseq [msg old-history]
+      (when (= (:role msg) "user")
+        (ai-orchestrator/ask (:expert-id driver) (:content msg))))
+    (assoc driver :process new-proc)))
+```
+
+**Storage options:**
+- **In-memory** (Phase 13E) - Simple atom, lost on restart
+- **EDN files** (Phase 13F) - Persist to disk for durability
+- **Datalevin** (Phase 14) - Query relationships, semantic search
+
+### 3. Security: HTTP Server Binding
+
+**Problem:** Dedicated MCP servers on HTTP introduce network sockets. Misconfiguration could expose tools to network.
+
+**Requirements:**
+
+1. **Localhost-only binding** - Default to `127.0.0.1` (NOT `0.0.0.0`)
+2. **PID tracking** - Use `pid_util.clj` to prevent orphaned processes
+3. **Port allocation** - Track which ports are used, prevent conflicts
+4. **Cleanup on exit** - Kill child processes in shutdown hook
+
+**Implementation:**
+
+```clojure
+(defn start-dedicated-mcp-server! [domain]
+  (let [port (allocate-port domain)
+        cmd ["bb" "server"
+             "--http" (str port)
+             "--config" (config-path domain)]
+        proc (p/process cmd {:env {"MCP_BIND_HOST" "127.0.0.1"}})]  ; Force localhost
+
+    ;; Write PID file
+    (pid-util/write-pid-file! port (:pid proc))
+
+    ;; Wait for health check
+    (wait-for-health! port 5000)
+
+    ;; Register for cleanup
+    (register-cleanup-handler! #(kill-and-cleanup! proc port))
+
+    {:port port
+     :url (str "http://127.0.0.1:" port "/mcp")
+     :pid (:pid proc)}))
+
+(defn kill-and-cleanup! [proc port]
+  (p/destroy proc)
+  (pid-util/delete-pid-file! port)
+  (release-port port))
+```
+
+**Security checklist:**
+- [ ] Verify `streamable-http` binds to `127.0.0.1` by default
+- [ ] Add configuration validation (reject `0.0.0.0` in expert configs)
+- [ ] Test orphan cleanup (kill parent, verify children die)
+- [ ] Document security model in expert manifest schema
+
+### 4. Terminology Refinement
+
+**Current terminology:** "Curriculum" is used for both definition and content.
+
+**Proposed distinction:**
+
+| Term | Meaning | Example |
+|------|---------|---------|
+| **Profile/Manifest** | Static definition | `manifest.edn` with ID, model, capabilities |
+| **Context/Knowledge** | Documentation files | `standards.md`, `architecture.md` |
+| **Persona** | System prompt instructions | "You are a Clojure code reviewer. Follow these standards..." |
+| **Curriculum** | Combination of all above | Complete package that creates an expert |
+
+**Usage in code:**
+
+```clojure
+{:expert-id :clojure-coder
+ :profile {:title "Clojure Development Expert"
+           :model "claude-3-5-haiku-20241022"
+           :capabilities #{:code-review :refactoring}}
+ :context {:essential ["docs/CLOJURE_EXPERT_CONTEXT.md"]
+           :reference ["docs/CODE_REVIEW_CHECKLIST.md"]}
+ :persona "You are an expert Clojure developer..."  ; Rendered from context
+ :curriculum {...}}  ; Full package
+```
+
+**Recommendation:** Keep "curriculum" as the umbrella term (it's already in use), but use sub-terms for precision in code/comments.
+
+### 5. Implementation Details
+
+#### A. Expert Record
+
+Formalize the Expert entity early to simplify lifecycle management:
+
+```clojure
+(defrecord Expert
+  [id                  ; :clojure-coder-1
+   expert-type         ; :clojure-coder (from registry)
+   driver              ; ExpertDriver record
+   status              ; :starting :ready :busy :stopped
+   created-at
+   last-active-at])
+
+;; Registry tracks running experts
+(defonce expert-instances (atom {}))  ; id -> Expert record
+
+(defn register-expert! [expert]
+  (swap! expert-instances assoc (:id expert) expert))
+
+(defn get-expert [id]
+  (get @expert-instances id))
+```
+
+#### B. MCP Server Integration
+
+Ensure dedicated servers leverage `bb-mcp-server.main`:
+
+```clojure
+(defn start-dedicated-mcp-server! [domain port]
+  (let [cmd ["bb" "-m" "bb-mcp-server.main"
+             "--http" (str port)
+             "--config" (str "config/experts/" (name domain) ".edn")]
+        proc (p/process cmd)]
+    ;; Wait for /health endpoint
+    (wait-for-health! (str "http://127.0.0.1:" port "/health") 5000)
+    {:port port :process proc}))
+```
+
+#### C. Tool Registry Integration
+
+Experts could register their capabilities dynamically:
+
+```clojure
+;; In ai-orchestrator
+(registry/register-tool!
+  {:name "delegate_to_expert"
+   :description "Delegate task to a domain expert"
+   :inputSchema {:type "object"
+                 :properties {:expert-type {:type "string"
+                                            :enum (list-active-expert-types)}
+                              :task {:type "string"}}}})
+
+;; Handler
+(defmethod handle-tool-call "delegate_to_expert" [params]
+  (let [expert (find-or-create-expert! (:expert-type params))]
+    (send-to-expert! expert (:task params))))
+```
+
+---
+
 ## Phased Implementation Proposal
 
 ### Phase 13E: File-Based Expert Registry (MVP)
