@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 12 Complete (v0.12.0) - Phase 13A Complete (Claude Manager Scaffolding)
+**Status:** Phase 12 Complete (v0.12.0) - Phase 13 Architecture Design Complete
 **Last Updated:** 2025-11-24
 
 ---
@@ -541,6 +541,54 @@ $ bb test:modules
                             clojure.core/print {:message "Use taoensso.trove/log! instead. print breaks stdio transport."}}}
 ```
 
+### Phase 13: Architecture Design Phase 🎨 In Progress
+
+**Status:** Comprehensive architecture documents created - ready for implementation
+
+**What was designed:**
+1. **Multi-Provider AI Orchestration** (`docs/design/ai-orchestrator-architecture.md`)
+   - Unified registry for Claude subprocess, OpenAI HTTP, Anthropic, Ollama
+   - Protocol abstraction using Clojure multimethods
+   - Provider-agnostic API: `start-instance!`, `ask`, `stop-instance!`
+   - Module layering: `ai-orchestrator` (core) + provider plugins
+
+2. **Domain Experts Framework** (`docs/design/ai-experts-framework.md`)
+   - Expert registry with curriculum, capabilities, domains
+   - File-based MVP (Phase 13E) → Datalevin migration (Phase 14)
+   - Message bus architecture (centralized, P2P, team-based patterns)
+   - Dynamic expert orchestration (on-demand team creation)
+   - Dedicated MCP servers per expert domain
+   - HTTP-based recommended (remote, shared, dynamic, cloud-ready)
+
+3. **Critical Design Considerations** (Gemini 3 Pro Review Integration)
+   - **Expert Driver Pattern**: Clojure wrapper for reactive Claude instances
+   - **State Management**: BB Server manages history explicitly (not inside Claude)
+   - **Security**: Localhost-only binding, PID tracking, port allocation
+   - **Terminology**: Profile/Manifest, Context/Knowledge, Persona, Curriculum
+   - **Implementation Details**: Expert record, MCP integration, tool registry
+
+**Documents created:**
+- `docs/design/ai-orchestrator-architecture.md` - Multi-provider orchestration
+- `docs/design/ai-experts-framework.md` - Domain experts with curriculum (1601 lines)
+- `ai-experts-framework-review-gemini.md` - External review recommendations
+
+**Key architectural decisions:**
+- Lifecycle naming: Use `start-instance!` / `stop-instance!` (not `spawn!` / `kill!`)
+- Provider registry schema: `:provider-type`, `:protocol`, `:transport`, `:capabilities`
+- Expert Driver pattern: BB wrapper for bus subscription, history, lifecycle
+- State management: Explicit history in BB (enables pause/resume, debugging, checkpointing)
+- MCP servers: HTTP preferred over stdio (remote, shared, dynamic tools)
+- Port allocation: Domain-specific ranges (19880-19889 for clojure-tools, etc.)
+
+**Architecture patterns validated:**
+- Module layering (core + plugins)
+- Protocol dispatch via multimethods
+- Two-registry architecture (definitions vs running instances)
+- Team-based message bus (coordinator + members)
+- Dedicated MCP servers per domain (80% context reduction)
+
+**Next:** Phase 13E - Begin file-based expert registry implementation
+
 ### Key Features
 
 1. **Claude-as-a-tool** - Invoke Claude instances from MCP tools
@@ -560,9 +608,14 @@ $ bb test:modules
 | # | Sub-phase | Status | Description |
 |---|-----------|--------|-------------|
 | 13A | Core Scaffolding | ✅ Complete | Mock process testing, dedicated reader loop, basic API |
-| 13B | Real Claude CLI | Planned | Replace mock with real `claude` command integration |
-| 13C | MCP Integration | Planned | Expose as MCP tools (claude_spawn, claude_message, etc.) |
-| 13D | Session Management | Planned | Session ID tracking, fork support (`--resume`) |
+| 13.5 | Stdio Safety | ✅ Complete | Lint rules, telemetry migration, code review checklist |
+| 13-Design | Architecture Docs | ✅ Complete | Multi-provider orchestration, domain experts framework |
+| 13B | Multi-Provider Refactor | Planned | Refactor claude-manager to use ai-orchestrator + providers |
+| 13C | OpenAI HTTP Provider | Planned | Validate multi-provider design with second provider |
+| 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
+| 13E | Expert Registry MVP | Planned | File-based expert definitions, curriculum loading |
+| 13F | Message Bus | Planned | core.async bus, team-based communication |
+| 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
 
 ### Proposed Tools
 
