@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 11 Complete (v0.11.0)
-**Last Updated:** 2025-11-23
+**Status:** Phase 12 Complete (v0.12.0) - Phase 13A Complete (Claude Manager Scaffolding)
+**Last Updated:** 2025-11-24
 
 ---
 
@@ -455,6 +455,108 @@ bb server --help       # show usage
 - `::shutdown-initiated` - Shutdown hook triggered
 - `::shutdown-complete` - Clean shutdown
 - `::dual-transport-mode` - Both transports starting
+
+---
+
+## Phase 13: Claude Subprocess Spawning
+
+**Goal:** Create a module for spawning Claude CLI instances as subprocesses with stdio connected to bb-mcp-server.
+
+**Design Document:** [claude-subprocess-spawning-architecture.md](docs/design/claude-subprocess-spawning-architecture.md)
+
+### Phase 13A: Core Scaffolding ✅ Complete
+
+**Status:** Implementation complete - all tests passing
+
+**What was implemented:**
+- Created `modules/claude-manager/` with complete module structure
+- Implemented Dedicated Reader Loop pattern from Gemini review
+- Core API: `spawn!`, `ask`, `kill!`, `list-instances`
+- Process management: `spawn-process!`, `start-reader-loop!`, `write-message!`
+- Registry: instance tracking, request-ID generation, promise-based async correlation
+- Mock testing: `mock_claude.clj` JSONL echo for CI-friendly tests
+- Tests: 12 tests, 23 assertions - all passing ✅
+- Verification: 0 lint errors, 0 warnings ✅
+
+**Files created:**
+```
+modules/claude-manager/
+├── module.edn
+├── src/claude_manager/
+│   ├── core.clj          # Public API (spawn!, ask, kill!, list-instances)
+│   ├── process.clj       # Process spawning & dedicated reader loop
+│   └── registry.clj      # Instance tracking & state management
+└── test/
+    ├── mock_claude.clj   # JSONL echo mock (Option B from discussion)
+    ├── claude_manager/core_test.clj  # 12 tests, 23 assertions
+    └── run_tests.clj
+```
+
+**Configuration:**
+- Added to `bb.edn`: paths and `test:claude-manager` task
+
+**Next:** Phase 13B - Replace mock with real Claude CLI integration
+
+### Key Features
+
+1. **Claude-as-a-tool** - Invoke Claude instances from MCP tools
+2. **Multi-agent orchestration** - Multiple Claude instances communicating
+3. **Session management** - Persistent processes with conversation state
+4. **Request/Response correlation** - Match async replies to original requests
+
+### Architecture Decision
+
+**Option A:** Two modules (generic process spawning + Claude-specific)
+**Option B:** Single `claude-spawner` module
+
+*Recommendation:* Start with Option B to avoid premature abstraction.
+
+### Sub-phases
+
+| # | Sub-phase | Status | Description |
+|---|-----------|--------|-------------|
+| 13A | Core Scaffolding | ✅ Complete | Mock process testing, dedicated reader loop, basic API |
+| 13B | Real Claude CLI | Planned | Replace mock with real `claude` command integration |
+| 13C | MCP Integration | Planned | Expose as MCP tools (claude_spawn, claude_message, etc.) |
+| 13D | Session Management | Planned | Session ID tracking, fork support (`--resume`) |
+
+### Proposed Tools
+
+```clojure
+claude_spawn   - Start a new Claude subprocess
+claude_message - Send message and get response
+claude_list    - List running instances
+claude_stop    - Stop a Claude instance
+claude_fork    - Fork from existing session
+```
+
+### Reference Implementation
+
+Based on patterns from `clay-noj-ai` project:
+- `babashka.process/process` for spawning
+- `--input-format stream-json --output-format stream-json` for JSONL protocol
+- `--resume session-id` for session forking
+- Request-ID format: `{name}-{counter}-{uuid-prefix}`
+
+### Key Architecture Decision (from Gemini Review)
+
+**Dedicated Reader Loop Pattern** - Critical fix for concurrency issues in prototype:
+- Background `future` per instance reads stdout continuously
+- Dispatches messages by type (result, assistant, system, error)
+- Delivers results to waiting promises by request-id
+- Thread-safe: multiple callers can `ask` same instance
+
+See `gemini-claude-subprocess-spawning-review.md` for full analysis.
+
+### Module Structure
+
+```
+modules/claude-manager/
+├── src/claude_manager/
+│   ├── core.clj      # Public API (spawn, ask, list)
+│   ├── process.clj   # Low-level process & I/O handling
+│   └── registry.clj  # State management (atoms)
+```
 
 ---
 

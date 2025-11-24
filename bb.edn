@@ -14,7 +14,8 @@
          "modules/mcp-http/src" "modules/mcp-http/test"
          "modules/mcp-stdio/src" "modules/mcp-stdio/test"
          "modules/rest-api/src" "modules/rest-api/test"
-         "modules/streamable-http/src" "modules/streamable-http/test"]
+         "modules/streamable-http/src" "modules/streamable-http/test"
+         "modules/claude-manager/src" "modules/claude-manager/test"]
 
  :tasks
  {;; ==========================================================================
@@ -101,6 +102,9 @@
 
   test:rest-api {:doc "Run rest-api module tests"
                  :task (load-file "modules/rest-api/test/run_tests.clj")}
+
+  test:claude-manager {:doc "Run claude-manager module tests"
+                       :task (load-file "modules/claude-manager/test/run_tests.clj")}
 
   test:stdio {:doc "Run stdio transport tests"
               :task (load-file "test/run_stdio_tests.clj")}

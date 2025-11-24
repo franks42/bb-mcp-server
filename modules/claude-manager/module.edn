@@ -1,0 +1,5 @@
+{:name "claude-manager"
+ :version "0.1.0"
+ :description "Claude subprocess spawning and management"
+ :requires []
+ :entry "claude-manager.core/module"}
