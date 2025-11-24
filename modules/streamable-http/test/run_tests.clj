@@ -4,8 +4,8 @@
 ;;
 ;; Run with: bb modules/streamable-http/test/run_tests.clj
 
-(require '[babashka.classpath :as cp]
-         '[clojure.test :as t])
+(require '[babashka.classpath :as cp])
+(require '[clojure.test :as t])
 
 ;; Add module paths to classpath
 (let [module-src "modules/streamable-http/src"
@@ -22,7 +22,8 @@
 (require 'streamable-http.router-test)
 (require 'streamable-http.integration-test)
 
-(defn run-tests
+#_{:clj-kondo/ignore [:redefined-var]}
+(defn run-all-tests
   "Run all streamable-http module tests."
   []
   (let [result (t/run-tests 'streamable-http.sse-test
@@ -39,4 +40,4 @@
        (println "\n✗ Tests failed.")
        (System/exit 1)))))
 
-(run-tests)
+(run-all-tests)

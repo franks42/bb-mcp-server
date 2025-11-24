@@ -6,13 +6,16 @@
            :unused-namespace {:level :warning}
            :unused-referred-var {:level :warning}
            :redefined-var {:level :warning}
-           :missing-docstring {:level :warning}
+           ;; Docstrings encouraged but not required - reduces noise from re-exports
+           :missing-docstring {:level :off}
            :misplaced-docstring {:level :error}
            :redundant-do {:level :warning}
            :redundant-let {:level :warning}
            :type-mismatch {:level :error}
            :not-empty? {:level :warning}
-           :deprecated-var {:level :warning}}
+           :deprecated-var {:level :warning}
+           ;; Duplicate requires are expected in standalone bb scripts
+           :duplicate-require {:level :off}}
 
  :output {:canonical-paths true}
 

@@ -117,9 +117,8 @@
      opts  - Options map:
              :title      - Page title
              :server-url - Base URL for examples"
-  [tools & [{:keys [title server-url]
-             :or {title "bb-mcp-server REST API"
-                  server-url "http://localhost:19880"}}]]
+  [tools & [{:keys [title]
+             :or {title "bb-mcp-server REST API"}}]]
   (let [by-module (group-by-module tools)
         module-count (count by-module)]
     (str "<!DOCTYPE html>

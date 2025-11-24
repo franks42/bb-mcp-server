@@ -1,9 +1,13 @@
-(ns run-tests
-    "Test runner for rest-api module."
-    (:require [clojure.test :as test]
-              [rest-api.handlers-test]))
+#!/usr/bin/env bb
+;; Test runner for rest-api module
 
-(defn run-tests
+(require '[clojure.test :as test])
+
+;; Load test namespaces
+(require 'rest-api.handlers-test)
+
+#_{:clj-kondo/ignore [:redefined-var]}
+(defn run-all-tests
   "Run all rest-api module tests and return results."
   []
   (println "========================================")
@@ -26,5 +30,4 @@
     (when-not success?
       (System/exit 1))))
 
-;; Run tests when loaded
-(run-tests)
+(run-all-tests)

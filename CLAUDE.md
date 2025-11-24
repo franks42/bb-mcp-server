@@ -60,12 +60,14 @@ bb format                       # Format with cljfmt
 
 ## Verification Workflow
 
-Always run before committing:
+**MUST run before committing - zero errors AND zero warnings required:**
 ```bash
-clj-kondo --lint <files>
-cljfmt check <files>
-bb test:modules
+clj-kondo --lint <files>    # MUST be 0 errors, 0 warnings
+cljfmt check <files>        # MUST have no formatting issues
+bb test:modules             # MUST pass all tests
 ```
+
+Do NOT commit code with lint warnings. Fix all warnings before committing.
 
 ---
 

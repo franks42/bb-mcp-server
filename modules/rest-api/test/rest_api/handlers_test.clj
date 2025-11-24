@@ -122,8 +122,7 @@
                     (is (= "math" (:module body)))))
 
          (testing "Returns 404 for tool not in module"
-                  (let [response (rest/handle-get-module-tool {} "math" "echo" get-tool-in-module-fn)
-                        body (util/parse-json (:body response))]
+                  (let [response (rest/handle-get-module-tool {} "math" "echo" get-tool-in-module-fn)]
                     (is (= 404 (:status response))))))
 
 (deftest handle-call-module-tool-test
@@ -138,8 +137,7 @@
 
          (testing "Returns 404 for tool not in module"
                   (let [request {:body "{}"}
-                        response (rest/handle-call-module-tool request "math" "echo" get-tool-in-module-fn)
-                        body (util/parse-json (:body response))]
+                        response (rest/handle-call-module-tool request "math" "echo" get-tool-in-module-fn)]
                     (is (= 404 (:status response)))))
 
          (testing "Returns 400 for invalid JSON"

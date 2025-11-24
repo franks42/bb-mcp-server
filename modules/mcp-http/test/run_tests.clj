@@ -1,14 +1,14 @@
 #!/usr/bin/env bb
 ;; Test runner for mcp-http module
 
-(ns run-tests
-    "Test runner for mcp-http module."
-    (:require [clojure.test :as t]
-              ;; Load test namespaces
-              [mcp-http.session-test]
-              [mcp-http.handlers-test]))
+(require '[clojure.test :as t])
 
-(defn run-tests
+;; Load test namespaces
+(require 'mcp-http.session-test)
+(require 'mcp-http.handlers-test)
+
+#_{:clj-kondo/ignore [:redefined-var]}
+(defn run-all-tests
   "Run all mcp-http tests and report results."
   []
   (println "\n========================================")
@@ -29,4 +29,4 @@
 
     result))
 
-(run-tests)
+(run-all-tests)

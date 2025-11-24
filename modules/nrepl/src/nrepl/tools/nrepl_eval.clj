@@ -79,26 +79,25 @@
           ;; Add stdout/stderr if present
           response-with-output (cond-> base-response
                                        (:out nrepl-response) (assoc :out (:out nrepl-response))
-                                       (:err nrepl-response) (assoc :err (:err nrepl-response)))]
-
-      ;; Try to add EDN parsing and base64 encoding
-      (let [response-with-edn (if-let [parsed-value (try-parse-edn value-str)]
-                                      (try
-                                       (assoc response-with-output :value-parsed (convert-edn-to-json parsed-value))
-                                       (catch Exception _
-                                    ;; Conversion failed - return without value-parsed
-                                              response-with-output))
-                                ;; No EDN parsing possible - return as is
-                                      response-with-output)
-            ;; Add base64 encoding if requested
-            final-response (if output-base64
-                             (cond-> response-with-edn
-                                     value-str (assoc :value-base64 (encode-base64 value-str))
-                                     (:out response-with-edn) (assoc :out-base64 (encode-base64 (:out response-with-edn)))
-                                     (:err response-with-edn) (assoc :err-base64 (encode-base64 (:err response-with-edn))))
-                             response-with-edn)]
-        {:content [{:type "text"
-                    :text (json/generate-string final-response {:pretty true})}]}))
+                                       (:err nrepl-response) (assoc :err (:err nrepl-response)))
+          ;; Try to add EDN parsing
+          response-with-edn (if-let [parsed-value (try-parse-edn value-str)]
+                                    (try
+                                     (assoc response-with-output :value-parsed (convert-edn-to-json parsed-value))
+                                     (catch Exception _
+                                  ;; Conversion failed - return without value-parsed
+                                            response-with-output))
+                              ;; No EDN parsing possible - return as is
+                                    response-with-output)
+          ;; Add base64 encoding if requested
+          final-response (if output-base64
+                           (cond-> response-with-edn
+                                   value-str (assoc :value-base64 (encode-base64 value-str))
+                                   (:out response-with-edn) (assoc :out-base64 (encode-base64 (:out response-with-edn)))
+                                   (:err response-with-edn) (assoc :err-base64 (encode-base64 (:err response-with-edn))))
+                           response-with-edn)]
+      {:content [{:type "text"
+                  :text (json/generate-string final-response {:pretty true})}]})
 
     ;; Error - extract error details and format properly
     (let [text-content (get-in sync-result [:content 0 :text])

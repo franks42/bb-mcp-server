@@ -1,6 +1,5 @@
 (ns nrepl.tools.must-read-mcp-nrepl-context
-    "🎯 MUST-READ Context Tool: Essential AI Agent Onboarding for MCP-nREPL System"
-    (:require [cheshire.core :as json]))
+    "🎯 MUST-READ Context Tool: Essential AI Agent Onboarding for MCP-nREPL System")
 
 (defn handle
   "🎯 ESSENTIAL AI AGENT ONBOARDING: Read this FIRST before using any other tools!

@@ -348,7 +348,7 @@
    Returns:
      Function (fn [request]) -> response or nil
      Returns nil if request doesn't match /api/* path"
-  [{:keys [list-tools-fn get-handler-fn
+  [{:keys [list-tools-fn
            list-modules-fn list-tools-for-module-fn get-tool-in-module-fn
            server-info-fn openapi-opts]}]
   (fn [request]

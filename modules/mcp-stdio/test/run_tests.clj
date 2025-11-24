@@ -4,8 +4,8 @@
 ;;
 ;; Run with: bb modules/mcp-stdio/test/run_tests.clj
 
-(require '[babashka.classpath :as cp]
-         '[clojure.test :as t])
+(require '[babashka.classpath :as cp])
+(require '[clojure.test :as t])
 
 ;; Add module paths to classpath
 (let [module-src "modules/mcp-stdio/src"
@@ -16,7 +16,7 @@
 ;; Load test namespaces
 (require 'mcp-stdio.core-test)
 
-(defn run-tests
+(defn run-all-tests
   "Run all mcp-stdio module tests."
   []
   (let [result (t/run-tests 'mcp-stdio.core-test)]
@@ -29,4 +29,4 @@
        (println "\n✗ Tests failed.")
        (System/exit 1)))))
 
-(run-tests)
+(run-all-tests)
