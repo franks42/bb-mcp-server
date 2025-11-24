@@ -22,7 +22,7 @@
   ;; ==========================================================================
 
   lint {:doc "Lint code with clj-kondo"
-        :task (shell "clj-kondo" "--lint" "src")}
+        :task (shell "clj-kondo" "--lint" "src" "scripts" "server.clj")}
 
   format {:doc "Format code with cljfmt"
           :task (shell "cljfmt" "fix" "src")}

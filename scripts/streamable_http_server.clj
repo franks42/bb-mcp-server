@@ -6,14 +6,16 @@
 ;; This runs the MCP server using the Streamable HTTP transport
 ;; (MCP spec 2025-03-26) with session management and SSE support.
 
-(require '[bb-mcp-server.module.system :as sys]
-         '[bb-mcp-server.test-harness :as harness]
-         '[bb-mcp-server.protocol.router :as router]
-         '[bb-mcp-server.registry :as registry]
-         '[streamable-http.core :as shttp]
-         '[pid-util :as pid-util])
+(ns streamable-http-server
+    "Streamable HTTP MCP Server startup script."
+    (:require [bb-mcp-server.module.system :as sys]
+              [bb-mcp-server.test-harness :as harness]
+              [bb-mcp-server.protocol.router :as router]
+              [bb-mcp-server.registry :as registry]
+              [streamable-http.core :as shttp]
+              [pid-util :as pid-util]))
 
-(def port
+(def ^:private http-port
      "HTTP server port from CLI args or default 3000."
      (or (some-> (first *command-line-args*) parse-long) 3000))
 
@@ -45,7 +47,7 @@
 
 ;; Write PID file for server management
 (println "\n[4/6] Registering process...")
-(pid-util/write-pid-file! port)
+(pid-util/write-pid-file! http-port)
 
 ;; Create the JSON-RPC handler for streamable-http
 ;; This bridges the router to the transport
@@ -64,11 +66,11 @@
   (router/route-request ctx request))
 
 ;; Start Streamable HTTP server with REST API support
-(println (str "\n[5/6] Starting Streamable HTTP server on port " port "..."))
+(println (str "\n[5/6] Starting Streamable HTTP server on port " http-port "..."))
 (def server
      "Running Streamable HTTP server instance."
      (shttp/start-server! json-rpc-handler
-                          {:port port
+                          {:port http-port
                            :host "0.0.0.0"
                            :path "/mcp"
                            :health-path "/health"
@@ -102,7 +104,7 @@
   (when-not (:valid? validation)
     (println "  ⚠ Some tools may be unreachable via this server")))
 
-(println (str "\n✓ Server ready! http://localhost:" port))
+(println (str "\n✓ Server ready! http://localhost:" http-port))
 (println "  MCP Endpoints:")
 (println "    POST /mcp    - JSON-RPC requests (initialize, tools/list, tools/call)")
 (println "    GET  /mcp    - SSE stream (with Mcp-Session-Id header)")
@@ -123,7 +125,7 @@
 (println "    - Server-Sent Events for server notifications")
 (println "    - REST API for direct HTTP tool calls")
 (println "    - CORS enabled")
-(println (str "\n  Stop with: bb server:stop " port))
+(println (str "\n  Stop with: bb server:stop " http-port))
 (println "  Or press Ctrl+C")
 
 ;; Handle shutdown - clean up both server and PID file
@@ -133,7 +135,7 @@
   (fn []
     (println "\n\nShutting down...")
     (shttp/stop-server! server)
-    (pid-util/delete-pid-file! port)
+    (pid-util/delete-pid-file! http-port)
     (println "Goodbye!"))))
 
 ;; Keep running

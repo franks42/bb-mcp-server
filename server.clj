@@ -1,11 +1,12 @@
 #!/usr/bin/env bb
-
 ;; bb-mcp-server - stdio server entry point
 ;; This script starts the MCP server and listens on stdin/stdout
 
-(require '[mcp-stdio.core :as stdio]
-         '[bb-mcp-server.telemetry :as telemetry]
-         '[taoensso.trove :as log])
+(ns server
+    "Main entry point for bb-mcp-server stdio transport."
+    (:require [mcp-stdio.core :as stdio]
+              [bb-mcp-server.telemetry :as telemetry]
+              [taoensso.trove :as log]))
 
 ;; Initialize telemetry (Trove + Timbre)
 ;; This ensures all logs go to stderr (critical for MCP stdio protocol)

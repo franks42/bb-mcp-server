@@ -6,31 +6,46 @@
 ;; Tests the MCP HTTP server with JSON-RPC requests.
 ;; Starts a server, runs tests, reports results, shuts down.
 
-(require '[babashka.http-client :as http]
-         '[cheshire.core :as json]
-         '[clojure.string :as str])
+(ns http-integration-test
+    "HTTP integration test suite for MCP server."
+    (:require [babashka.http-client :as http]
+              [cheshire.core :as json]
+              [clojure.string :as str]))
 
-(def test-port (or (some-> (first *command-line-args*) parse-long) 3000))
-(def base-url (str "http://localhost:" test-port))
+(def ^:private test-port
+     "HTTP server port from CLI args or default 3000."
+     (or (some-> (first *command-line-args*) parse-long) 3000))
+
+(def ^:private base-url
+     "Base URL for test server."
+     (str "http://localhost:" test-port))
 
 ;; =============================================================================
 ;; Test Utilities
 ;; =============================================================================
 
-(def test-results (atom {:passed 0 :failed 0 :tests []}))
+(def ^:private test-results
+     "Atom tracking test pass/fail counts."
+     (atom {:passed 0 :failed 0 :tests []}))
 
-(defn record-result! [test-name passed? message]
+(defn- record-result!
+  "Record a test result and print status."
+  [test-name passed? message]
   (swap! test-results update (if passed? :passed :failed) inc)
   (swap! test-results update :tests conj {:name test-name :passed passed? :message message})
   (println (str (if passed? "✅" "❌") " " test-name ": " message)))
 
-(defn json-rpc-request [method params & {:keys [id] :or {id 1}}]
+(defn- json-rpc-request
+  "Build a JSON-RPC request map."
+  [method params & {:keys [id] :or {id 1}}]
   {:jsonrpc "2.0"
    :method method
    :params (or params {})
    :id id})
 
-(defn send-request [request]
+(defn- send-request
+  "Send a JSON-RPC request to the MCP server."
+  [request]
   (try
    (let [response (http/post (str base-url "/mcp")
                              {:headers {"Content-Type" "application/json"}
@@ -49,13 +64,17 @@
 ;; Test Cases
 ;; =============================================================================
 
-(defn test-health-check []
+(defn- test-health-check
+  "Test server health endpoint."
+  []
   (let [response (http/get (str base-url "/health") {:throw false})]
     (if (= 200 (:status response))
       (record-result! "Health Check" true "Server is healthy")
       (record-result! "Health Check" false (str "Status: " (:status response))))))
 
-(defn test-initialize []
+(defn- test-initialize
+  "Test MCP initialize request."
+  []
   (let [req (json-rpc-request "initialize"
                               {:protocolVersion "1.0"
                                :clientInfo {:name "integration-test" :version "1.0.0"}})
@@ -70,7 +89,9 @@
       :else
       (record-result! "Initialize" false (str "Unexpected: " body)))))
 
-(defn test-tools-list []
+(defn- test-tools-list
+  "Test tools/list endpoint."
+  []
   (let [req (json-rpc-request "tools/list" {})
         {:keys [body error]} (send-request req)]
     (cond
@@ -84,7 +105,9 @@
       :else
       (record-result! "Tools List" false (str "Unexpected: " body)))))
 
-(defn test-tools-call-hello []
+(defn- test-tools-call-hello
+  "Test tools/call with hello tool."
+  []
   (let [req (json-rpc-request "tools/call" {:name "hello" :arguments {:name "Test"}})
         {:keys [body error]} (send-request req)]
     (cond
@@ -102,7 +125,9 @@
       :else
       (record-result! "Tools Call (hello)" false (str "Unexpected: " body)))))
 
-(defn test-tools-call-add []
+(defn- test-tools-call-add
+  "Test tools/call with add tool."
+  []
   (let [req (json-rpc-request "tools/call" {:name "add" :arguments {:a 5 :b 3}})
         {:keys [body error]} (send-request req)]
     (cond
@@ -118,7 +143,9 @@
       :else
       (record-result! "Tools Call (add)" false (str "Unexpected: " body)))))
 
-(defn test-invalid-json []
+(defn- test-invalid-json
+  "Test error handling for invalid JSON."
+  []
   (try
    (let [response (http/post (str base-url "/mcp")
                              {:headers {"Content-Type" "application/json"}
@@ -131,7 +158,9 @@
    (catch Exception e
           (record-result! "Invalid JSON" false (ex-message e)))))
 
-(defn test-unknown-method []
+(defn- test-unknown-method
+  "Test error handling for unknown methods."
+  []
   (let [req (json-rpc-request "unknown/method" {})
         {:keys [body error]} (send-request req)]
     (cond
@@ -144,7 +173,9 @@
       :else
       (record-result! "Unknown Method" false (str "Expected -32601: " body)))))
 
-(defn test-request-id-preservation []
+(defn- test-request-id-preservation
+  "Test that request IDs are preserved in responses."
+  []
   (let [test-id "test-id-12345"
         req (json-rpc-request "tools/list" {} :id test-id)
         {:keys [body error]} (send-request req)]
@@ -162,7 +193,9 @@
 ;; Main Test Runner
 ;; =============================================================================
 
-(defn run-tests []
+(defn- run-tests
+  "Run all integration tests."
+  []
   (println "=" (apply str (repeat 60 "=")))
   (println "HTTP Integration Tests")
   (println (str "Server URL: " base-url))

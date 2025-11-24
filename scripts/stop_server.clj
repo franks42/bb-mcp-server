@@ -2,33 +2,45 @@
 ;; Stop a running bb-mcp-server by port
 ;; Usage: bb scripts/stop_server.clj [port]
 
-(require '[clojure.java.io :as io])
+(ns stop-server
+    "Stop a running bb-mcp-server by port."
+    (:require [clojure.java.io :as io]))
 
-(def port
+(def ^:private server-port
      "Server port from CLI args or default 3000."
      (or (some-> (first *command-line-args*) parse-long) 3000))
 
-(defn pid-file-path [port]
+(defn- pid-file-path
+  "Return path to PID file for given port."
+  [port]
   (str ".bb-mcp-server-" port ".pid"))
 
-(defn read-pid-file [port]
+(defn- read-pid-file
+  "Read PID from file for given port, returns nil if not found."
+  [port]
   (let [path (pid-file-path port)]
     (when (.exists (io/file path))
       (try
        (parse-long (slurp path))
        (catch Exception _ nil)))))
 
-(defn delete-pid-file! [port]
+(defn- delete-pid-file!
+  "Delete the PID file for given port."
+  [port]
   (let [file (io/file (pid-file-path port))]
     (when (.exists file)
       (.delete file))))
 
-(defn process-alive? [pid]
+(defn- process-alive?
+  "Check if process with given PID is still running."
+  [pid]
   (try
    (.isPresent (java.lang.ProcessHandle/of pid))
    (catch Exception _ false)))
 
-(defn stop-server! [port]
+(defn- stop-server!
+  "Stop server running on given port using PID file."
+  [port]
   (if-let [pid (read-pid-file port)]
           (if (process-alive? pid)
             (do
@@ -61,4 +73,4 @@
              (delete-pid-file! port)))
           (println (str "No server running on port " port " (no PID file found)"))))
 
-(stop-server! port)
+(stop-server! server-port)

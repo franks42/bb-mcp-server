@@ -2,10 +2,12 @@
 ;; Stdio MCP Server startup script with module system
 ;; Usage: bb scripts/stdio_server.clj
 
-(require '[mcp-stdio.core :as stdio]
-         '[bb-mcp-server.module.system :as sys]
-         '[bb-mcp-server.test-harness :as harness]
-         '[taoensso.trove :as log])
+(ns stdio-server
+    "Stdio MCP Server startup script with module system."
+    (:require [mcp-stdio.core :as stdio]
+              [bb-mcp-server.module.system :as sys]
+              [bb-mcp-server.test-harness :as harness]
+              [taoensso.trove :as log]))
 
 ;; Redirect logs to stderr so stdout stays clean for JSON-RPC
 (log/log! {:level :info :msg "Starting stdio MCP server with module system"})
