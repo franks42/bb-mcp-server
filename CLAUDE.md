@@ -79,4 +79,16 @@ bb test:modules
 
 ---
 
+## Planning & Task Tracking
+
+**IMPORTANT:** Use `IMPLEMENTATION_PLAN.md` as the **single source of truth** for:
+- Project phases and milestones
+- Task status and progress
+- Implementation decisions
+- Architecture changes
+
+Do NOT create or update alternative plan documents (e.g., in `docs/design/` or module subdirectories). All planning updates go in `IMPLEMENTATION_PLAN.md`.
+
+---
+
 *Last Updated: 2025-11-24*
