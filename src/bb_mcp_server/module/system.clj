@@ -233,7 +233,7 @@
   (let [module-dirs (discover-module-dirs modules-dir module-names)
         ;; Create lookup: module-name -> dir-path
         dir-by-name (into {} (for [d module-dirs]
-                               [(.getName (io/file d)) d]))
+                                  [(.getName (io/file d)) d]))
         ;; Load in the order specified in module-names (respects dependencies)
         ordered-dirs (if module-names
                        (keep #(get dir-by-name %) module-names)
