@@ -5,8 +5,7 @@
  :current-models
  {:sonnet-4-5 "claude-sonnet-4-5-20250929"
   :haiku-4-5  "claude-haiku-4-5-20251001"
-  :opus-4-5   "claude-opus-4-5-20251101"
-  :opus-4-1   "claude-opus-4-1-20250805"}  ; AVOID: More expensive than Opus 4.5
+  :opus-4-5   "claude-opus-4-5-20251101"}
 
  :legacy-models
  {:sonnet-4   "claude-sonnet-4-20250514"
@@ -24,5 +23,4 @@
  ["Aliases automatically point to the most recent model snapshot"
   "Use specific versioned IDs for production to maintain consistent behavior"
   "When new snapshots are released, aliases migrate to newest version within ~1 week"
-  "AVOID opus-4-1: More expensive than Opus 4.5"
   "Recommended for testing: sonnet-4-5 (good balance of cost and capability)"]}
