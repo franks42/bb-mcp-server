@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13B & 13C Complete (v0.13.4.2) - All Providers Working
+**Status:** Phase 13D Complete (v0.13.5) - MCP Tool Integration
 **Last Updated:** 2025-11-25
 
 ---
@@ -969,7 +969,106 @@ All source files formatted correctly ✅
 - ✅ **Real API connectivity: Both providers successfully tested with Anthropic API**
 - ✅ **No timeout errors: Async promise pattern correctly implemented**
 
-**Next:** Phase 13D - MCP Integration
+**Next:** Phase 13F - Message Bus
+
+---
+
+### Phase 13D: MCP Tool Integration ✅ Complete
+
+**Goal:** Expose AI orchestrator functionality via MCP tools
+**Status:** Complete - v0.13.5
+
+**Completed Features:**
+1. ✅ Created `modules/ai-orchestrator-tools/` module
+2. ✅ Implemented 4 MCP tools exposing orchestrator API
+3. ✅ Module loading order fix (providers load before tools)
+4. ✅ Real API testing via MCP protocol (Anthropic HTTP verified)
+5. ✅ Comprehensive tests: 13 tests, 44 assertions, all passing
+
+**Module Structure:**
+```
+modules/ai-orchestrator-tools/
+├── module.edn                    # Requires ai-orchestrator, all providers
+├── src/ai_orchestrator_tools/
+│   └── core.clj                  # 4 MCP tools
+└── test/
+    ├── ai_orchestrator_tools/
+    │   └── core_test.clj         # 13 tests, 44 assertions
+    └── run_tests.clj
+```
+
+**MCP Tools Implemented:**
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `ai_start_instance` | Start AI instance | name, provider_type, model, api_key, base_url, max_tokens, cmd |
+| `ai_ask` | Send message to instance | name, message |
+| `ai_stop_instance` | Stop running instance | name |
+| `ai_list_instances` | List all instances | provider_type (optional filter) |
+
+**Provider Support:**
+- `anthropic-http` - Native Anthropic Messages API
+- `openai-http` - OpenAI API (or Anthropic compat via base_url)
+- `claude-subprocess` - Claude CLI subprocess
+
+**Example Usage via MCP:**
+```json
+// Start instance
+{"jsonrpc":"2.0","method":"tools/call","id":1,
+ "params":{"name":"ai-orchestrator-tools.ai_start_instance",
+           "arguments":{"name":"test-ai",
+                        "provider_type":"anthropic-http",
+                        "model":"claude-sonnet-4-5-20250929",
+                        "api_key":"sk-..."}}}
+
+// Ask question
+{"jsonrpc":"2.0","method":"tools/call","id":2,
+ "params":{"name":"ai-orchestrator-tools.ai_ask",
+           "arguments":{"name":"test-ai",
+                        "message":"What is 2+2?"}}}
+// Response: {"content":"4","duration_ms":696}
+
+// Stop instance
+{"jsonrpc":"2.0","method":"tools/call","id":3,
+ "params":{"name":"ai-orchestrator-tools.ai_stop_instance",
+           "arguments":{"name":"test-ai"}}}
+```
+
+**Module Loading Order Fix:**
+The `ai-orchestrator-tools` module requires all provider modules be loaded first.
+Fixed in `system.edn` and `bb-mcp-server.module.system`:
+
+```clojure
+;; system.edn - providers before tools
+:modules ["echo" "strings" "math" "calculate" "local-eval" "nrepl"
+          "ai-orchestrator"
+          "anthropic-http-provider"
+          "openai-http-provider"
+          "claude-subprocess-provider"
+          "ai-orchestrator-tools"]
+```
+
+**Verification:**
+```bash
+$ bb modules/ai-orchestrator-tools/test/run_tests.clj
+Ran 13 tests containing 44 assertions.
+0 failures, 0 errors. ✅
+
+$ clj-kondo --lint modules/ai-orchestrator-tools/
+linting took 14ms, 0 errors, 0 warnings ✅
+
+$ cljfmt check modules/ai-orchestrator-tools/
+All source files formatted correctly ✅
+```
+
+**Real API Test Results:**
+- Started bb-mcp-server with 11 modules, 19 tools
+- Established MCP session via HTTP POST
+- `ai_list_instances` → 0 instances (correct)
+- `ai_start_instance` (anthropic-http, Sonnet 4.5) → success
+- `ai_ask "What is 2+2?"` → `{"content":"4","duration_ms":696}`
+- `ai_stop_instance` → success
+- `ai_list_instances` → 0 instances (correct)
 
 ---
 
@@ -1000,7 +1099,7 @@ All source files formatted correctly ✅
 | 13E | Expert Registry MVP | ✅ Complete | File-based expert definitions, curriculum loading (9 tests, 29 assertions) |
 | 13B | Multi-Provider Refactor | ✅ Complete | Provider-agnostic orchestration with claude-subprocess provider (5 tests, 17 assertions) |
 | 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers with async routing (9 tests, 43 assertions, real API verified) |
-| 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
+| 13D | MCP Integration | ✅ Complete | AI orchestrator exposed as MCP tools (4 tools, 13 tests, 44 assertions) |
 | 13F | Message Bus | Planned | core.async bus, team-based communication |
 | 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
 

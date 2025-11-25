@@ -8,14 +8,9 @@
               [taoensso.trove :as log]))
 
 ;; =============================================================================
-;; Module Definition
+;; Module Lifecycle (defined at end after all functions)
 ;; =============================================================================
-
-(def module
-     "Module manifest for bb-mcp-server module system."
-     {:name "claude-subprocess-provider"
-      :version "0.1.0"
-      :description "Claude subprocess provider for ai-orchestrator"})
+;; See bottom of file for module lifecycle implementation
 
 ;; =============================================================================
 ;; Message Dispatcher
@@ -184,3 +179,34 @@
 (defmethod proto/get-capabilities :claude-subprocess
            [_provider-type]
            #{:chat :tools :streaming})
+
+;; =============================================================================
+;; Module Lifecycle
+;; =============================================================================
+
+(defn module-start
+  "Start the Claude subprocess provider module."
+  [_deps _config]
+  (log/log! {:level :info
+             :id    ::module-start
+             :msg   "Claude subprocess provider module started"})
+  {:status :started})
+
+(defn module-stop
+  "Stop the Claude subprocess provider module."
+  [_instance]
+  (log/log! {:level :info
+             :id    ::module-stop
+             :msg   "Claude subprocess provider module stopped"})
+  nil)
+
+(defn module-status
+  "Get Claude subprocess provider module status."
+  [_instance]
+  {:status :ok})
+
+(def module
+     "Module lifecycle implementation for bb-mcp-server module system."
+     {:start module-start
+      :stop module-stop
+      :status module-status})

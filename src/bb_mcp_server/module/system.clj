@@ -220,16 +220,26 @@
 (defn- load-modules-with-ns-loader
   "Load modules using the elegant ns_loader.
 
+  Modules are loaded in the order specified in module-names (from system.edn).
+  This order must respect module dependencies - dependencies must be listed first.
+
   Args:
     modules-dir  - Path to modules directory
-    module-names - Optional seq of module names to load
+    module-names - Seq of module names to load (in dependency order!)
 
   Returns:
     Map of module-name -> {:manifest ... :module ...} or {:error ...}"
   [modules-dir module-names]
-  (let [module-dirs (discover-module-dirs modules-dir module-names)]
+  (let [module-dirs (discover-module-dirs modules-dir module-names)
+        ;; Create lookup: module-name -> dir-path
+        dir-by-name (into {} (for [d module-dirs]
+                               [(.getName (io/file d)) d]))
+        ;; Load in the order specified in module-names (respects dependencies)
+        ordered-dirs (if module-names
+                       (keep #(get dir-by-name %) module-names)
+                       module-dirs)]
     (into {}
-          (for [dir module-dirs]
+          (for [dir ordered-dirs]
                (let [result (ns-loader/load-module dir)
                      dir-name (.getName (io/file dir))]
                  (if (:success result)

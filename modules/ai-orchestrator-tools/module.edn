@@ -1,0 +1,17 @@
+;; AI Orchestrator Tools module configuration
+;;
+;; MCP tools for AI instance management and interaction.
+;; Exposes the ai-orchestrator functionality via MCP protocol.
+
+{:name "ai-orchestrator-tools"
+ :version "0.1.0"
+ :description "MCP tools for multi-provider AI orchestration"
+
+ ;; Depends on ai-orchestrator for the core API
+ :requires ["ai-orchestrator"]
+
+ ;; Entry point
+ :entry "ai-orchestrator-tools.core/module"
+
+ ;; Test runner
+ :test-runner "test/run_tests.clj"}

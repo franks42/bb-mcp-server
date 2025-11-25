@@ -21,7 +21,8 @@
          "modules/openai-http-provider/src" "modules/openai-http-provider/test"
          "modules/claude-manager/src" "modules/claude-manager/test"
          "modules/port-registry/src" "modules/port-registry/test"
-         "modules/expert-registry/src" "modules/expert-registry/test"]
+         "modules/expert-registry/src" "modules/expert-registry/test"
+         "modules/ai-orchestrator-tools/src" "modules/ai-orchestrator-tools/test"]
 
  :tasks
  {;; ==========================================================================
@@ -131,6 +132,12 @@
   test:expert-registry {:doc "Run expert-registry module tests"
                         :task (load-file "modules/expert-registry/test/run_tests.clj")}
 
+  test:ai-orchestrator {:doc "Run ai-orchestrator module tests"
+                        :task (load-file "modules/ai-orchestrator/test/run_tests.clj")}
+
+  test:ai-orchestrator-tools {:doc "Run ai-orchestrator-tools module tests"
+                              :task (load-file "modules/ai-orchestrator-tools/test/run_tests.clj")}
+
   test:stdio {:doc "Run stdio transport tests"
               :task (load-file "test/run_stdio_tests.clj")}
 
@@ -145,6 +152,8 @@
                           (run 'test:rest-api)
                           (run 'test:port-registry)
                           (run 'test:expert-registry)
+                          (run 'test:ai-orchestrator)
+                          (run 'test:ai-orchestrator-tools)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 

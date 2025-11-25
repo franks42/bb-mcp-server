@@ -26,16 +26,6 @@
               [taoensso.trove :as log]))
 
 ;; =============================================================================
-;; Module Definition
-;; =============================================================================
-
-(def module
-     "Module manifest for bb-mcp-server module system."
-     {:name "ai-orchestrator"
-      :version "0.1.0"
-      :description "Multi-provider AI orchestration infrastructure"})
-
-;; =============================================================================
 ;; Configuration
 ;; =============================================================================
 
@@ -255,3 +245,41 @@
   [capability]
   (map registry/get-instance-info
        (map :name (registry/find-instances-by-capability capability))))
+
+;; =============================================================================
+;; Module Lifecycle
+;; =============================================================================
+
+(defn module-start
+  "Start the AI orchestrator module."
+  [_deps config]
+  (log/log! {:level :info
+             :id    ::module-starting
+             :msg   "Starting ai-orchestrator module"
+             :data  {:config config}})
+  (when config
+    (configure! config))
+  {:status :started})
+
+(defn module-stop
+  "Stop the AI orchestrator module."
+  [_instance]
+  (log/log! {:level :info
+             :id    ::module-stopping
+             :msg   "Stopping ai-orchestrator module"})
+  ;; Stop all running instances
+  (shutdown-all!)
+  nil)
+
+(defn module-status
+  "Get AI orchestrator module status."
+  [_instance]
+  (let [instances (list-instances)]
+    {:status :ok
+     :instance-count (count instances)}))
+
+(def module
+     "Module lifecycle implementation for bb-mcp-server module system."
+     {:start module-start
+      :stop module-stop
+      :status module-status})

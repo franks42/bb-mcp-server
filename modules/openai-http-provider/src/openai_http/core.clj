@@ -137,18 +137,29 @@
 ;; Module Lifecycle
 ;; =============================================================================
 
-(defn module
-  "Module lifecycle map for bb-mcp-server."
-  []
-  {:init (fn []
-           (log/log! {:level :info
-                      :id    ::module-init
-                      :msg   "OpenAI HTTP provider module initialized"}))
-   :start (fn []
-            (log/log! {:level :info
-                       :id    ::module-start
-                       :msg   "OpenAI HTTP provider module started"}))
-   :stop (fn []
-           (log/log! {:level :info
-                      :id    ::module-stop
-                      :msg   "OpenAI HTTP provider module stopped"}))})
+(defn module-start
+  "Start the OpenAI HTTP provider module."
+  [_deps _config]
+  (log/log! {:level :info
+             :id    ::module-start
+             :msg   "OpenAI HTTP provider module started"})
+  {:status :started})
+
+(defn module-stop
+  "Stop the OpenAI HTTP provider module."
+  [_instance]
+  (log/log! {:level :info
+             :id    ::module-stop
+             :msg   "OpenAI HTTP provider module stopped"})
+  nil)
+
+(defn module-status
+  "Get OpenAI HTTP provider module status."
+  [_instance]
+  {:status :ok})
+
+(def module
+     "Module lifecycle implementation for bb-mcp-server module system."
+     {:start module-start
+      :stop module-stop
+      :status module-status})

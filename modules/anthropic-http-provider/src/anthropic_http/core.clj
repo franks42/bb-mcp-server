@@ -135,18 +135,29 @@
 ;; Module Lifecycle
 ;; =============================================================================
 
-(defn module
-  "Module lifecycle map for bb-mcp-server."
-  []
-  {:init (fn []
-           (log/log! {:level :info
-                      :id    ::module-init
-                      :msg   "Anthropic HTTP provider module initialized"}))
-   :start (fn []
-            (log/log! {:level :info
-                       :id    ::module-start
-                       :msg   "Anthropic HTTP provider module started"}))
-   :stop (fn []
-           (log/log! {:level :info
-                      :id    ::module-stop
-                      :msg   "Anthropic HTTP provider module stopped"}))})
+(defn module-start
+  "Start the Anthropic HTTP provider module."
+  [_deps _config]
+  (log/log! {:level :info
+             :id    ::module-start
+             :msg   "Anthropic HTTP provider module started"})
+  {:status :started})
+
+(defn module-stop
+  "Stop the Anthropic HTTP provider module."
+  [_instance]
+  (log/log! {:level :info
+             :id    ::module-stop
+             :msg   "Anthropic HTTP provider module stopped"})
+  nil)
+
+(defn module-status
+  "Get Anthropic HTTP provider module status."
+  [_instance]
+  {:status :ok})
+
+(def module
+     "Module lifecycle implementation for bb-mcp-server module system."
+     {:start module-start
+      :stop module-stop
+      :status module-status})

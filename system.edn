@@ -8,7 +8,9 @@
 
  ;; Explicit list of modules to load (by name)
  ;; Only these modules will be loaded, in this order if no dependencies
- :modules ["echo" "strings" "calculate" "local-eval" "nrepl" "math"]
+ :modules ["echo" "strings" "calculate" "local-eval" "nrepl" "math"
+           "ai-orchestrator" "anthropic-http-provider" "openai-http-provider"
+           "claude-subprocess-provider" "ai-orchestrator-tools"]
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
