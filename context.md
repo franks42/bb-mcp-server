@@ -1,159 +1,165 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-25 (Phase 13B Fixed, All Providers Working)
-**Current Version:** v0.13.4.2 (All providers tested and working with real APIs)
+**Last Updated:** 2025-11-25 (Phase 13B & 13C Complete + Performance Testing)
+**Current Version:** v0.13.4.3 (All providers tested, performance validated)
 
 ---
 
-## Current State - Phase 13B & 13C Complete ✅
+## Current State - Phase 13 Infrastructure Complete ✅
 
-**Phase 13C HTTP Providers** - Implementation complete with async routing integration and full real API testing.
+**Phase 13B & 13C Complete:** All three AI providers (anthropic-http, openai-http, claude-subprocess) are implemented, tested with real APIs, and performance-validated.
 
-**Phase 13B Subprocess Provider** - Fixed! Missing CLI arguments issue resolved. Now working with real Claude CLI.
-
-### Summary
-
-Implemented two HTTP provider modules for ai-orchestrator:
-
-1. **anthropic-http-provider** - Native Anthropic Messages API
-2. **openai-http-provider** - OpenAI Chat Completions API (compatible with both OpenAI and Anthropic)
-
-Both providers initially used Java HttpURLConnection (not Babashka compatible), then had timeout issues with sync routing. Both issues fixed.
-
-**Implementation Fixes:**
-1. Replaced Java HttpURLConnection with babashka.http-client
-2. Implemented async routing with promise delivery (Path 1)
-   - HTTP calls made in futures (non-blocking)
-   - Responses delivered to router promises via request correlation
-   - Added :current-request-id atom to instance structure
-
-**Phase 13C Status:**
-- ✅ Both HTTP providers implemented and working
-- ✅ Async routing working correctly (no timeouts)
-- ✅ All lint/format/tests pass (9 tests, 43 assertions)
-- ✅ **Real API testing: BOTH providers verified with Anthropic API**
-  - anthropic-http-provider: 2.837s response
-  - openai-http-provider: 2.839s response
-  - Model: claude-sonnet-4-5-20250929
-- ✅ Multi-instance concurrent testing: 3 HTTP providers ran simultaneously
-- ✅ Different models tested (Sonnet 4.5, Haiku 4.5)
-- ✅ Authentication working (x-api-key and Bearer token headers)
-- ✅ Model config files added (anthropic-models.edn, openai-models.edn)
-- ✅ Committed to main (commits ea78acf, c03b0dc, 28978db)
-
-**Phase 13B Subprocess Provider:**
-- ✅ Fixed missing CLI arguments issue (was passing just cmd path, not full arg vector)
-- ✅ Real Claude CLI integration tested and working
-- ✅ Response received in 3.85s (API duration)
-- ✅ Session ID properly set and tracked
-- 🔍 Root cause: `spawn-process!` expected full command vector with args like `["-p" "--verbose" "--input-format" "stream-json" ...]`
-- 🔧 Solution: Build command vector in `create-instance` before passing to `spawn-process!`
+**Next Phase:** 13D - MCP Tool Integration (Expose orchestrator via MCP tools)
 
 ---
 
-## Module Structure
+## Performance Test Results (NEW - v0.13.4.3)
 
-### anthropic-http-provider
-- Native Anthropic Messages API (`https://api.anthropic.com/v1/messages`)
-- Authentication: `x-api-key` header
-- Protocol implementation for `:anthropic-http`
-- Async HTTP with promise delivery
+**Test Date:** 2025-11-25
+**Test:** 5 concurrent instances (3 HTTP + 2 subprocess) with two consecutive requests
 
-**Files:**
-```
-modules/anthropic-http-provider/
-├── module.edn
-├── anthropic-models.edn        # Claude 4.5 model identifiers
-├── src/anthropic_http/
-│   ├── core.clj                # Protocol implementation with async routing
-│   └── http_client.clj         # HTTP client using babashka.http-client
-└── test/
-    ├── anthropic_http/core_test.clj
-    └── run_tests.clj
-```
+### Key Performance Findings
 
-### openai-http-provider
-- OpenAI Chat Completions API (`https://api.openai.com/v1/chat/completions`)
-- Authentication: `Authorization: Bearer` header
-- Works with both OpenAI and Anthropic compatibility endpoint (configurable base-url)
-- Protocol implementation for `:openai-http`
-- Async HTTP with promise delivery
+| Provider | First Request (with startup) | Second Request (ongoing) | Startup Overhead |
+|----------|------------------------------|--------------------------|------------------|
+| subprocess-1 (Sonnet) | 14,642ms (API: 3,844ms) | 3,364ms (API: 3,359ms) | **~11,300ms** |
+| subprocess-2 (Haiku) | 15,366ms (API: 4,787ms) | 3,560ms (API: 3,559ms) | **~11,800ms** |
+| sonnet-http | 3,301ms | 2,776ms | ~525ms |
+| haiku-http | 680ms | 611ms | ~69ms |
+| sonnet-compat (OpenAI) | 3,325ms | 2,298ms | ~1,027ms |
 
-**Files:**
-```
-modules/openai-http-provider/
-├── module.edn
-├── openai-models.edn           # OpenAI + Anthropic compat model identifiers
-├── src/openai_http/
-│   ├── core.clj                # Protocol implementation with async routing
-│   └── http_client.clj         # HTTP client using babashka.http-client
-└── test/
-    └── openai_http/core_test.clj
-```
+**Critical Insights:**
+1. **Subprocess startup overhead: ~11-12 seconds** (process spawn + CLI init)
+2. **After init, subprocess comparable to HTTP**: 3.3-3.6s vs 2.3-2.8s
+3. **API time nearly identical**: ~3.3s subprocess vs ~2.7s HTTP
+4. **HTTP providers have minimal startup**: ~500-1000ms
+
+**Design Implications for Phase 13D+:**
+- **Quick tasks (< 1 minute):** Use HTTP providers (lower startup)
+- **Long-running experts:** Subprocess acceptable (startup amortized)
+- **Ephemeral experts:** HTTP preferred (fast spawn/destroy)
+- **Persistent experts:** Subprocess fine (startup happens once)
+
+**Documentation:**
+- Full results in `docs/design/ai-experts-framework.md` (performance section)
+- Test methodology in `IMPLEMENTATION_PLAN.md` (Phase 13B section)
 
 ---
 
-## Testing
+## AI Orchestrator Architecture
 
-### Unit Tests
+**Module:** `modules/ai-orchestrator/`
+
+Three providers implemented and tested:
+
+### 1. anthropic-http-provider ✅
+- Native Anthropic Messages API
+- Auth: `x-api-key` header
+- Models: Claude 4.5 (Sonnet, Haiku, Opus)
+- Performance: Fast (600ms-3s depending on model)
+
+### 2. openai-http-provider ✅
+- OpenAI Chat Completions API
+- Auth: `Authorization: Bearer` header
+- Compatible with both OpenAI AND Anthropic (via base-url override)
+- Performance: Similar to anthropic-http
+
+### 3. claude-subprocess-provider ✅
+- Claude CLI subprocess with JSONL stdio
+- Command vector: `[cmd "-p" "--verbose" "--input-format" "stream-json" ...]`
+- Performance: ~11s startup, then 3-4s per request
+- **Fixed in v0.13.4.2:** CLI args properly configured
+
+**Core API:**
+```clojure
+(require '[ai-orchestrator.core :as orch])
+(require '[anthropic-http.core])  ; Load provider
+
+;; Start instance
+(orch/start-instance! "my-ai"
+  {:provider-type :anthropic-http
+   :api-key (System/getenv "CLAUDE_API_KEY")
+   :model "claude-sonnet-4-5-20250929"})
+
+;; Ask question
+(orch/ask "my-ai" "Say hello")
+;=> {:content "Hello!", :duration_ms 2800}
+
+;; Stop instance
+(orch/stop-instance! "my-ai")
+```
+
+**Testing:**
 ```bash
-bb modules/anthropic-http-provider/test/run_tests.clj  # 4 tests, 18 assertions
-bb modules/openai-http-provider/test/run_tests.clj     # 5 tests, 25 assertions
-```
+# Unit tests
+bb test:ai-orchestrator              # 5 tests
+bb modules/anthropic-http-provider/test/run_tests.clj  # 4 tests
+bb modules/openai-http-provider/test/run_tests.clj     # 5 tests
 
-### Real API Tests
-
-User has API key in `.cak.sh` (gitignored - NEVER commit):
-
-```bash
-. ./.cak.sh  # Sets CLAUDE_API_KEY environment variable
-
-# Test anthropic-http-provider (use Claude 4.5 models from anthropic-models.edn)
+# Real API test
+. ./.cak.sh  # Load CLAUDE_API_KEY
 bb -e "(require '[ai-orchestrator.core :as orch] '[anthropic-http.core])
-(let [i (orch/start-instance! \"test\" {:provider-type :anthropic-http
-                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
-                                        :model \"claude-sonnet-4-5-20250929\"
-                                        :max-tokens 100})]
-  (println (orch/ask \"test\" \"Say hello in exactly one word\"))
-  (orch/stop-instance! \"test\"))"
-
-# Test openai-http-provider with Anthropic compatibility
-bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
-(let [i (orch/start-instance! \"test\" {:provider-type :openai-http
-                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
-                                        :model \"claude-sonnet-4-5-20250929\"
-                                        :base-url \"https://api.anthropic.com/v1\"
-                                        :max-tokens 100})]
-  (println (orch/ask \"test\" \"Say hello in exactly one word\"))
-  (orch/stop-instance! \"test\"))"
+(orch/start-instance! \"test\" {:provider-type :anthropic-http
+                                :api-key (System/getenv \"CLAUDE_API_KEY\")
+                                :model \"claude-sonnet-4-5-20250929\"})
+(println (orch/ask \"test\" \"Say hello\"))
+(orch/stop-instance! \"test\")"
 ```
-
-**Expected Result:** `{:content "Hello", :duration_ms ~2800}`
 
 ---
 
-## Project State
+## Next Phase: 13D - MCP Tool Integration
 
-**Current Phase:** 13C (v0.13.4.1) - COMPLETE ✅
+**Goal:** Expose AI orchestrator functionality via MCP tools
 
-**Completed Phases:**
-- 13A: Core Scaffolding (claude-manager with mock)
-- 13.5: Stdio Safety (lint rules)
-- 13-Design: Architecture docs
-- 13-Port: Port Registry (v0.13.1)
-- 13E: Expert Registry MVP (v0.13.2)
-- 13B: Multi-Provider Refactor (v0.13.3) → Fixed CLI args (v0.13.4.2) ✅
-- 13C: HTTP Providers + Async Routing (v0.13.4.1) ✅
+**What needs to happen:**
+1. Create MCP tools module (`modules/ai-orchestrator-tools/`)
+2. Implement tools:
+   - `ai_start_instance` - Start AI instance with config
+   - `ai_ask` - Send message to instance
+   - `ai_stop_instance` - Stop instance
+   - `ai_list_instances` - List active instances
+3. Register tools in main MCP server
+4. Test via MCP protocol (initialize → tools/list → tools/call)
+5. Integration tests with all three providers
 
-**Next Phase:** 13D - MCP Integration
+**Design considerations:**
+- Tool input schema for provider config (model, api-key, etc.)
+- Error handling for invalid providers/models
+- Instance naming/ID management
+- Telemetry for all tool calls
 
-**Module Count:** 14 modules
+**Reference:**
+- See `IMPLEMENTATION_PLAN.md` Phase 13D section for full spec
+- Review `modules/nrepl/` for MCP tool pattern examples
 
-**Key Achievements:**
-- ✅ All three providers (anthropic-http, openai-http, claude-subprocess) tested and working with real APIs
-- ✅ Async router integration verified (no timeouts)
-- ✅ Multi-instance concurrent requests working
-- ✅ Subprocess provider fixed - CLI args properly configured
+---
+
+## Project Structure
+
+### AI Provider Modules
+```
+modules/ai-orchestrator/              # Core orchestration
+modules/anthropic-http-provider/      # Anthropic API
+modules/openai-http-provider/         # OpenAI/Anthropic compat
+modules/claude-subprocess-provider/   # Claude CLI subprocess
+```
+
+### Supporting Infrastructure
+```
+modules/port-registry/                # Port allocation for experts
+modules/expert-registry/              # Expert definitions & curriculum
+```
+
+### MCP Server Core
+```
+src/bb_mcp_server/
+├── main.clj                          # Unified entry point
+├── handlers/                         # MCP message handlers
+├── module/                           # Module system
+├── protocol/                         # JSON-RPC routing
+└── registry.clj                      # Tool registry
+```
 
 ---
 
@@ -161,32 +167,47 @@ bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
 
 ### Async HTTP Provider Pattern
 
-HTTP providers must integrate with router's promise system:
+HTTP providers integrate with router's promise system:
 
 ```clojure
-;; Instance structure (required fields)
+;; Instance structure
 {:name name
  :provider-type :anthropic-http
  :model model
  :transport {...}
- :pending-requests (atom {})         ; Router manages this
- :current-request-id (atom nil)      ; Router sets this before send-message
+ :pending-requests (atom {})       ; Router manages
+ :current-request-id (atom nil)    ; Router sets before send
  :session-id (atom nil)}
 
-;; send-message implementation (async pattern)
+;; send-message implementation
 (defmethod proto/send-message :anthropic-http
   [instance message]
   (let [request-id @(:current-request-id instance)
         pending-requests (:pending-requests instance)]
-    ;; Make HTTP call async in a future
+    ;; Async HTTP call in future
     (future
-      (let [result (http/ask-message ...)]
-        ;; Deliver response to promise
+      (let [result (http/post ...)]
+        ;; Deliver to promise
         (when-let [p (get @pending-requests request-id)]
-          (deliver p {:content result :duration_ms duration})
+          (deliver p {:content result :duration_ms ...})
           (swap! pending-requests dissoc request-id))))
-    ;; Return true immediately (don't block)
-    true))
+    true))  ; Return immediately
+```
+
+### Subprocess Provider Pattern
+
+```clojure
+;; Build command vector with CLI args
+(let [base-args ["-p" "--verbose"
+                 "--input-format" "stream-json"
+                 "--output-format" "stream-json"
+                 "--permission-mode" "bypassPermissions"]
+      cmd-vec (vec (concat [cmd] base-args))]
+  (spawn-process! cmd-vec))
+
+;; JSONL stdio communication
+;; Write: {"type":"ask","data":{"message":"..."}}
+;; Read:  {"content":"...","cost_usd":0,"duration_ms":3850}
 ```
 
 ### babashka.http-client API
@@ -194,52 +215,71 @@ HTTP providers must integrate with router's promise system:
 ```clojure
 (require '[babashka.http-client :as http])
 
-;; POST request
-(http/post url {:headers {"Content-Type" "application/json"
-                          "Authorization" "Bearer xyz"}
-                :body (json/generate-string data)
-                :throw false                ; Don't throw on error status
-                :connect-timeout 30000      ; ms
-                :read-timeout 30000})       ; ms
-
-;; Response format:
-{:status 200
- :headers {"content-type" "application/json"}
- :body "..."}  ; String, needs json/parse-string
+(http/post url
+  {:headers {"Content-Type" "application/json"
+             "x-api-key" api-key}
+   :body (json/generate-string data)
+   :throw false
+   :connect-timeout 30000
+   :read-timeout 30000})
+;=> {:status 200 :body "..." :headers {...}}
 ```
+
+---
+
+## Model Configuration
+
+### Claude 4.5 Models (Current)
+- **Sonnet 4.5**: `claude-sonnet-4-5-20250929` (recommended, balanced)
+- **Haiku 4.5**: `claude-haiku-4-5-20251001` (fast, low cost)
+- **Opus 4.5**: `claude-opus-4-5-20251101` (most capable)
+
+**Files:**
+- `modules/anthropic-http-provider/anthropic-models.edn`
+- `modules/openai-http-provider/openai-models.edn`
 
 ---
 
 ## Key Constraints
 
-1. **Babashka compatible** - All code must run in bb (not JVM Clojure)
+1. **Babashka compatible** - All code must run in bb
 2. **Use babashka.http-client** - NOT Java HttpURLConnection
 3. **Telemetry required** - taoensso.trove for all I/O
 4. **Zero lint warnings** - Not just errors
-5. **Never commit API keys** - Use environment variables, .cak.sh is gitignored
-6. **IMPLEMENTATION_PLAN.md** - Single source of truth for planning
+5. **Never commit API keys** - Use .cak.sh (gitignored)
+6. **IMPLEMENTATION_PLAN.md** - Single source of truth
 
 ---
 
-## Model Configuration Files
+## Completed Phases
 
-### anthropic-models.edn
-Located in `modules/anthropic-http-provider/anthropic-models.edn`
-
-Current Claude 4.5 models:
-- **Sonnet 4.5**: `claude-sonnet-4-5-20250929` (recommended for testing)
-- **Haiku 4.5**: `claude-haiku-4-5-20251001` (fast, lower cost)
-- **Opus 4.5**: `claude-opus-4-5-20251101` (most capable)
-
-Legacy models also documented. Use specific versioned IDs for production.
-
-### openai-models.edn
-Located in `modules/openai-http-provider/openai-models.edn`
-
-- OpenAI models (gpt-4-turbo, gpt-4, gpt-3.5-turbo)
-- Anthropic compatibility section (same models as anthropic-models.edn)
-- Set `base-url` to `https://api.anthropic.com/v1` for Anthropic compatibility
+- ✅ **Phase 13A**: Core scaffolding (claude-manager)
+- ✅ **Phase 13.5**: Stdio safety (lint rules)
+- ✅ **Phase 13-Design**: Architecture docs
+- ✅ **Phase 13-Port**: Port registry (v0.13.1)
+- ✅ **Phase 13E**: Expert registry MVP (v0.13.2)
+- ✅ **Phase 13B**: Multi-provider refactor (v0.13.3 → v0.13.4.3)
+  - Claude subprocess provider with CLI args fix
+  - Performance testing complete
+- ✅ **Phase 13C**: HTTP providers (v0.13.4.1)
+  - Anthropic HTTP provider
+  - OpenAI HTTP provider
+  - Async routing integration
 
 ---
 
-*This context captures the completed Phase 13C implementation with async routing integration.*
+## Session Health Note
+
+**This context document was rewritten after multiple auto-compaction cycles in the previous session.**
+
+If the next Claude session shows signs of degradation:
+- Forgetting which files to update
+- Missing verification steps
+- Repeating earlier mistakes
+- Asking questions already answered
+
+**Recommendation:** Start a fresh Claude session rather than continuing a degraded one.
+
+---
+
+*Context prepared for Phase 13D - MCP Tool Integration*
