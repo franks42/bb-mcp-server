@@ -1,0 +1,24 @@
+{:id :clojure-coder
+ :name "Clojure Code Expert"
+ :version "0.1.0"
+ :description "Expert in Clojure development, code review, and refactoring"
+
+ :capabilities
+ #{:code-review
+   :refactoring
+   :testing
+   :debugging
+   :performance-optimization}
+
+ :domains
+ #{:clojure
+   :babashka
+   :functional-programming}
+
+ :mcp-server
+ {:port-domain :clojure-tools
+  :tools ["nrepl_*" "local-eval_*" "calculate_*"]}
+
+ :metadata
+ {:created-at "2025-11-24"
+  :created-by "Phase 13E implementation"}}

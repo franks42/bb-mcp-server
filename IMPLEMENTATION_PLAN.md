@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13-Port Complete (v0.13.1) - Port Registry Infrastructure
+**Status:** Phase 13E Complete (v0.13.2) - Expert Registry MVP
 **Last Updated:** 2025-11-24
 
 ---
@@ -655,7 +655,66 @@ $ cljfmt check modules/port-registry/
 All source files formatted correctly ✅
 ```
 
-**Next:** Phase 13E - Expert Registry MVP
+### Phase 13E: Expert Registry MVP ✅ Complete
+
+**Goal:** File-based expert definitions with curriculum loading.
+**Status:** Complete - v0.13.2
+
+**Completed Features:**
+1. ✅ Created `modules/expert-registry/` module
+2. ✅ Expert definition loading from `.experts/` directory
+3. ✅ Curriculum management (essential + reference files)
+4. ✅ Expert spawn/kill lifecycle with port allocation
+5. ✅ Integration with port-registry and claude-manager
+6. ✅ Example expert: clojure-coder with curriculum
+7. ✅ Comprehensive tests: 9 tests, 29 assertions, all passing
+
+**Module Structure:**
+```
+modules/expert-registry/
+├── src/expert_registry/
+│   ├── core.clj         # Expert lifecycle & registry
+│   └── curriculum.clj   # Curriculum loading
+└── test/
+    └── expert_registry/
+        └── core_test.clj  # 9 tests, 29 assertions
+```
+
+**Expert Definition Format:**
+```clojure
+.experts/clojure-coder/
+├── manifest.edn          # Expert metadata & capabilities
+├── essential/            # Must-read curriculum
+│   └── standards.md
+└── reference/            # Optional reference docs
+    └── babashka.md
+```
+
+**Core Functions:**
+- `init!` - Load expert definitions from disk
+- `list-experts` - Query all experts
+- `get-expert` - Get expert by ID
+- `find-experts-by-capability` - Search by capability
+- `spawn-expert!` - Create instance with curriculum loaded
+- `kill-expert!` - Terminate instance and release port
+
+**Verification:**
+```bash
+$ bb test:expert-registry
+9 tests, 29 assertions, 0 failures, 0 errors ✅
+
+$ clj-kondo --lint modules/expert-registry/
+0 errors, 0 warnings ✅
+
+$ cljfmt check modules/expert-registry/
+All source files formatted correctly ✅
+```
+
+**Next:** Phase 13B - Multi-Provider Refactor
+
+---
+
+## Phase 13: Claude Subprocess Spawning
 
 ### Key Features
 
@@ -679,7 +738,7 @@ All source files formatted correctly ✅
 | 13.5 | Stdio Safety | ✅ Complete | Lint rules, telemetry migration, code review checklist |
 | 13-Design | Architecture Docs | ✅ Complete | Multi-provider orchestration, domain experts framework, port management |
 | 13-Port | Port Registry | ✅ Complete | File-based port allocation/discovery, zombie cleanup (12 tests, 36 assertions) |
-| 13E | Expert Registry MVP | Next | File-based expert definitions, curriculum loading (uses port-registry) |
+| 13E | Expert Registry MVP | ✅ Complete | File-based expert definitions, curriculum loading (9 tests, 29 assertions) |
 | 13B | Multi-Provider Refactor | Planned | Refactor claude-manager to use ai-orchestrator + providers |
 | 13C | OpenAI HTTP Provider | Planned | Validate multi-provider design with second provider |
 | 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
