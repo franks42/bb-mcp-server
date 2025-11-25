@@ -30,6 +30,26 @@ While these were legitimate observations, they prevented progress.
 
 ---
 
+## Iteration 3-4: Subprocess vs HTTP Performance
+
+**Problem:** Test-writer (Haiku subprocess) timed out at 120s, but direct test showed Haiku responds in 3s.
+
+**Root Cause:** Subprocess agents have file access. When given a code generation task, they may:
+- Read additional context from disk
+- Write output to files
+- Run lint/format checks
+- Execute tests
+
+This extra work adds significant overhead.
+
+**Fix:** Switch test-writer from `claude-subprocess` to `anthropic-http`:
+- Before: 120s timeout (subprocess doing file operations)
+- After: 12s response (isolated, prompt-only)
+
+**Learning:** Use subprocess only when file access is REQUIRED. Use HTTP API for pure text generation tasks.
+
+---
+
 ## Iteration 2: "Good Enough" Prompt
 
 **Fix:** Changed reviewer prompt to focus on blocking issues only.
@@ -136,8 +156,12 @@ Here is the previous review feedback (if revising):
 | Tools | Can use Bash, Read, Write | None |
 | Fresh perspective | No (sees project) | Yes (only prompt) |
 | Cost | Per CLI session | Per API call |
+| Predictable time | No (may do extra work) | Yes (prompt only) |
 
-**Pattern:** Use subprocess for tasks needing file access (code generation, testing). Use HTTP for isolated review where fresh perspective is valuable.
+**Pattern:**
+- Use subprocess ONLY when file access is REQUIRED (code that needs to write files)
+- Use HTTP for review, test generation, and any task where you want predictable timing
+- HTTP is faster and more predictable for pure text generation
 
 ---
 

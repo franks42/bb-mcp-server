@@ -134,17 +134,18 @@ with exponential backoff. It should:
       (catch Exception e
         (swap! results update :failed conj {:name "code-reviewer" :error (.getMessage e)})))
 
-    ;; Start test-writer (Claude Haiku)
-    (log-step! "SETUP" "Starting test-writer (Claude Haiku subprocess)...")
+    ;; Start test-writer (Claude Haiku via HTTP - fast, isolated)
+    (log-step! "SETUP" "Starting test-writer (Claude Haiku via Anthropic HTTP)...")
     (try
       (let [start-time (System/currentTimeMillis)]
         (orch/start-instance! "test-writer"
-          {:provider-type :claude-subprocess
-           :cmd claude-cmd
-           :model "claude-3-5-haiku-20241022"})
+          {:provider-type :anthropic-http
+           :api-key (System/getenv "CLAUDE_API_KEY")
+           :model "claude-3-5-haiku-20241022"
+           :max-tokens 4096})
         (swap! results update :started conj
                {:name "test-writer"
-                :provider :claude-subprocess
+                :provider :anthropic-http
                 :time-ms (- (System/currentTimeMillis) start-time)}))
       (catch Exception e
         (swap! results update :failed conj {:name "test-writer" :error (.getMessage e)})))
@@ -170,6 +171,16 @@ with exponential backoff. It should:
 ;; Phase 2: Execute Pipeline
 ;; =============================================================================
 
+(def code-file-path "src/bb_mcp_server/utils/retry.clj")
+
+(defn extract-code-from-file
+  "Read the generated code file from disk.
+   The subprocess agent writes to disk, so we read it back."
+  []
+  (let [f (clojure.java.io/file code-file-path)]
+    (when (.exists f)
+      (slurp f))))
+
 (defn request-implementation! []
   (log-step! "CODER" "Requesting implementation from clojure-coder...")
   (log-step! "CODER" "Task:" task-description)
@@ -181,7 +192,8 @@ with exponential backoff. It should:
                     "- Include a proper docstring\n"
                     "- Use taoensso.trove for logging (log/log! with :level, :id, :msg, :data)\n"
                     "- Put it in namespace `bb-mcp-server.utils.retry`\n"
-                    "\nOutput ONLY the complete source file, no explanations.")
+                    "- Write the file to: " code-file-path "\n"
+                    "\nWrite the complete source file.")
         start-time (System/currentTimeMillis)
         result (bus/ask :clojure-coder prompt :timeout-ms 120000)
         duration (- (System/currentTimeMillis) start-time)]
@@ -189,9 +201,15 @@ with exponential backoff. It should:
     (log-step! "CODER" (str "Response received in " duration "ms"))
 
     (if (:success result)
-      (do
-        (log-step! "CODER" "Implementation received:" (:content result))
-        {:success true :code (:content result) :duration-ms duration})
+      ;; Read the actual code from the file the agent wrote
+      (let [code (extract-code-from-file)]
+        (if code
+          (do
+            (log-step! "CODER" "Code extracted from file:" code)
+            {:success true :code code :duration-ms duration})
+          (do
+            (log-step! "CODER" "WARNING: Could not read code file, using raw response")
+            {:success true :code (:content result) :duration-ms duration})))
       (do
         (log-step! "CODER" "FAILED" result)
         {:success false :error result}))))
