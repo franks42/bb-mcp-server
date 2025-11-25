@@ -1,0 +1,5 @@
+{:name "claude-subprocess-provider"
+ :version "0.1.0"
+ :description "Claude subprocess provider for ai-orchestrator"
+ :requires ["ai-orchestrator"]
+ :entry "claude-subprocess.core/module"}

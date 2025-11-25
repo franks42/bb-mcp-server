@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13E Complete (v0.13.2) - Expert Registry MVP
+**Status:** Phase 13B Complete (v0.13.3) - Multi-Provider Refactor
 **Last Updated:** 2025-11-24
 
 ---
@@ -710,7 +710,88 @@ $ cljfmt check modules/expert-registry/
 All source files formatted correctly ✅
 ```
 
-**Next:** Phase 13B - Multi-Provider Refactor
+**Next:** Phase 13C - OpenAI HTTP Provider (Validation)
+
+---
+
+### Phase 13B: Multi-Provider Refactor ✅ Complete
+
+**Goal:** Extract orchestration infrastructure and make Claude subprocess a provider plugin.
+**Status:** Complete - v0.13.3
+
+**Completed Features:**
+1. ✅ Created `modules/ai-orchestrator/` - Provider-agnostic infrastructure
+2. ✅ Created `modules/claude-subprocess-provider/` - Claude CLI subprocess provider
+3. ✅ Implemented multimethod-based protocol for extensibility
+4. ✅ Provider-agnostic registry and request correlation
+5. ✅ Updated expert-registry to use orchestrator API
+6. ✅ Comprehensive tests: 5 tests, 17 assertions, all passing
+
+**Module Structure:**
+```
+modules/ai-orchestrator/
+├── src/ai_orchestrator/
+│   ├── core.clj         # Public API (start-instance!, ask, stop-instance!)
+│   ├── registry.clj     # Provider-agnostic registry
+│   ├── protocol.clj     # Multimethods for extensibility
+│   └── router.clj       # Request correlation
+└── test/
+    └── ai_orchestrator/
+        └── core_test.clj  # 5 tests, 17 assertions
+
+modules/claude-subprocess-provider/
+├── src/claude_subprocess/
+│   ├── core.clj         # Protocol implementation
+│   └── process.clj      # JSONL subprocess handling
+└── test/
+    ├── mock_claude.clj  # Test helper
+    └── (tests via orchestrator)
+```
+
+**Protocol Design (Multimethods):**
+```clojure
+;; ai-orchestrator.protocol
+(defmulti create-instance :provider-type)
+(defmulti send-message (fn [instance _] (:provider-type instance)))
+(defmulti stop-instance :provider-type)
+(defmulti get-capabilities identity)
+
+;; claude-subprocess.core implements for :claude-subprocess
+(defmethod create-instance :claude-subprocess [...])
+(defmethod send-message :claude-subprocess [...])
+(defmethod stop-instance :claude-subprocess [...])
+```
+
+**Public API:**
+```clojure
+;; Provider-agnostic API
+(orch/start-instance! "my-claude"
+  {:provider-type :claude-subprocess
+   :cmd ["claude" "--stream-json"]})
+
+(orch/ask "my-claude" "What is 2+2?")
+(orch/stop-instance! "my-claude")
+```
+
+**Breaking Changes:**
+- `claude-manager.core/spawn!` → `ai-orchestrator.core/start-instance!`
+- `claude-manager.core/kill!` → `ai-orchestrator.core/stop-instance!`
+- `claude-manager.core/ask` → `ai-orchestrator.core/ask` (same name, different namespace)
+- expert-registry updated to use new API
+
+**Verification:**
+```bash
+$ bb modules/ai-orchestrator/test/run_tests.clj
+5 tests, 17 assertions, 0 failures, 0 errors ✅
+
+$ clj-kondo --lint modules/ai-orchestrator/src modules/claude-subprocess-provider/src
+0 errors, 0 warnings ✅
+
+$ cljfmt check modules/ai-orchestrator/src modules/claude-subprocess-provider/src
+All source files formatted correctly ✅
+```
+
+**Next:** Phase 13C - OpenAI HTTP Provider
 
 ---
 
@@ -739,7 +820,7 @@ All source files formatted correctly ✅
 | 13-Design | Architecture Docs | ✅ Complete | Multi-provider orchestration, domain experts framework, port management |
 | 13-Port | Port Registry | ✅ Complete | File-based port allocation/discovery, zombie cleanup (12 tests, 36 assertions) |
 | 13E | Expert Registry MVP | ✅ Complete | File-based expert definitions, curriculum loading (9 tests, 29 assertions) |
-| 13B | Multi-Provider Refactor | Planned | Refactor claude-manager to use ai-orchestrator + providers |
+| 13B | Multi-Provider Refactor | ✅ Complete | Provider-agnostic orchestration with claude-subprocess provider (5 tests, 17 assertions) |
 | 13C | OpenAI HTTP Provider | Planned | Validate multi-provider design with second provider |
 | 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
 | 13F | Message Bus | Planned | core.async bus, team-based communication |

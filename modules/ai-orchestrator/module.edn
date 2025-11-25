@@ -1,0 +1,5 @@
+{:name "ai-orchestrator"
+ :version "0.1.0"
+ :description "Multi-provider AI orchestration infrastructure"
+ :requires []
+ :entry "ai-orchestrator.core/module"}

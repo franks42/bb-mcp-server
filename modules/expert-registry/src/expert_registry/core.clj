@@ -34,8 +34,7 @@
               [clojure.java.io :as io]
               [expert-registry.curriculum :as curriculum]
               [port-registry.core :as port-registry]
-              [claude-manager.core :as claude]
-              [claude-manager.registry :as cm-registry]
+              [ai-orchestrator.core :as orchestrator]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -258,9 +257,10 @@
         ;; Step 2-4: TODO - Start dedicated MCP server (Phase 13F)
         ;; For MVP, we'll use mock Claude directly
 
-        ;; Step 5: Spawn Claude instance (using mock for now)
-       (let [claude-instance (claude/spawn! instance-name
-                                            {:cmd ["bb" "modules/claude-manager/test/mock_claude.clj"]})]
+        ;; Step 5: Start AI instance via orchestrator (using mock for now)
+       (let [ai-instance (orchestrator/start-instance! instance-name
+                                                       {:provider-type :claude-subprocess
+                                                        :cmd ["bb" "modules/claude-subprocess-provider/test/mock_claude.clj"]})]
 
           ;; Step 6: Load curriculum
          (when-let [curriculum-content (curriculum/load-curriculum expert)]
@@ -272,13 +272,13 @@
                                       :curriculum-size (count curriculum-content)}})
 
             ;; Send curriculum as first message
-                   (claude/ask instance-name curriculum-content))
+                   (orchestrator/ask instance-name curriculum-content))
 
           ;; Step 7: Register instance
          (let [instance-info {:expert-id     expert-id
                               :instance-name instance-name
                               :port          port
-                              :session-id    (cm-registry/get-session-id claude-instance)
+                              :session-id    (:session-id ai-instance)
                               :created-at    (System/currentTimeMillis)}]
            (swap! expert-instances assoc instance-name instance-info)
 
@@ -310,8 +310,8 @@
 
   (if-let [instance (get @expert-instances instance-name)]
           (do
-      ;; Kill Claude instance
-           (claude/kill! instance-name)
+      ;; Stop AI instance via orchestrator
+           (orchestrator/stop-instance! instance-name)
 
       ;; Release port
            (port-registry/release-port! (:port instance))

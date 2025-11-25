@@ -1,5 +1,5 @@
 {:name "expert-registry"
  :version "0.1.0"
  :description "Domain expert registry with curriculum management"
- :requires ["port-registry" "claude-manager"]
+ :requires ["port-registry" "ai-orchestrator" "claude-subprocess-provider"]
  :entry "expert-registry.core/module"}
