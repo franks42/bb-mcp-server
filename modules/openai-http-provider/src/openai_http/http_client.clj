@@ -1,9 +1,8 @@
 (ns openai-http.http-client
     "HTTP client for OpenAI Chat Completions API (and Anthropic compatibility)."
-    (:require [cheshire.core :as json]
-              [clojure.java.io :as io]
-              [taoensso.trove :as log])
-    (:import [java.net HttpURLConnection URL]))
+    (:require [babashka.http-client :as http]
+              [cheshire.core :as json]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Configuration
@@ -21,43 +20,6 @@
   [api-key]
   {"Content-Type" "application/json"
    "Authorization" (str "Bearer " api-key)})
-
-(defn- create-connection
-  "Create HTTP connection with headers."
-  [url api-key timeout-ms]
-  (let [conn ^HttpURLConnection (.openConnection (URL. url))]
-    (doto conn
-          (.setRequestMethod "POST")
-          (.setDoOutput true)
-          (.setConnectTimeout timeout-ms)
-          (.setReadTimeout timeout-ms))
-    (doseq [[k v] (build-headers api-key)]
-           (.setRequestProperty conn k v))
-    conn))
-
-(defn- write-request-body
-  "Write JSON request body to connection."
-  [^HttpURLConnection conn body]
-  (with-open [os (.getOutputStream conn)]
-             (io/copy (json/generate-string body) os)))
-
-(defn- read-response
-  "Read JSON response from connection."
-  [^HttpURLConnection conn]
-  (let [status (.getResponseCode conn)]
-    (if (>= status 400)
-      (let [error-stream (.getErrorStream conn)
-            error-body (when error-stream
-                         (slurp error-stream))]
-        {:error true
-         :status status
-         :message (or error-body "Unknown error")
-         :body (when error-body
-                 (try (json/parse-string error-body true)
-                      (catch Exception _e error-body)))})
-      (let [response-body (slurp (.getInputStream conn))]
-        {:status status
-         :body (json/parse-string response-body true)}))))
 
 ;; =============================================================================
 ;; API Calls
@@ -98,30 +60,39 @@
                       :messages messages
                       :stream stream}
                      max-tokens (assoc :max_tokens max-tokens)
-                     temperature (assoc :temperature temperature))
-        conn (create-connection url api-key timeout-ms)]
+                     temperature (assoc :temperature temperature))]
 
     (try
-     (write-request-body conn body)
-     (let [response (read-response conn)
-           duration (- (System/currentTimeMillis) start)]
+     (let [response (http/post url
+                               {:headers (build-headers api-key)
+                                :body (json/generate-string body)
+                                :throw false
+                                :connect-timeout timeout-ms
+                                :read-timeout timeout-ms})
+           duration (- (System/currentTimeMillis) start)
+           status (:status response)]
 
-       (if (:error response)
+       (if (>= status 400)
          (do
           (log/log! {:level :error
                      :id    ::create-chat-completion-failed
                      :msg   "OpenAI-compatible API request failed"
-                     :data  {:status (:status response)
-                             :message (:message response)
+                     :data  {:status status
+                             :message (:body response)
                              :duration-ms duration}})
-          response)
+          {:error true
+           :status status
+           :message (:body response)
+           :body (try (json/parse-string (:body response) true)
+                      (catch Exception _e (:body response)))})
          (do
           (log/log! {:level :info
                      :id    ::create-chat-completion-success
                      :msg   "OpenAI-compatible API request succeeded"
-                     :data  {:status (:status response)
+                     :data  {:status status
                              :duration-ms duration}})
-          response)))
+          {:status status
+           :body (json/parse-string (:body response) true)})))
 
      (catch Exception e
             (log/log! {:level :error
@@ -130,10 +101,7 @@
                        :error e})
             {:error true
              :message (ex-message e)
-             :exception e})
-
-     (finally
-      (.disconnect conn)))))
+             :exception e}))))
 
 (defn- extract-message-content
   "Extract text from OpenAI response."

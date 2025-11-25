@@ -1,202 +1,246 @@
-# bb-mcp-server - Session Context
+# Session Context for bb-mcp-server (Post Auto-Compact)
 
-**Status:** v0.12.0 - Phase 12 Complete (Telemetry Audit), Phase 13A Complete (Claude Manager Scaffolding)
-**Updated:** 2025-11-24
+**Last Updated:** 2025-11-24 (Phase 13C - HTTP Providers PARTIAL)
+**Current Version:** v0.13.4 (committed), but BROKEN - needs fix
 
 ---
 
-## Critical Reminders for Claude
+## CRITICAL: Current State - TESTING BLOCKED
 
-### 1. Plan Before Code
-**ALWAYS update `IMPLEMENTATION_PLAN.md` BEFORE implementing.** The user will remind you if you forget. This is the single source of truth for planning - NOT docs/design/*.md files.
+**Phase 13C HTTP Providers** - Implementation committed (v0.13.4) but **needs immediate fix** before testing.
 
-### 2. Verification Workflow
-Run before every commit:
+### What's Broken
+
+The HTTP client in both providers uses Java `HttpURLConnection` which is **NOT compatible with Babashka's security model**:
+
+```
+Error: Method setRequestMethod on class sun.net.www.protocol.https.HttpsURLConnectionImpl not allowed!
+```
+
+### What Needs to Be Done IMMEDIATELY
+
+**Fix both HTTP client implementations to use `babashka.http-client` instead of Java HttpURLConnection:**
+
+1. **anthropic-http-provider/src/anthropic_http/http_client.clj** - IN PROGRESS (partially fixed)
+2. **openai-http-provider/src/openai_http/http_client.clj** - NOT YET FIXED
+
+**Progress:**
+- ✅ Changed requires in anthropic-http-provider to use babashka.http-client
+- ✅ Removed Java HttpURLConnection imports
+- ✅ Simplified build-headers (no longer need connection setup)
+- ✅ Rewrote create-message to use http/post
+- ❌ Still need to apply same fix to openai-http-provider
+- ❌ Need to re-run tests after fixes
+- ❌ Need to re-commit the fix
+
+### Testing Instructions (AFTER FIX)
+
+User has API key available via `.cak.sh`:
 ```bash
-clj-kondo --lint <files>    # MUST be 0 errors, 0 warnings
-cljfmt check <files>        # MUST have no formatting issues
-bb test:modules             # MUST pass all tests
-```
+# Source the key file (NEVER hardcode, NEVER commit this file)
+. ./.cak.sh
 
-### 3. Key Files
-- **CLAUDE.md** - Project instructions (READ THIS)
-- **IMPLEMENTATION_PLAN.md** - Single source of truth for planning
-- **system.edn** - Module configuration
-- **src/bb_mcp_server/main.clj** - Unified entry point
-
----
-
-## Current Session Summary
-
-### What Was Accomplished
-
-**Phase 13A Complete ✅** - Claude Manager Scaffolding:
-- Implemented basic claude-manager module with mock process testing
-- Created core.clj (spawn!, ask, kill!, list-instances)
-- Created process.clj (spawn-process!, start-reader-loop!)
-- Created registry.clj (instance tracking & state management)
-- Created mock_claude.clj (JSONL echo mock for testing)
-- 12 tests, 23 assertions - all passing ✅
-- Verification: 0 lint errors, 0 warnings, all tests passing ✅
-
-**Key Architecture Decision:**
-- Implemented **Dedicated Reader Loop pattern** from Gemini review
-- One background future per instance reads stdout continuously
-- Solves concurrency issues from clay-noj-ai prototype
-- Thread-safe: multiple callers can ask same instance
-
-**Files Modified This Session:**
-- `IMPLEMENTATION_PLAN.md` - Added Phase 13 section
-- `bb.edn` - Added claude-manager paths and test:claude-manager task
-- `context.md` - This file
-
-**New Files Created:**
-- `modules/claude-manager/` - Complete module structure
-- `docs/design/claude-subprocess-spawning-architecture.md` - Phase 13 architecture doc
-- `gemini-claude-subprocess-spawning-review.md` - Gemini's review with reader loop recommendation
-
-### What's Pending
-
-**Next Steps for Phase 13:**
-- Phase 13B: Real Claude CLI integration (replace mock with real `claude` command)
-- Phase 13C: MCP tool exposure (claude_spawn, claude_message, etc.)
-
-**Uncommitted Changes:**
-```
-M IMPLEMENTATION_PLAN.md
-M bb.edn
-M calculator-usage.edn
-M context.md
-?? docs/design/claude-subprocess-spawning-architecture.md
-?? gemini-claude-subprocess-spawning-review.md
-?? gemini-recommendations-3.md
-?? gemini-recommendations-4.md
-?? gemini-recommendations-final.md
-?? modules/claude-manager/
+# Test command that WILL work after fix:
+bb -e "(require '[ai-orchestrator.core :as orch] '[anthropic-http.core])
+(let [instance (orch/start-instance! \"test\"
+                 {:provider-type :anthropic-http
+                  :api-key (System/getenv \"CLAUDE_API_KEY\")
+                  :model \"claude-3-5-sonnet-20241022\"})]
+  (println (orch/ask \"test\" \"Say hello in one word\"))
+  (orch/stop-instance! \"test\"))"
 ```
 
 ---
 
-## Recent Phases
+## What Was Built (Phase 13C - v0.13.4)
 
-### Phase 12 Complete ✅ (v0.12.0)
-**Telemetry Audit** - Added logging to Phase 9-11 code:
-- Added 10 telemetry events to `main.clj`
-- Verified all Phase 9-11 files had proper telemetry
-- Files modified: `src/bb_mcp_server/main.clj`
+Created two HTTP provider modules for ai-orchestrator:
 
-### Phase 11 Complete ✅ (v0.11.0)
-**Unified Entry Point** - Single `bb server` command:
-```bash
-bb server              # stdio (default, Claude Desktop)
-bb server --http       # HTTP only on port 3000
-bb server --http 8080  # HTTP on custom port
-bb server --stdio --http       # both transports simultaneously
-bb server --help       # show usage
+### anthropic-http-provider
+- Native Anthropic Messages API (`https://api.anthropic.com/v1/messages`)
+- Authentication: `x-api-key` header
+- Protocol implementation for `:anthropic-http`
+
+### openai-http-provider
+- OpenAI Chat Completions API (`https://api.openai.com/v1/chat/completions`)
+- Authentication: `Authorization: Bearer` header
+- Works with both OpenAI and Anthropic compatibility endpoint (configurable base-url)
+- Protocol implementation for `:openai-http`
+
+**Files Created:**
 ```
+modules/anthropic-http-provider/
+├── module.edn
+├── src/anthropic_http/
+│   ├── core.clj         # Protocol implementation
+│   └── http_client.clj  # BROKEN - needs babashka.http-client fix
+└── test/
+    ├── anthropic_http/core_test.clj
+    └── run_tests.clj
+
+modules/openai-http-provider/
+├── module.edn
+├── src/openai_http/
+│   ├── core.clj         # Protocol implementation
+│   └── http_client.clj  # BROKEN - needs babashka.http-client fix
+└── test/
+    └── openai_http/core_test.clj
+```
+
+**Test Results (before real API testing):**
+- Unit tests pass: 9 tests, 43 assertions ✅
+- Real API testing blocked by HttpURLConnection issue ❌
 
 ---
 
-## Test Counts (as of Phase 13A)
+## How to Fix (Step-by-Step)
 
-- Core: 40 tests, 161 assertions
-- nrepl: 34 tests, 131 assertions
-- http-core: 50 tests, 105 assertions
-- mcp-http: 31 tests, 62 assertions
-- mcp-stdio: 10 tests, 33 assertions
-- rest-api: 9 tests, 56 assertions
-- **claude-manager: 12 tests, 23 assertions** ⭐ NEW
-- **Total: ~187 tests**
+### 1. Fix openai-http-provider (same pattern as anthropic-http-provider)
 
----
+Replace Java HttpURLConnection with babashka.http-client:
 
-## Architecture
+```clojure
+;; Change requires
+(:require [babashka.http-client :as http]
+          [cheshire.core :as json]
+          [taoensso.trove :as log])
 
-```
-┌──────────────┐      ┌──────────────┐
-│  Stdio       │      │  HTTP (SSE)  │
-│  Transport   │      │  Transport   │
-└──────┬───────┘      └──────┬───────┘
-       │                     │
-       ▼                     ▼
-┌────────────────────────────────────┐
-│         Unified Processor          │
-│ (bb-mcp-server.protocol.processor) │
-└────────────────┬───────────────────┘
-                 │
-                 ▼
-┌────────────────────────────────────┐
-│              Router                │
-│ (bb-mcp-server.protocol.router)    │
-└────────────────┬───────────────────┘
-                 │
-                 ▼
-┌──────────────┐      ┌──────────────┐
-│  Handlers    │      │  Registry    │
-└──────────────┘      └──────────────┘
+;; Remove imports - no more (:import [java.net HttpURLConnection URL])
+
+;; Replace HTTP call with:
+(let [response (http/post url
+                         {:headers (build-headers api-key)
+                          :body (json/generate-string body)
+                          :throw false
+                          :connect-timeout timeout-ms
+                          :read-timeout timeout-ms})]
+  ;; Parse response
+  {:status (:status response)
+   :body (json/parse-string (:body response) true)})
 ```
 
-REST API bypasses JSON-RPC - calls registry/handlers directly.
-
----
-
-## Module Structure
-
-```
-modules/
-├── http-core/         # Shared HTTP infrastructure (SSE, middleware)
-├── mcp-http/          # MCP JSON-RPC over HTTP with sessions
-├── mcp-stdio/         # Stdio transport (pure, no bb-mcp-server deps)
-├── rest-api/          # REST endpoints + OpenAPI
-├── streamable-http/   # Convenience wrapper (mcp-http + rest-api)
-├── nrepl/             # nREPL integration (9 tools)
-├── calculate/         # Calculator tool
-├── local-eval/        # Local Clojure eval
-├── claude-manager/    # Claude subprocess spawning ⭐ NEW
-├── echo/, strings/, math/, hello/  # Example modules
-```
-
----
-
-## Completed Phases
-
-- **Phase 1-7**: Foundation, transports, module system, REST API
-- **Phase 8**: Transport module extraction (http-core, mcp-http, rest-api)
-- **Phase 9**: Legacy cleanup (deleted transport/ directory)
-- **Phase 10**: Decoupled mcp-stdio (pure transport layer)
-- **Phase 11**: Unified entry point (`bb server` with flags) - v0.11.0
-- **Phase 12**: Telemetry audit (added logging to Phases 9-11) - v0.12.0
-- **Phase 13A**: Claude manager scaffolding with mock testing ✅
-
----
-
-## bb.edn Tasks
+### 2. Re-run verification
 
 ```bash
-bb server [flags]           # Run server (see --help)
-bb server:stop <port>       # Stop server via PID file
-bb test:modules             # All module tests
-bb test:claude-manager      # Claude manager tests ⭐ NEW
-bb lint                     # clj-kondo
-bb format                   # cljfmt
+# Lint
+clj-kondo --lint modules/anthropic-http-provider/src modules/openai-http-provider/src
+
+# Format
+cljfmt check modules/anthropic-http-provider/src modules/openai-http-provider/src
+cljfmt fix modules/anthropic-http-provider/src modules/openai-http-provider/src  # if needed
+
+# Tests
+bb modules/anthropic-http-provider/test/run_tests.clj
+bb modules/openai-http-provider/test/run_tests.clj
+```
+
+### 3. Test with real API
+
+```bash
+. ./.cak.sh  # Load CLAUDE_API_KEY
+
+# Test anthropic-http-provider
+bb -e "(require '[ai-orchestrator.core :as orch] '[anthropic-http.core])
+(let [i (orch/start-instance! \"test\" {:provider-type :anthropic-http
+                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
+                                        :model \"claude-3-5-sonnet-20241022\"})]
+  (println (orch/ask \"test\" \"Say hello\"))
+  (orch/stop-instance! \"test\"))"
+
+# Test openai-http-provider with Anthropic compat endpoint
+bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
+(let [i (orch/start-instance! \"test\" {:provider-type :openai-http
+                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
+                                        :model \"claude-3-5-sonnet-20241022\"
+                                        :base-url \"https://api.anthropic.com/v1\"})]
+  (println (orch/ask \"test\" \"Say hello\"))
+  (orch/stop-instance! \"test\"))"
+```
+
+### 4. Commit the fix
+
+```bash
+git add modules/anthropic-http-provider/ modules/openai-http-provider/
+git commit -m "fix: Use babashka.http-client instead of HttpURLConnection
+
+Replace Java HttpURLConnection with babashka.http-client in both
+HTTP providers to fix compatibility with Babashka's security model.
+
+Error was: Method setRequestMethod not allowed on HttpsURLConnectionImpl
+
+Changes:
+- anthropic-http-provider: Use http/post from babashka.http-client
+- openai-http-provider: Use http/post from babashka.http-client
+- Remove Java imports, simplify request handling
+
+Tests: (run counts after fix)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# No new tag needed - this is a fix for v0.13.4
+git push origin main
 ```
 
 ---
 
-## Key Design Documents
+## Project State
 
-- **IMPLEMENTATION_PLAN.md** - The plan (single source of truth)
-- **docs/design/claude-subprocess-spawning-architecture.md** - Phase 13 architecture
-- **gemini-claude-subprocess-spawning-review.md** - Gemini's review (reader loop pattern)
-- **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns
-- MCP Spec: https://modelcontextprotocol.io/specification/2025-03-26/
+**Current Phase:** 13C (v0.13.4) - BROKEN, needs fix
+**Completed Phases:**
+- 13A: Core Scaffolding (claude-manager with mock)
+- 13.5: Stdio Safety (lint rules)
+- 13-Design: Architecture docs
+- 13-Port: Port Registry (v0.13.1)
+- 13E: Expert Registry MVP (v0.13.2)
+- 13B: Multi-Provider Refactor (v0.13.3)
+- 13C: HTTP Providers (v0.13.4) ← CURRENT, BROKEN
+
+**Next Phase:** 13D - MCP Integration (after fixing 13C)
+
+**Module Count:** 14 modules (including new HTTP providers)
 
 ---
 
-## Session Health Note
+## Key Technical Constraints
 
-After 2-3 auto-compactions on complex work, consider starting a fresh Claude session for better productivity. Signs of degradation:
-- Forgetting which files to update
-- Missing verification steps
-- Repeating earlier mistakes
-- Asking questions already answered
+1. **Babashka compatible** - All code must run in bb (not JVM Clojure)
+2. **Use babashka.http-client** - NOT Java HttpURLConnection
+3. **Telemetry required** - taoensso.trove for all I/O
+4. **Zero lint warnings** - Not just errors
+5. **Never commit API keys** - Use environment variables, .cak.sh is gitignored
+6. **IMPLEMENTATION_PLAN.md** - Single source of truth for planning
+
+---
+
+## babashka.http-client API Reference
+
+```clojure
+(require '[babashka.http-client :as http])
+
+;; POST request
+(http/post url {:headers {"Content-Type" "application/json"
+                          "Authorization" "Bearer xyz"}
+                :body (json/generate-string data)
+                :throw false                ; Don't throw on error status
+                :connect-timeout 30000      ; ms
+                :read-timeout 30000})       ; ms
+
+;; Response format:
+{:status 200
+ :headers {"content-type" "application/json"}
+ :body "..."}  ; String, needs json/parse-string
+```
+
+---
+
+## Ready to Continue?
+
+**Immediate priority:** Fix openai-http-provider to match anthropic-http-provider fix, then test both with real API.
+
+**No other blockers.** All previous phases are solid, just this one compatibility issue to resolve.
+
+---
+
+*This context captures the critical broken state that needs immediate attention before continuing.*
