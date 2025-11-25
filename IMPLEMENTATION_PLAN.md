@@ -837,6 +837,29 @@ Tested 5 concurrent instances (3 HTTP + 2 subprocess) with two consecutive reque
 
 **Next:** Phase 13C - HTTP Providers
 
+**OpenAI & Gemini API Test Results (2025-11-25):**
+
+Verified OpenAI-compatible endpoint works with multiple providers:
+
+| Provider | Model | Base URL | First Request | Second Request |
+|----------|-------|----------|---------------|----------------|
+| OpenAI | gpt-4o-mini | api.openai.com | 1,702ms → `4` | 902ms → `Greetings!` |
+| Gemini | gemini-2.0-flash | generativelanguage.googleapis.com | 847ms → `4` | 653ms → `Hello.` |
+
+**Key Finding:** Gemini supports OpenAI-compatible Chat Completions API via:
+- Base URL: `https://generativelanguage.googleapis.com/v1beta/openai`
+- Auth: `Authorization: Bearer <GEMINI_API_KEY>`
+- Models: gemini-2.0-flash, gemini-2.5-flash, gemini-2.5-pro, etc.
+
+```clojure
+;; Gemini via OpenAI-compatible endpoint
+(orch/start-instance! "gemini"
+  {:provider-type :openai-http
+   :api-key (System/getenv "GEMINI_API_KEY")
+   :base-url "https://generativelanguage.googleapis.com/v1beta/openai"
+   :model "gemini-2.0-flash"})
+```
+
 ---
 
 ### Phase 13C: HTTP Providers ✅ Complete

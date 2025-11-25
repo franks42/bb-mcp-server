@@ -27,9 +27,14 @@
 | `ai_list_instances` | List all running instances |
 
 **Provider Types:**
-- `anthropic-http` - Native Anthropic Messages API (recommended)
-- `openai-http` - OpenAI API (or Anthropic via base_url override)
+- `anthropic-http` - Native Anthropic Messages API (recommended for Claude)
+- `openai-http` - OpenAI-compatible API (OpenAI, Gemini, Anthropic compat)
 - `claude-subprocess` - Claude CLI subprocess (~11s startup)
+
+**OpenAI-compatible Endpoints (via openai-http):**
+- OpenAI: `https://api.openai.com/v1` (default)
+- Gemini: `https://generativelanguage.googleapis.com/v1beta/openai`
+- Anthropic: `https://api.anthropic.com/v1` (Bearer auth)
 
 **Example MCP Usage:**
 ```bash
@@ -53,11 +58,12 @@ curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
 
 ## Performance Summary
 
-| Provider | Startup | Ongoing Requests |
-|----------|---------|------------------|
-| anthropic-http | ~500ms | 2-3s (Sonnet) |
-| openai-http | ~1s | 2-3s |
-| claude-subprocess | **~11-12s** | 3-4s |
+| Provider | Model | Startup | Ongoing Requests |
+|----------|-------|---------|------------------|
+| anthropic-http | Sonnet 4.5 | ~500ms | 2-3s |
+| openai-http | gpt-4o-mini | ~1ms | 0.9-1.7s |
+| openai-http | gemini-2.0-flash | ~1ms | 0.6-0.8s |
+| claude-subprocess | Sonnet | **~11-12s** | 3-4s |
 
 **Design Guidance:**
 - **Quick tasks:** Use HTTP providers (fast startup)
