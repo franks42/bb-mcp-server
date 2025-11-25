@@ -1,13 +1,15 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-25 (Phase 13C - HTTP Providers + Async Routing COMPLETE)
-**Current Version:** v0.13.4.1 (async routing working)
+**Last Updated:** 2025-11-25 (Phase 13C Complete, Phase 13B Issue Found)
+**Current Version:** v0.13.4.1 (HTTP providers working, subprocess broken)
 
 ---
 
-## Current State - Phase 13C Complete ✅
+## Current State - Phase 13C Complete ✅, Phase 13B Issue Found ⚠️
 
-**Phase 13C HTTP Providers** - Implementation complete with async routing integration.
+**Phase 13C HTTP Providers** - Implementation complete with async routing integration and full real API testing.
+
+**Phase 13B Subprocess Provider Issue** - Previously marked complete, but real Claude CLI integration is broken (hangs indefinitely). Tests only used mocks, never tested with real subprocess.
 
 ### Summary
 
@@ -25,17 +27,25 @@ Both providers initially used Java HttpURLConnection (not Babashka compatible), 
    - Responses delivered to router promises via request correlation
    - Added :current-request-id atom to instance structure
 
-**Status:**
-- ✅ Both providers implemented and fixed
+**Phase 13C Status:**
+- ✅ Both HTTP providers implemented and working
 - ✅ Async routing working correctly (no timeouts)
 - ✅ All lint/format/tests pass (9 tests, 43 assertions)
-- ✅ Real API connection tested successfully with claude-sonnet-4-5-20250929
+- ✅ **Real API testing: BOTH providers verified with Anthropic API**
+  - anthropic-http-provider: 2.837s response
+  - openai-http-provider: 2.839s response
+  - Model: claude-sonnet-4-5-20250929
+- ✅ Multi-instance concurrent testing: 3 HTTP providers ran simultaneously
+- ✅ Different models tested (Sonnet 4.5, Haiku 4.5)
 - ✅ Authentication working (x-api-key and Bearer token headers)
-- ✅ Error handling working correctly
 - ✅ Model config files added (anthropic-models.edn, openai-models.edn)
-- ✅ Committed to main (commit ea78acf)
+- ✅ Committed to main (commits ea78acf, c03b0dc, 28978db)
 
-**Real API Test Result:** Response received in 2.8s: `{:content "Hello", :duration_ms 2837}`
+**Phase 13B Subprocess Issue:**
+- ⚠️ Previously marked complete based on mock tests only
+- ❌ Real Claude CLI integration hangs indefinitely on `ask`
+- ❌ Never tested with real subprocess until now
+- 🔧 Needs debugging: Reader loop starts but doesn't deliver responses to promises
 
 ---
 
@@ -130,14 +140,18 @@ bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
 - 13-Design: Architecture docs
 - 13-Port: Port Registry (v0.13.1)
 - 13E: Expert Registry MVP (v0.13.2)
-- 13B: Multi-Provider Refactor (v0.13.3)
-- 13C: HTTP Providers + Async Routing (v0.13.4.1) ← CURRENT
+- 13B: Multi-Provider Refactor (v0.13.3) ⚠️ **Subprocess provider broken with real CLI**
+- 13C: HTTP Providers + Async Routing (v0.13.4.1) ← CURRENT ✅ **Fully verified**
 
-**Next Phase:** 13D - MCP Integration
+**Next Phase:** 13D - MCP Integration (or fix 13B subprocess first)
 
 **Module Count:** 14 modules
 
-**Key Achievement:** HTTP providers now work correctly with async router using promise delivery pattern. Real API test successful with claude-sonnet-4-5-20250929.
+**Key Achievements:**
+- ✅ HTTP providers work perfectly with real Anthropic API
+- ✅ Async router integration verified (no timeouts)
+- ✅ Multi-instance concurrent requests working
+- ⚠️ Subprocess provider needs real CLI debugging (mock tests passed but real integration broken)
 
 ---
 
