@@ -1893,6 +1893,56 @@ Track costs per expert?
 
 ---
 
+## Performance Test Results: Subprocess Provider Startup Overhead
+
+**Test Date:** 2025-11-25
+**Tested:** 5 concurrent instances (3 HTTP + 2 subprocess)
+
+### Second Request Test - Isolating Startup Overhead
+
+Ran two consecutive requests to each provider to measure startup vs ongoing performance:
+
+| Provider | First Request (with startup) | Second Request (ongoing) | Startup Overhead |
+|----------|------------------------------|--------------------------|------------------|
+| subprocess-1 (Sonnet 4.5) | 14,642ms (API: 3,844ms) | 3,364ms (API: 3,359ms) | **~11,300ms** |
+| subprocess-2 (Haiku 4.5) | 15,366ms (API: 4,787ms) | 3,560ms (API: 3,559ms) | **~11,800ms** |
+| sonnet-http | 3,301ms | 2,776ms | ~525ms |
+| haiku-http | 680ms | 611ms | ~69ms |
+| sonnet-compat (OpenAI) | 3,325ms | 2,298ms | ~1,027ms |
+
+### Key Findings
+
+1. **Subprocess startup overhead is ~11-12 seconds**
+   - Process spawning, Claude CLI initialization, session establishment
+   - First request includes subprocess startup time
+
+2. **After initialization, subprocess performs comparably to HTTP**
+   - Second request: 3.3-3.6s vs HTTP Sonnet 2.3-2.8s
+   - API time (duration_ms) is nearly identical: ~3.3s subprocess vs ~2.7s HTTP
+   - Difference (~600ms) likely HTTP connection overhead vs JSONL stdio
+
+3. **HTTP providers also have startup overhead**
+   - HTTP connection establishment: ~500-1000ms
+   - Much lower than subprocess spawning
+
+4. **Haiku is consistently fastest**
+   - Both HTTP (600-700ms) and subprocess respond quickly
+   - Good choice for quick expert responses
+
+### Implications for Expert Framework
+
+**For long-lived experts:** Subprocess provider performance is acceptable after initialization.
+
+**Recommendations:**
+- **Quick tasks (< 1 minute):** Use HTTP providers (lower startup overhead)
+- **Long-running experts:** Subprocess is fine (startup cost amortized)
+- **Ephemeral experts:** HTTP providers preferred (faster spawn/destroy cycles)
+- **Persistent experts:** Subprocess acceptable (startup happens once)
+
+**Design consideration:** If using subprocess for experts, consider keeping them alive between tasks rather than spawn/destroy for each task. The ~11s startup penalty is significant if repeated frequently.
+
+---
+
 ## Related Documents
 
 - [ai-orchestrator-architecture.md](./ai-orchestrator-architecture.md) - Multi-provider AI orchestration

@@ -811,6 +811,30 @@ Real API test:
 Response: {:content "Hello!", :cost_usd 0, :duration_ms 3850}
 ```
 
+**Performance Test Results (2025-11-25):**
+
+Tested 5 concurrent instances (3 HTTP + 2 subprocess) with two consecutive requests to isolate startup overhead:
+
+| Provider | First Request (with startup) | Second Request (ongoing) | Startup Overhead |
+|----------|------------------------------|--------------------------|------------------|
+| subprocess-1 (Sonnet) | 14,642ms (API: 3,844ms) | 3,364ms (API: 3,359ms) | **~11,300ms** |
+| subprocess-2 (Haiku) | 15,366ms (API: 4,787ms) | 3,560ms (API: 3,559ms) | **~11,800ms** |
+| sonnet-http | 3,301ms | 2,776ms | ~525ms |
+| haiku-http | 680ms | 611ms | ~69ms |
+| sonnet-compat | 3,325ms | 2,298ms | ~1,027ms |
+
+**Key Findings:**
+1. **Subprocess startup overhead is ~11-12 seconds** (process spawning, Claude CLI initialization)
+2. **After initialization, subprocess performs comparably to HTTP** (3.3-3.6s vs 2.3-2.8s)
+3. **API time is nearly identical** (~3.3s subprocess vs ~2.7s HTTP)
+4. **Difference (~600ms) likely HTTP connection overhead vs JSONL stdio**
+
+**Implications for Expert Framework:**
+- **Quick tasks (< 1 minute):** Use HTTP providers (lower startup overhead)
+- **Long-running experts:** Subprocess is fine (startup cost amortized)
+- **Ephemeral experts:** HTTP preferred (faster spawn/destroy cycles)
+- **Persistent experts:** Subprocess acceptable (startup happens once)
+
 **Next:** Phase 13C - HTTP Providers
 
 ---
