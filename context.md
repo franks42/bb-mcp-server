@@ -1,19 +1,108 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-25 (Phase 13D Complete - MCP Tool Integration)
+**Last Updated:** 2025-11-25 (Phase 13F Planning - Message Bus)
 **Current Version:** v0.13.5
 
 ---
 
-## Current State - Phase 13D Complete
+## Current State - Pre-Phase 13F
 
-**Phase 13D Complete:** AI orchestrator functionality exposed via 4 MCP tools. Full end-to-end testing with real Anthropic API verified.
+**Phase 13D Complete:** AI orchestrator functionality exposed via 4 MCP tools.
 
-**Next Phase:** 13F - Message Bus (core.async bus, team-based communication)
+**Next Steps (Phase 13F):**
+1. **Fix Concurrency Bug** - HTTP provider router race condition
+2. **Implement Message Bus** - Atoms + Promises with Global Response Router
 
 ---
 
-## AI Orchestrator MCP Tools (NEW - v0.13.5)
+## CRITICAL: Concurrency Bug in HTTP Providers
+
+**Location:** `modules/ai-orchestrator/src/ai_orchestrator/router.clj`
+
+**Problem:** `current-request-id` atom is shared per instance. When two threads call `ask` concurrently, second overwrites first's request-id before HTTP response arrives.
+
+```clojure
+;; router.clj line 44-45 - THE BUG
+(when-let [current-id (:current-request-id instance)]
+  (reset! current-id request-id))  ;; Race condition!
+
+;; openai-http/core.clj line 64 - reads stale value in future
+(let [request-id @(:current-request-id instance) ...]
+```
+
+**Impact:** Concurrent HTTP requests to same instance fail or cross-talk.
+
+**Fix:** Pass `request-id` directly to `send-message`:
+1. Change protocol signature: `(send-message instance message request-id)`
+2. Or assoc into instance: `(send-message (assoc instance :active-request-id request-id) message)`
+3. Update both `openai-http.core` and `anthropic-http.core`
+
+**Affected Files:**
+- `modules/ai-orchestrator/src/ai_orchestrator/router.clj`
+- `modules/ai-orchestrator/src/ai_orchestrator/protocol.clj`
+- `modules/openai-http-provider/src/openai_http/core.clj`
+- `modules/anthropic-http-provider/src/anthropic_http/core.clj`
+
+---
+
+## Message Bus Design (Phase 13F)
+
+**Design Doc:** `docs/design/message-bus-design.md`
+**Review:** `docs/design/message-bus-design-review-gemini.md`
+
+**Decision:** Option 3 - Atoms + Promises (NOT core.async)
+
+**Rationale:**
+- Simpler to debug (fully inspectable state)
+- No opaque channel magic
+- Standard try/catch error handling
+- Sufficient for 2-5 experts
+
+**Key Optimization: Global Response Router**
+
+Instead of creating new subscription per `ask`:
+```clojure
+;; BAD: Creates/removes subscription per request (atom churn)
+(subscribe! reply-topic handler)
+(finally (unsub))
+
+;; GOOD: Single subscription, O(1) promise lookup
+(def pending-requests (atom {}))  ;; request-id -> promise
+;; Single subscription to :replies topic
+;; Handler looks up promise and delivers
+```
+
+**API Surface:**
+```clojure
+;; Core
+(subscribe! topic handler-fn)     ; -> unsubscribe-fn
+(publish! topic msg)              ; -> nil
+(ask topic msg :timeout-ms n)     ; -> {:success true :content ...}
+
+;; Introspection
+(list-topics)                     ; -> {topic count, ...}
+(get-recent-messages n)           ; -> [msg, ...]
+
+;; Teams
+(create-team team-id members)
+(team-publish! team topic msg)
+(team-subscribe! team topic handler-fn)
+(team-broadcast! team msg)
+```
+
+**Message Schema:**
+```clojure
+{:id "uuid"
+ :topic :keyword
+ :from "sender-id"
+ :type :command|:event|:query|:response
+ :payload {...}
+ :ts 123456789}
+```
+
+---
+
+## AI Orchestrator MCP Tools (v0.13.5)
 
 **Module:** `modules/ai-orchestrator-tools/`
 
@@ -36,24 +125,6 @@
 - Gemini: `https://generativelanguage.googleapis.com/v1beta/openai`
 - Anthropic: `https://api.anthropic.com/v1` (Bearer auth)
 
-**Example MCP Usage:**
-```bash
-# Initialize session
-curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"initialize","params":{"clientInfo":{"name":"test"}},"id":1}'
-
-# Start AI instance
-curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
-  -H "Mcp-Session-Id: <session-id>" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"ai-orchestrator-tools.ai_start_instance","arguments":{"name":"test-ai","provider_type":"anthropic-http","model":"claude-sonnet-4-5-20250929","api_key":"..."}},"id":2}'
-
-# Ask question
-curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
-  -H "Mcp-Session-Id: <session-id>" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"ai-orchestrator-tools.ai_ask","arguments":{"name":"test-ai","message":"What is 2+2?"}},"id":3}'
-# Response: {"content":"4","duration_ms":696}
-```
-
 ---
 
 ## Performance Summary
@@ -65,41 +136,6 @@ curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
 | openai-http | gemini-2.0-flash | ~1ms | 0.6-0.8s |
 | claude-subprocess | Sonnet | **~11-12s** | 3-4s |
 
-**Design Guidance:**
-- **Quick tasks:** Use HTTP providers (fast startup)
-- **Long-running experts:** Subprocess acceptable (startup amortized)
-- **Ephemeral experts:** HTTP preferred (fast spawn/destroy)
-
----
-
-## AI Orchestrator Architecture
-
-**Core Module:** `modules/ai-orchestrator/`
-
-**Provider Modules:**
-- `modules/anthropic-http-provider/` - Native Anthropic API
-- `modules/openai-http-provider/` - OpenAI/Anthropic compat
-- `modules/claude-subprocess-provider/` - Claude CLI subprocess
-
-**Core API:**
-```clojure
-(require '[ai-orchestrator.core :as orch])
-(require '[anthropic-http.core])  ; Load provider
-
-;; Start instance
-(orch/start-instance! "my-ai"
-  {:provider-type :anthropic-http
-   :api-key (System/getenv "CLAUDE_API_KEY")
-   :model "claude-sonnet-4-5-20250929"})
-
-;; Ask question
-(orch/ask "my-ai" "Say hello")
-;=> {:content "Hello!", :duration_ms 2800}
-
-;; Stop instance
-(orch/stop-instance! "my-ai")
-```
-
 ---
 
 ## Project Structure
@@ -107,12 +143,13 @@ curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
 ### AI Modules (Phase 13)
 ```
 modules/ai-orchestrator/              # Core orchestration (5 tests)
-modules/ai-orchestrator-tools/        # MCP tools (13 tests, 44 assertions) NEW
+modules/ai-orchestrator-tools/        # MCP tools (13 tests, 44 assertions)
 modules/anthropic-http-provider/      # Anthropic API (4 tests)
 modules/openai-http-provider/         # OpenAI API (5 tests)
 modules/claude-subprocess-provider/   # Claude CLI subprocess
 modules/port-registry/                # Port allocation (12 tests)
 modules/expert-registry/              # Expert definitions (9 tests)
+modules/message-bus/                  # TODO: Phase 13F
 ```
 
 ### MCP Server Core
@@ -134,39 +171,39 @@ src/bb_mcp_server/
 bb server                      # stdio (Claude Desktop)
 bb server --http               # HTTP on port 3000
 bb server --http 8080          # HTTP on custom port
-bb server --stdio --http       # Both transports
 
 # Testing
 bb test:modules                # All module tests
 bb test:ai-orchestrator        # AI orchestrator tests
-bb modules/ai-orchestrator-tools/test/run_tests.clj  # MCP tools tests
 
-# Verification
-clj-kondo --lint <files>       # 0 errors, 0 warnings required
+# Verification (REQUIRED before commit)
+clj-kondo --lint <files>       # 0 errors, 0 warnings
 cljfmt check <files>           # All files formatted
 ```
 
 ---
 
-## Model Configuration
+## Key Design Docs
 
-### Claude 4.5 Models (Current)
-- **Sonnet 4.5**: `claude-sonnet-4-5-20250929` (recommended, balanced)
-- **Haiku 4.5**: `claude-haiku-4-5-20251001` (fast, low cost)
-- **Opus 4.5**: `claude-opus-4-5-20251101` (most capable)
+| Document | Purpose |
+|----------|---------|
+| `IMPLEMENTATION_PLAN.md` | Single source of truth for planning |
+| `docs/design/message-bus-design.md` | Message bus options analysis |
+| `docs/design/ai-experts-framework.md` | Expert architecture |
+| `docs/design/ai-experts-framework-review-gemini-3.md` | Concurrency bug identified |
 
 ---
 
 ## Completed Phases
 
-- Phase 13A: Core scaffolding (claude-manager)
-- Phase 13.5: Stdio safety (lint rules)
+- Phase 13A: Core scaffolding
+- Phase 13.5: Stdio safety
 - Phase 13-Design: Architecture docs
 - Phase 13-Port: Port registry (v0.13.1)
 - Phase 13E: Expert registry MVP (v0.13.2)
 - Phase 13B: Multi-provider refactor (v0.13.3-v0.13.4.3)
 - Phase 13C: HTTP providers (v0.13.4.1)
-- **Phase 13D: MCP Tool Integration (v0.13.5)** NEW
+- **Phase 13D: MCP Tool Integration (v0.13.5)**
 
 ---
 
@@ -177,19 +214,7 @@ cljfmt check <files>           # All files formatted
 3. **Telemetry required** - taoensso.trove for all I/O
 4. **Zero lint warnings** - Not just errors
 5. **Never commit API keys** - Use .cak.sh (gitignored)
-6. **IMPLEMENTATION_PLAN.md** - Single source of truth
 
 ---
 
-## Session Health Note
-
-If the Claude session shows signs of degradation:
-- Forgetting which files to update
-- Missing verification steps
-- Repeating earlier mistakes
-
-**Recommendation:** Start a fresh Claude session rather than continuing.
-
----
-
-*Context prepared for Phase 13F - Message Bus*
+*Context prepared for Phase 13F - Concurrency Fix + Message Bus*
