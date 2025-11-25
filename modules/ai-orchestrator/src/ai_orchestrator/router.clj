@@ -40,10 +40,9 @@
      request-id"
   [instance request-id promise]
   (swap! (:pending-requests instance) assoc request-id promise)
-  ;; Also store current request-id if instance has that field
-  (when-let [current-id (:current-request-id instance)]
-            (reset! current-id request-id))
-  ;; Clear response buffer if instance has one
+  ;; NOTE: We no longer set current-request-id here - it's passed directly
+  ;; to send-message via :active-request-id to avoid race conditions.
+  ;; Clear response buffer if instance has one (for subprocess providers)
   (when-let [resp-buf (:response-buffer instance)]
             (reset! resp-buf []))
   request-id)
@@ -75,9 +74,7 @@
           (do
            (deliver p result)
            (swap! (:pending-requests instance) dissoc request-id)
-      ;; Clear current request-id if instance has it
-           (when-let [current-id (:current-request-id instance)]
-                     (reset! current-id nil))
+           ;; NOTE: No need to clear current-request-id - we use :active-request-id now
            true)
           false))
 
@@ -116,8 +113,9 @@
     (register-pending-request! instance request-id p)
 
     ;; Send message via provider protocol
+    ;; Pass request-id via :active-request-id to avoid race conditions
     (try
-     (when-not (proto/send-message instance message)
+     (when-not (proto/send-message (assoc instance :active-request-id request-id) message)
        (log/log! {:level :error
                   :id    ::send-failed
                   :msg   "Provider send-message returned false"

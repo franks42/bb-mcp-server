@@ -61,7 +61,10 @@
 
            (let [{:keys [api-key base-url max-tokens temperature timeout-ms]} (:transport instance)
                  model (:model instance)
-                 request-id @(:current-request-id instance)
+                 ;; Use :active-request-id passed from router (thread-safe)
+                 ;; Fallback to atom for backward compatibility
+                 request-id (or (:active-request-id instance)
+                                @(:current-request-id instance))
                  pending-requests (:pending-requests instance)]
 
              ;; Make HTTP call async in a future
