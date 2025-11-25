@@ -70,6 +70,8 @@ bb test:modules             # MUST pass all tests
 
 Do NOT commit code with lint warnings. Fix all warnings before committing.
 
+**macOS Note:** Do NOT use `timeout` command (it doesn't exist on macOS). Use `sleep` or Babashka's built-in timeout options instead.
+
 ---
 
 ## Required Reading for AI Assistants

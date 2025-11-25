@@ -222,21 +222,28 @@ with exponential backoff. It should:
         buggy-code))))
 
 (defn request-review! [code]
-  (log-step! "REVIEWER" "Requesting code review from GPT-4o...")
-  (log-step! "REVIEWER" "Note: GPT-4o is ISOLATED - only sees code passed in prompt")
+  (log-step! "REVIEWER" "Requesting code review...")
+  (log-step! "REVIEWER" "Note: Reviewer is ISOLATED - only sees code passed in prompt")
 
-  (let [prompt (str "You are an expert code reviewer. Review this Clojure code carefully.\n\n"
-                    "Check for:\n"
-                    "1. **Correctness** - Any bugs, off-by-one errors, logic issues?\n"
-                    "2. **Edge cases** - What happens with 0 retries? Negative delay?\n"
-                    "3. **Backoff logic** - Is the exponential backoff implemented correctly?\n"
-                    "4. **Error handling** - Are exceptions handled properly?\n"
-                    "5. **Idiomatic Clojure** - Is the code clean and idiomatic?\n\n"
-                    "Code to review:\n```clojure\n" code "\n```\n\n"
-                    "If the code is PERFECT, respond with exactly: APPROVED\n"
-                    "If there are issues, list each issue with:\n"
-                    "- ISSUE: <description>\n"
-                    "- FIX: <suggested fix>\n")
+  (let [prompt (str "You are an expert Clojure code reviewer. Review this code.\n\n"
+                    "```clojure\n" code "\n```\n\n"
+                    "## Review Criteria\n"
+                    "Focus ONLY on these critical issues:\n"
+                    "1. **BLOCKER** - Code won't work at all (syntax errors, missing requires)\n"
+                    "2. **BUG** - Logic errors that cause incorrect behavior\n"
+                    "3. **CRASH** - Unhandled exceptions that will crash\n\n"
+                    "Do NOT report: style preferences, minor improvements, documentation suggestions.\n\n"
+                    "## Response Format\n"
+                    "If there are BLOCKER/BUG/CRASH issues:\n"
+                    "```\n"
+                    "CHANGES_REQUIRED\n"
+                    "- BUG: <description of the bug>\n"
+                    "```\n\n"
+                    "If the code will work correctly (even if not perfect):\n"
+                    "```\n"
+                    "APPROVED\n"
+                    "```\n\n"
+                    "Remember: Working code is better than perfect code. Approve if it works.")
         start-time (System/currentTimeMillis)
         result (bus/ask :code-reviewer prompt :timeout-ms 60000)
         duration (- (System/currentTimeMillis) start-time)]
@@ -246,14 +253,15 @@ with exponential backoff. It should:
     (if (:success result)
       (let [review (:content result)
             review-upper (str/upper-case (str review))
-            ;; APPROVED only if explicitly says APPROVED and has no ISSUE markers
-            has-issues? (or (str/includes? review-upper "ISSUE:")
-                            (str/includes? review-upper "- ISSUE")
-                            (str/includes? review-upper "BUG:")
-                            (str/includes? review-upper "FIX:"))
+            ;; Look for explicit CHANGES_REQUIRED or critical markers
+            changes-required? (or (str/includes? review-upper "CHANGES_REQUIRED")
+                                  (str/includes? review-upper "BLOCKER:")
+                                  (str/includes? review-upper "- BUG:")
+                                  (str/includes? review-upper "- CRASH:"))
+            ;; APPROVED if says APPROVED and no critical issues
             approved? (and (str/includes? review-upper "APPROVED")
-                           (not has-issues?))]
-        (log-step! "REVIEWER" (str "Review verdict: " (if approved? "APPROVED" "CHANGES REQUESTED")))
+                           (not changes-required?))]
+        (log-step! "REVIEWER" (str "Review verdict: " (if approved? "APPROVED" "CHANGES_REQUIRED")))
         (log-step! "REVIEWER" "Review content:" review)
         {:success true
          :approved approved?
