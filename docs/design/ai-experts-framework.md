@@ -1260,6 +1260,226 @@ Experts could register their capabilities dynamically:
     (send-to-expert! expert (:task params))))
 ```
 
+### 6. Critical Startup Sequence
+
+**IMPORTANT:** MCP server MUST be started before spawning Claude instance.
+
+#### Why This Order Matters
+
+1. **Connection Dependency** - Claude CLI needs MCP server endpoint to be reachable at startup
+2. **Health Verification** - Can verify MCP server is healthy before committing to Claude spawn
+3. **Clean Error Handling** - If MCP fails, we know before spawning Claude
+4. **No Race Conditions** - Server is guaranteed ready when Claude connects
+
+#### Correct Sequence
+
+```
+Step 1: Analyze task → Identify required expert domain
+        ↓
+Step 2: Look up expert definition (capabilities, curriculum, tools)
+        ↓
+Step 3: ALLOCATE PORT (from port registry)
+        ↓
+Step 4: START dedicated MCP server (on allocated port)
+        ↓
+Step 5: WAIT for health check (ensure server responding)
+        ↓
+Step 6: Generate MCP config JSON (pointing to healthy server)
+        ↓
+Step 7: Spawn Claude instance (with --strict-mcp-config)
+        ↓
+Step 8: Load curriculum into Claude (system prompt)
+        ↓
+Step 9: Expert ready to receive tasks
+```
+
+#### Implementation
+
+```clojure
+(defn start-expert! [expert-id]
+  (let [expert-def (get-expert-definition expert-id)
+        domain (get-in expert-def [:mcp-server :domain])]
+
+    ;; Step 3: Allocate port FIRST
+    (let [port (ports/allocate-port!
+                 {:domain domain
+                  :service-type :mcp-server
+                  :expert-id (generate-instance-id expert-id)})]
+
+      (if-not port
+        {:error true :message "No ports available in range"}
+
+        (try
+          ;; Step 4: Start MCP server
+          (log/log! {:level :info
+                     :msg "Starting dedicated MCP server"
+                     :data {:expert expert-id :domain domain :port port}})
+
+          (let [mcp-server (start-dedicated-mcp-server! domain port)
+
+                ;; Step 5: Health check - CRITICAL!
+                _ (wait-for-mcp-health! (:url mcp-server) 5000)
+
+                ;; Update port registry with PID
+                _ (ports/update-port-info! port
+                    {:pid (:pid mcp-server)
+                     :url (:url mcp-server)
+                     :status :healthy})
+
+                ;; Step 6: Generate config
+                mcp-config (generate-mcp-config (:url mcp-server))
+
+                ;; Step 7: NOW spawn Claude
+                claude-proc (spawn-claude-with-mcp!
+                              {:model (:model expert-def)
+                               :system-prompt (load-essential-curriculum expert-def)
+                               :mcp-config mcp-config
+                               :strict true})]  ; --strict-mcp-config
+
+            ;; Step 8-9: Register expert
+            {:id (generate-instance-id expert-id)
+             :expert-type expert-id
+             :mcp-port port
+             :mcp-server mcp-server
+             :claude-process claude-proc
+             :status :ready})
+
+          (catch Exception e
+            ;; CLEANUP on failure
+            (log/log! {:level :error
+                       :msg "Expert startup failed"
+                       :data {:expert expert-id :error (str e)}})
+            (ports/release-port! port)
+            {:error true :message (str e)}))))))
+
+(defn wait-for-mcp-health! [url timeout-ms]
+  "Wait for MCP server to become healthy. Throws on timeout."
+  (let [health-url (str/replace url #"/mcp$" "/health")
+        deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (loop []
+      (if (> (System/currentTimeMillis) deadline)
+        (throw (ex-info "MCP server health check timeout"
+                        {:url url :timeout-ms timeout-ms}))
+        (try
+          (let [resp (http/get health-url {:socket-timeout 1000})]
+            (if (= 200 (:status resp))
+              (log/log! {:level :info
+                         :msg "MCP server healthy"
+                         :data {:url url}})
+              (do (Thread/sleep 100)
+                  (recur))))
+          (catch Exception e
+            (Thread/sleep 100)
+            (recur)))))))
+```
+
+#### Shutdown Sequence (Reverse Order)
+
+```
+Step 1: Stop Claude instance (kill process)
+        ↓
+Step 2: Stop MCP server (graceful shutdown)
+        ↓
+Step 3: Release port (mark available in registry)
+        ↓
+Step 4: Cleanup PID files
+        ↓
+Step 5: Update expert status to :stopped
+```
+
+### 7. Port Management System
+
+**Problem:** With 10+ concurrent experts, each with dedicated MCP server, we need structured port management.
+
+**Solution:** Central port registry with allocation, discovery, and cleanup.
+
+See [Port Management Architecture](port-management-architecture.md) for full design.
+
+#### Key Features
+
+1. **Port Allocation** - Assign unique ports from domain-specific ranges
+2. **Port Discovery** - Find services by domain ("where is clojure-tools?")
+3. **Port Tracking** - Know what's running on each port
+4. **Health Monitoring** - Periodic checks, auto-cleanup dead services
+5. **Persistence** - Survive bb-mcp-server restarts
+
+#### Port Ranges Strategy
+
+```clojure
+{:port-ranges
+ {:main-server [3000 3000]       ; Fixed port
+  :clojure-tools [19880 19889]   ; 10 concurrent Clojure experts
+  :aws-tools [19890 19899]       ; 10 concurrent AWS experts
+  :security-tools [19900 19909]
+  :db-tools [19910 19919]
+  :ml-tools [19920 19929]
+  :documentation [19930 19939]
+  :testing [19940 19949]
+  :devops [19950 19959]
+  :ephemeral [20000 29999]}}     ; Dynamic/unknown domains
+```
+
+#### Discovery Examples
+
+```clojure
+;; Find existing server for domain
+(if-let [port (ports/discover-by-domain :clojure-tools)]
+  ;; Reuse existing
+  (let [info (ports/get-port-info port)]
+    (if (= :healthy (:status info))
+      (connect-to-existing-server (:url info))
+      (restart-unhealthy-server port)))
+  ;; Start new
+  (start-new-mcp-server :clojure-tools))
+
+;; Find port for specific expert instance
+(ports/discover-by-expert :clojure-coder-1)
+;; => 19880
+
+;; List all active services
+(ports/list-active-ports)
+;; => {19880 {:domain :clojure-tools :status :healthy ...}
+;;     19890 {:domain :aws-tools :status :healthy ...}}
+```
+
+#### Implementation: File-Based Registry (MVP)
+
+**File:** `.ports/registry.edn`
+
+```clojure
+{:allocations
+ {19880 {:service-type :mcp-server
+         :domain :clojure-tools
+         :expert-id :clojure-coder-1
+         :pid 12345
+         :url "http://127.0.0.1:19880/mcp"
+         :allocated-at #inst "2025-11-24T10:30:00.000-00:00"
+         :last-health-check #inst "2025-11-24T10:35:00.000-00:00"
+         :status :healthy}}
+
+ :domain-index
+ {:clojure-tools 19880}
+
+ :port-ranges {...}}
+```
+
+**API:**
+
+```clojure
+(ports/allocate-port! {:domain :clojure-tools
+                       :service-type :mcp-server
+                       :expert-id :clojure-coder-1})
+;; => 19880
+
+(ports/release-port! 19880)
+
+(ports/discover-by-domain :clojure-tools)
+;; => 19880
+
+(ports/check-port-health! 19880)
+;; => :healthy
+```
+
 ---
 
 ## Phased Implementation Proposal
