@@ -1,0 +1,23 @@
+{:description "OpenAI API model identifiers (also works with Anthropic compatibility endpoint)"
+ :last-updated "2025-11-25"
+ :source "https://platform.openai.com/docs/models"
+
+ :gpt-4-models
+ {:gpt-4-turbo "gpt-4-turbo-preview"
+  :gpt-4       "gpt-4"
+  :gpt-4-32k   "gpt-4-32k"}
+
+ :gpt-3-5-models
+ {:gpt-3-5-turbo "gpt-3-5-turbo"}
+
+ :anthropic-compatibility
+ {:note "When using base-url https://api.anthropic.com/v1, use Anthropic model names"
+  :sonnet "claude-sonnet-4-5-20250929"
+  :haiku  "claude-haiku-4-5-20251001"
+  :opus   "claude-opus-4-5-20251101"}
+
+ :notes
+ ["This provider supports both OpenAI and Anthropic APIs"
+  "Set base-url to https://api.openai.com/v1 for OpenAI (default)"
+  "Set base-url to https://api.anthropic.com/v1 for Anthropic compatibility"
+  "Uses Authorization: Bearer header for both APIs"]}
