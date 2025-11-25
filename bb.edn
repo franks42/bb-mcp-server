@@ -15,7 +15,8 @@
          "modules/mcp-stdio/src" "modules/mcp-stdio/test"
          "modules/rest-api/src" "modules/rest-api/test"
          "modules/streamable-http/src" "modules/streamable-http/test"
-         "modules/claude-manager/src" "modules/claude-manager/test"]
+         "modules/claude-manager/src" "modules/claude-manager/test"
+         "modules/port-registry/src" "modules/port-registry/test"]
 
  :tasks
  {;; ==========================================================================
@@ -119,6 +120,9 @@
   test:claude-manager {:doc "Run claude-manager module tests"
                        :task (load-file "modules/claude-manager/test/run_tests.clj")}
 
+  test:port-registry {:doc "Run port-registry module tests"
+                      :task (load-file "modules/port-registry/test/run_tests.clj")}
+
   test:stdio {:doc "Run stdio transport tests"
               :task (load-file "test/run_stdio_tests.clj")}
 
@@ -131,6 +135,7 @@
                           (run 'test:mcp-http)
                           (run 'test:mcp-stdio)
                           (run 'test:rest-api)
+                          (run 'test:port-registry)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 

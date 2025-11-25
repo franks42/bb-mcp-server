@@ -1,0 +1,5 @@
+{:name "port-registry"
+ :version "0.1.0"
+ :description "Port allocation and discovery system for multi-server orchestration"
+ :requires []
+ :entry "port-registry.core/module"}
