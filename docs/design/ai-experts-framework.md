@@ -1345,12 +1345,87 @@ Step 9: Expert ready to receive tasks
              :status :ready})
 
           (catch Exception e
-            ;; CLEANUP on failure
+            ;; CLEANUP on failure - CRITICAL for resource management
+            ;; Must cleanup in reverse order of allocation:
+            ;; 1. Kill Claude (if started)
+            ;; 2. Kill MCP server (if started)
+            ;; 3. Release port
             (log/log! {:level :error
                        :msg "Expert startup failed"
                        :data {:expert expert-id :error (str e)}})
+
+            ;; Kill processes if they were started
+            (when (bound? #'claude-proc)
+              (try (p/destroy claude-proc)
+                   (catch Exception _)))
+
+            (when (bound? #'mcp-server)
+              (try (p/destroy (:process mcp-server))
+                   (catch Exception _)))
+
+            ;; Always release port
             (ports/release-port! port)
+
             {:error true :message (str e)}))))))
+
+;; Alternative: Component-based lifecycle management
+(defn start-expert-with-components! [expert-id]
+  "Component-based startup with automatic cleanup.
+
+   Uses try/finally to ensure resources are released even on exception."
+  (let [expert-def (get-expert-definition expert-id)
+        domain (get-in expert-def [:mcp-server :domain])
+        components (atom {:port nil :mcp-server nil :claude-proc nil})]
+
+    (try
+      ;; Step 1: Allocate port
+      (let [port (ports/allocate-port! {:domain domain
+                                        :service-type :mcp-server
+                                        :expert-id (generate-instance-id expert-id)})]
+        (when-not port
+          (throw (ex-info "No ports available" {:domain domain})))
+
+        (swap! components assoc :port port)
+
+        ;; Step 2: Start MCP server
+        (let [mcp-server (start-dedicated-mcp-server! domain port)]
+          (swap! components assoc :mcp-server mcp-server)
+
+          ;; Step 3: Health check
+          (wait-for-mcp-health! (:url mcp-server) 5000)
+
+          ;; Step 4: Start Claude
+          (let [claude-proc (spawn-claude-with-mcp!
+                              {:model (:model expert-def)
+                               :system-prompt (load-essential-curriculum expert-def)
+                               :mcp-config (generate-mcp-config (:url mcp-server))
+                               :strict true})]
+            (swap! components assoc :claude-proc claude-proc)
+
+            ;; Success - return expert
+            {:id (generate-instance-id expert-id)
+             :components @components
+             :status :ready})))
+
+      (catch Exception e
+        ;; CLEANUP: Destroy in reverse order
+        (log/log! {:level :error
+                   :msg "Expert startup failed, cleaning up"
+                   :data {:expert expert-id :error (str e)
+                          :allocated-components (keys (filter val @components))}})
+
+        (when-let [proc (:claude-proc @components)]
+          (try (p/destroy proc)
+               (catch Exception _)))
+
+        (when-let [mcp (:mcp-server @components)]
+          (try (p/destroy (:process mcp))
+               (catch Exception _)))
+
+        (when-let [port (:port @components)]
+          (ports/release-port! port))
+
+        {:error true :message (str e)}))))
 
 (defn wait-for-mcp-health! [url timeout-ms]
   "Wait for MCP server to become healthy. Throws on timeout."

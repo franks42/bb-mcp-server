@@ -587,7 +587,58 @@ $ bb test:modules
 - Team-based message bus (coordinator + members)
 - Dedicated MCP servers per domain (80% context reduction)
 
-**Next:** Phase 13E - Begin file-based expert registry implementation
+**Next:** Phase 13-Port - Implement port registry (prerequisite for 13E)
+
+### Phase 13-Port: Port Registry Infrastructure 🔜 Next
+
+**Goal:** Implement file-based port allocation and discovery system.
+
+**Why this comes first:** Experts need dedicated MCP servers, which need unique ports. Must have port management before implementing expert framework.
+
+**Design Document:** [port-management-architecture.md](docs/design/port-management-architecture.md)
+
+**Tasks:**
+1. Create `modules/port-registry/` module
+2. Implement file-based registry (`.ports/registry.edn`)
+3. Core functions:
+   - `allocate-port!` - Assign port from domain-specific range
+   - `release-port!` - Free port for reuse
+   - `discover-by-domain` - Find existing server
+   - `validate-registry!` - Cleanup zombie ports on startup
+4. Port ranges configuration:
+   - clojure-tools: 19880-19889
+   - aws-tools: 19890-19899
+   - (see design doc for full list)
+5. Health monitoring:
+   - `check-port-health!` - Verify service responding
+   - `cleanup-stale-allocations!` - Remove dead processes
+6. Tests: Port allocation, zombie cleanup, discovery
+
+**Files to create:**
+```
+modules/port-registry/
+├── module.edn
+├── src/port_registry/
+│   ├── core.clj      # Public API
+│   └── storage.clj   # EDN persistence
+└── test/
+    ├── port_registry/core_test.clj
+    └── run_tests.clj
+```
+
+**Critical Feature (Gemini Review):** Zombie port cleanup
+- On startup, validate all ports in registry
+- Check if PID is still alive using `pid-util/process-alive?`
+- Release ports from crashed processes
+- Prevents registry filling up with stale allocations
+
+**Verification:**
+```bash
+bb test:port-registry    # All tests pass
+clj-kondo --lint modules/port-registry/  # 0 errors, 0 warnings
+```
+
+**Duration:** 1-2 days
 
 ### Key Features
 
@@ -609,11 +660,12 @@ $ bb test:modules
 |---|-----------|--------|-------------|
 | 13A | Core Scaffolding | ✅ Complete | Mock process testing, dedicated reader loop, basic API |
 | 13.5 | Stdio Safety | ✅ Complete | Lint rules, telemetry migration, code review checklist |
-| 13-Design | Architecture Docs | ✅ Complete | Multi-provider orchestration, domain experts framework |
+| 13-Design | Architecture Docs | ✅ Complete | Multi-provider orchestration, domain experts framework, port management |
+| 13-Port | Port Registry | Next | File-based port allocation/discovery, zombie cleanup (PREREQUISITE for 13E) |
 | 13B | Multi-Provider Refactor | Planned | Refactor claude-manager to use ai-orchestrator + providers |
 | 13C | OpenAI HTTP Provider | Planned | Validate multi-provider design with second provider |
 | 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
-| 13E | Expert Registry MVP | Planned | File-based expert definitions, curriculum loading |
+| 13E | Expert Registry MVP | Planned | File-based expert definitions, curriculum loading (needs 13-Port) |
 | 13F | Message Bus | Planned | core.async bus, team-based communication |
 | 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
 

@@ -138,6 +138,8 @@ With multiple AI instances and dedicated MCP servers running simultaneously, we 
       (log/log! {:level :info
                  :msg "Port registry loaded"
                  :data {:ports (count (:allocations data))}})
+      ;; Validate and clean zombie ports
+      (validate-registry!)
       data)
     (do
       (reset! registry-atom {:allocations {}
@@ -148,6 +150,22 @@ With multiple AI instances and dedicated MCP servers running simultaneously, we 
                                            :db-tools [19910 19919]
                                            :ephemeral [20000 29999]}})
       @registry-atom)))
+
+(defn validate-registry!
+  "Clean up zombie ports from crashed processes.
+
+   Called on startup to release ports held by dead processes.
+   Prevents registry from filling up with stale allocations."
+  []
+  (let [allocations (:allocations @registry-atom)]
+    (doseq [[port info] allocations]
+      (let [pid (:pid info)]
+        (when-not (pid-util/process-alive? pid)
+          (log/log! {:level :warn
+                     :id ::zombie-port-cleanup
+                     :msg "Releasing zombie port from dead process"
+                     :data {:port port :pid pid :domain (:domain info)}})
+          (release-port! port))))))
 
 (defn save-registry! []
   (io/make-parents registry-file)
