@@ -1,15 +1,15 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-25 (Phase 13C Complete, Phase 13B Issue Found)
-**Current Version:** v0.13.4.1 (HTTP providers working, subprocess broken)
+**Last Updated:** 2025-11-25 (Phase 13B Fixed, All Providers Working)
+**Current Version:** v0.13.4.2 (All providers tested and working with real APIs)
 
 ---
 
-## Current State - Phase 13C Complete ✅, Phase 13B Issue Found ⚠️
+## Current State - Phase 13B & 13C Complete ✅
 
 **Phase 13C HTTP Providers** - Implementation complete with async routing integration and full real API testing.
 
-**Phase 13B Subprocess Provider Issue** - Previously marked complete, but real Claude CLI integration is broken (hangs indefinitely). Tests only used mocks, never tested with real subprocess.
+**Phase 13B Subprocess Provider** - Fixed! Missing CLI arguments issue resolved. Now working with real Claude CLI.
 
 ### Summary
 
@@ -41,11 +41,13 @@ Both providers initially used Java HttpURLConnection (not Babashka compatible), 
 - ✅ Model config files added (anthropic-models.edn, openai-models.edn)
 - ✅ Committed to main (commits ea78acf, c03b0dc, 28978db)
 
-**Phase 13B Subprocess Issue:**
-- ⚠️ Previously marked complete based on mock tests only
-- ❌ Real Claude CLI integration hangs indefinitely on `ask`
-- ❌ Never tested with real subprocess until now
-- 🔧 Needs debugging: Reader loop starts but doesn't deliver responses to promises
+**Phase 13B Subprocess Provider:**
+- ✅ Fixed missing CLI arguments issue (was passing just cmd path, not full arg vector)
+- ✅ Real Claude CLI integration tested and working
+- ✅ Response received in 3.85s (API duration)
+- ✅ Session ID properly set and tracked
+- 🔍 Root cause: `spawn-process!` expected full command vector with args like `["-p" "--verbose" "--input-format" "stream-json" ...]`
+- 🔧 Solution: Build command vector in `create-instance` before passing to `spawn-process!`
 
 ---
 
@@ -140,18 +142,18 @@ bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
 - 13-Design: Architecture docs
 - 13-Port: Port Registry (v0.13.1)
 - 13E: Expert Registry MVP (v0.13.2)
-- 13B: Multi-Provider Refactor (v0.13.3) ⚠️ **Subprocess provider broken with real CLI**
-- 13C: HTTP Providers + Async Routing (v0.13.4.1) ← CURRENT ✅ **Fully verified**
+- 13B: Multi-Provider Refactor (v0.13.3) → Fixed CLI args (v0.13.4.2) ✅
+- 13C: HTTP Providers + Async Routing (v0.13.4.1) ✅
 
-**Next Phase:** 13D - MCP Integration (or fix 13B subprocess first)
+**Next Phase:** 13D - MCP Integration
 
 **Module Count:** 14 modules
 
 **Key Achievements:**
-- ✅ HTTP providers work perfectly with real Anthropic API
+- ✅ All three providers (anthropic-http, openai-http, claude-subprocess) tested and working with real APIs
 - ✅ Async router integration verified (no timeouts)
 - ✅ Multi-instance concurrent requests working
-- ⚠️ Subprocess provider needs real CLI debugging (mock tests passed but real integration broken)
+- ✅ Subprocess provider fixed - CLI args properly configured
 
 ---
 

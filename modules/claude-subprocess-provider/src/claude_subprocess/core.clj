@@ -97,15 +97,20 @@
 ;; =============================================================================
 
 (defmethod proto/create-instance :claude-subprocess
-           [{:keys [name cmd model] :as _opts}]
+           [{:keys [name cmd model args] :as _opts}]
            (log/log! {:level :info
                       :id    ::creating-instance
                       :msg   "Creating Claude subprocess instance"
                       :data  {:name name :cmd cmd :model model}})
 
            (try
-    ;; Spawn process
-            (let [proc-map (process/spawn-process! cmd)
+    ;; Build command vector with args
+            (let [base-args (or args ["-p" "--verbose"
+                                      "--input-format" "stream-json"
+                                      "--output-format" "stream-json"
+                                      "--permission-mode" "bypassPermissions"])
+                  cmd-vec (vec (concat [cmd] base-args))
+                  proc-map (process/spawn-process! cmd-vec)
           ;; Create instance structure
                   instance {:name name
                             :provider-type :claude-subprocess
