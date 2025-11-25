@@ -1,0 +1,5 @@
+{:name "anthropic-http-provider"
+ :version "0.1.0"
+ :description "Anthropic HTTP provider for ai-orchestrator (native Messages API)"
+ :requires ["ai-orchestrator"]
+ :entry "anthropic-http.core/module"}

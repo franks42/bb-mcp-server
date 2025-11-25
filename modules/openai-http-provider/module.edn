@@ -1,0 +1,5 @@
+{:name "openai-http-provider"
+ :version "0.1.0"
+ :description "OpenAI HTTP provider for ai-orchestrator (compatible with OpenAI and Anthropic)"
+ :requires ["ai-orchestrator"]
+ :entry "openai-http.core/module"}

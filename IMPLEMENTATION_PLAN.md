@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13B Complete (v0.13.3) - Multi-Provider Refactor
+**Status:** Phase 13C Complete (v0.13.4) - HTTP Providers
 **Last Updated:** 2025-11-24
 
 ---
@@ -791,7 +791,98 @@ $ cljfmt check modules/ai-orchestrator/src modules/claude-subprocess-provider/sr
 All source files formatted correctly ✅
 ```
 
-**Next:** Phase 13C - OpenAI HTTP Provider
+**Next:** Phase 13C - HTTP Providers
+
+---
+
+### Phase 13C: HTTP Providers ✅ Complete
+
+**Goal:** Validate multi-provider design with HTTP-based providers.
+**Status:** Complete - v0.13.4
+
+**Completed Features:**
+1. ✅ Created `modules/anthropic-http-provider/` - Native Anthropic Messages API
+2. ✅ Created `modules/openai-http-provider/` - OpenAI Chat Completions API (+ Anthropic compat)
+3. ✅ HTTP client implementations with telemetry
+4. ✅ Provider protocol implementations for both providers
+5. ✅ Comprehensive tests: 9 tests, 43 assertions, all passing
+
+**Module Structure:**
+```
+modules/anthropic-http-provider/
+├── src/anthropic_http/
+│   ├── core.clj         # Protocol implementation
+│   └── http_client.clj  # Anthropic Messages API client
+└── test/
+    └── anthropic_http/
+        └── core_test.clj  # 4 tests, 18 assertions
+
+modules/openai-http-provider/
+├── src/openai_http/
+│   ├── core.clj         # Protocol implementation
+│   └── http_client.clj  # OpenAI Chat Completions API client
+└── test/
+    └── openai_http/
+        └── core_test.clj  # 5 tests, 25 assertions
+```
+
+**Anthropic HTTP Provider:**
+- Native Messages API (`https://api.anthropic.com/v1/messages`)
+- Authentication: `x-api-key` header
+- Request format: `{model, messages, max_tokens, system, temperature, stream}`
+- Response: Message object with content blocks
+
+**OpenAI HTTP Provider:**
+- Chat Completions API (`https://api.openai.com/v1/chat/completions`)
+- Authentication: `Authorization: Bearer <key>` header
+- Request format: `{model, messages, max_tokens, temperature, stream}`
+- Works with both OpenAI and Anthropic compatibility endpoint
+
+**Usage Examples:**
+```clojure
+;; Anthropic native API
+(orch/start-instance! "claude-api"
+  {:provider-type :anthropic-http
+   :api-key (System/getenv "ANTHROPIC_API_KEY")
+   :model "claude-3-5-sonnet-20241022"})
+
+;; OpenAI API
+(orch/start-instance! "gpt"
+  {:provider-type :openai-http
+   :api-key (System/getenv "OPENAI_API_KEY")
+   :model "gpt-4"})
+
+;; Anthropic via OpenAI compatibility endpoint
+(orch/start-instance! "claude-compat"
+  {:provider-type :openai-http
+   :api-key (System/getenv "ANTHROPIC_API_KEY")
+   :model "claude-3-5-sonnet-20241022"
+   :base-url "https://api.anthropic.com/v1"})
+```
+
+**Verification:**
+```bash
+$ bb modules/anthropic-http-provider/test/run_tests.clj
+4 tests, 18 assertions, 0 failures, 0 errors ✅
+
+$ bb modules/openai-http-provider/test/run_tests.clj
+5 tests, 25 assertions, 0 failures, 0 errors ✅
+
+$ clj-kondo --lint modules/anthropic-http-provider/src modules/openai-http-provider/src
+0 errors, 0 warnings ✅
+
+$ cljfmt check modules/anthropic-http-provider/src modules/openai-http-provider/src
+All source files formatted correctly ✅
+```
+
+**Key Validations:**
+- ✅ Multi-provider protocol works for HTTP-based providers
+- ✅ Both native APIs and compatibility endpoints supported
+- ✅ Provider-specific configuration (api-key, base-url, timeouts)
+- ✅ Transport metadata properly structured
+- ✅ All telemetry requirements met
+
+**Next:** Phase 13D - MCP Integration
 
 ---
 
@@ -821,7 +912,7 @@ All source files formatted correctly ✅
 | 13-Port | Port Registry | ✅ Complete | File-based port allocation/discovery, zombie cleanup (12 tests, 36 assertions) |
 | 13E | Expert Registry MVP | ✅ Complete | File-based expert definitions, curriculum loading (9 tests, 29 assertions) |
 | 13B | Multi-Provider Refactor | ✅ Complete | Provider-agnostic orchestration with claude-subprocess provider (5 tests, 17 assertions) |
-| 13C | OpenAI HTTP Provider | Planned | Validate multi-provider design with second provider |
+| 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers (9 tests, 43 assertions) |
 | 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
 | 13F | Message Bus | Planned | core.async bus, team-based communication |
 | 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |

@@ -17,6 +17,8 @@
          "modules/streamable-http/src" "modules/streamable-http/test"
          "modules/ai-orchestrator/src" "modules/ai-orchestrator/test"
          "modules/claude-subprocess-provider/src" "modules/claude-subprocess-provider/test"
+         "modules/anthropic-http-provider/src" "modules/anthropic-http-provider/test"
+         "modules/openai-http-provider/src" "modules/openai-http-provider/test"
          "modules/claude-manager/src" "modules/claude-manager/test"
          "modules/port-registry/src" "modules/port-registry/test"
          "modules/expert-registry/src" "modules/expert-registry/test"]
