@@ -142,8 +142,12 @@
 (defmethod proto/send-message :claude-subprocess
            [instance message]
            (let [proc-map (get-in instance [:transport :proc-map])
+                 request-id (:active-request-id instance)
                  msg {:type "user"
                       :message {:role "user" :content message}}]
+             ;; Set current-request-id so dispatcher knows which request to complete
+             (when-let [current-id-atom (:current-request-id instance)]
+               (reset! current-id-atom request-id))
              (process/write-message! proc-map msg)))
 
 (defmethod proto/stop-instance :claude-subprocess

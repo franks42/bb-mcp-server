@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13D Complete (v0.13.5) - MCP Tool Integration
+**Status:** Phase 13F Complete (v0.13.6) - Message Bus
 **Last Updated:** 2025-11-25
 
 ---
@@ -992,7 +992,87 @@ All source files formatted correctly ✅
 - ✅ **Real API connectivity: Both providers successfully tested with Anthropic API**
 - ✅ **No timeout errors: Async promise pattern correctly implemented**
 
-**Next:** Phase 13F - Message Bus
+**Next:** Phase 13G - Dynamic Orchestration
+
+---
+
+### Phase 13F: Message Bus ✅ Complete
+
+**Goal:** Lightweight message bus for AI expert communication
+**Status:** Complete - v0.13.6
+
+**Design Decision:** Used **Atoms + Promises** instead of core.async for:
+- Better debuggability (no opaque channels)
+- Easier introspection (atoms are inspectable)
+- Simpler error handling
+- User preference against "opaque magic"
+
+**Completed Features:**
+1. ✅ Created `modules/message-bus/` module
+2. ✅ Core API: `subscribe!`, `publish!`, `ask`, `reply!`
+3. ✅ Global Response Router for O(1) request correlation
+4. ✅ Teams API for namespaced topic isolation
+5. ✅ Introspection: `list-topics`, `get-recent-messages`, `get-pending-requests`
+6. ✅ Handler error isolation (one crash doesn't affect others)
+7. ✅ Comprehensive tests: 25 tests, 68 assertions, all passing
+
+**Module Structure:**
+```
+modules/message-bus/
+├── module.edn
+├── src/message_bus/
+│   ├── core.clj    # Pub/sub, ask/reply, Global Response Router
+│   └── teams.clj   # Team-based isolation (namespaced topics)
+└── test/
+    ├── message_bus/core_test.clj   # 15 tests
+    └── message_bus/teams_test.clj  # 10 tests
+```
+
+**Core API:**
+```clojure
+;; Pub/Sub
+(def unsub (bus/subscribe! :topic handler-fn))
+(bus/publish! :topic {:content "hello"})
+(unsub)
+
+;; Request/Response with O(1) correlation
+(bus/subscribe! :responder
+  (fn [{:keys [request-id content]}]
+    (bus/reply! request-id (process content))))
+
+(bus/ask :responder "question" :timeout-ms 5000)
+;; => {:success true :content "answer" :duration-ms 123}
+```
+
+**Teams API:**
+```clojure
+;; Create isolated team
+(def team (teams/create-team :deploy-app #{:clojure :aws :docs}))
+
+;; Team-scoped communication (topics are namespaced)
+(teams/team-subscribe! team :clojure handler-fn)
+(teams/team-publish! team :clojure {:content "ready"})
+(teams/team-broadcast! team {:content "starting"})
+```
+
+**Future Consideration: Datalevin Backend**
+
+After Phase 14 adds a Datalevin service, revisit message-bus implementation.
+See `docs/design/datalevin-message-bus-review.md` for analysis.
+
+**Potential benefits of Datalevin backend:**
+- Free persistence (conversation history as audit log)
+- Queryable history via Datalog
+- Unified state (bus + database in one component)
+- "Blackboard Architecture" pattern
+
+**Trade-offs:**
+- Millisecond latency vs microsecond (acceptable for AI workloads)
+- Single writer bottleneck (unlikely to hit before API rate limits)
+
+**Decision:** Keep current atoms+promises implementation until Datalevin is integrated.
+The API surface (`subscribe!`, `publish!`, `ask`, `reply!`) can remain unchanged -
+only the backing implementation would change.
 
 ---
 
@@ -1123,7 +1203,7 @@ All source files formatted correctly ✅
 | 13B | Multi-Provider Refactor | ✅ Complete | Provider-agnostic orchestration with claude-subprocess provider (5 tests, 17 assertions) |
 | 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers with async routing (9 tests, 43 assertions, real API verified) |
 | 13D | MCP Integration | ✅ Complete | AI orchestrator exposed as MCP tools (4 tools, 13 tests, 44 assertions) |
-| 13F | Message Bus | Planned | core.async bus, team-based communication |
+| 13F | Message Bus | ✅ Complete | Atoms+promises bus with Global Response Router (25 tests, 68 assertions) |
 | 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
 
 ### Proposed Tools
