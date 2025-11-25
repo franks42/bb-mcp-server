@@ -163,6 +163,17 @@ Here is the previous review feedback (if revising):
 - Use HTTP for review, test generation, and any task where you want predictable timing
 - HTTP is faster and more predictable for pure text generation
 
+**If you must use subprocess for text generation**, add explicit isolation instructions:
+```
+Base your response ONLY on the code provided.
+Do NOT access the project's files or run any commands.
+Output ONLY the requested code/text, nothing else.
+```
+
+This prevents the subprocess from doing extra work (reading files, running lint, etc.)
+that can cause unpredictable timeouts. HTTP agents don't need this because isolation
+is enforced by the transport - they physically cannot access files.
+
 ---
 
 ## Anti-Patterns
