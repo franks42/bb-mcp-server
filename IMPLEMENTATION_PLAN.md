@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13C Complete (v0.13.4) - HTTP Providers
-**Last Updated:** 2025-11-24
+**Status:** Phase 13C Complete (v0.13.4.1) - HTTP Providers + Async Routing
+**Last Updated:** 2025-11-25
 
 ---
 
@@ -798,32 +798,37 @@ All source files formatted correctly ✅
 ### Phase 13C: HTTP Providers ✅ Complete
 
 **Goal:** Validate multi-provider design with HTTP-based providers.
-**Status:** Complete - v0.13.4
+**Status:** Complete - v0.13.4.1 (with async routing)
 
 **Completed Features:**
 1. ✅ Created `modules/anthropic-http-provider/` - Native Anthropic Messages API
 2. ✅ Created `modules/openai-http-provider/` - OpenAI Chat Completions API (+ Anthropic compat)
-3. ✅ HTTP client implementations with telemetry
-4. ✅ Provider protocol implementations for both providers
-5. ✅ Comprehensive tests: 9 tests, 43 assertions, all passing
+3. ✅ HTTP client implementations with babashka.http-client (Babashka compatible)
+4. ✅ Provider protocol implementations with async routing integration
+5. ✅ Model configuration files (anthropic-models.edn, openai-models.edn)
+6. ✅ Comprehensive tests: 9 tests, 43 assertions, all passing
+7. ✅ **Real API testing: Both providers verified with Anthropic API (claude-sonnet-4-5-20250929)**
 
 **Module Structure:**
 ```
 modules/anthropic-http-provider/
+├── anthropic-models.edn       # Claude 4.5 model identifiers
 ├── src/anthropic_http/
-│   ├── core.clj         # Protocol implementation
-│   └── http_client.clj  # Anthropic Messages API client
+│   ├── core.clj               # Protocol implementation with async routing
+│   └── http_client.clj        # Anthropic Messages API client (babashka.http-client)
 └── test/
     └── anthropic_http/
-        └── core_test.clj  # 4 tests, 18 assertions
+        ├── core_test.clj      # 4 tests, 18 assertions
+        └── run_tests.clj
 
 modules/openai-http-provider/
+├── openai-models.edn          # OpenAI + Anthropic compat model identifiers
 ├── src/openai_http/
-│   ├── core.clj         # Protocol implementation
-│   └── http_client.clj  # OpenAI Chat Completions API client
+│   ├── core.clj               # Protocol implementation with async routing
+│   └── http_client.clj        # OpenAI Chat Completions API client (babashka.http-client)
 └── test/
     └── openai_http/
-        └── core_test.clj  # 5 tests, 25 assertions
+        └── core_test.clj      # 5 tests, 25 assertions
 ```
 
 **Anthropic HTTP Provider:**
@@ -840,36 +845,71 @@ modules/openai-http-provider/
 
 **Usage Examples:**
 ```clojure
-;; Anthropic native API
+;; Anthropic native API (Claude 4.5 models from anthropic-models.edn)
 (orch/start-instance! "claude-api"
   {:provider-type :anthropic-http
-   :api-key (System/getenv "ANTHROPIC_API_KEY")
-   :model "claude-3-5-sonnet-20241022"})
+   :api-key (System/getenv "CLAUDE_API_KEY")
+   :model "claude-sonnet-4-5-20250929"  ; Sonnet 4.5 (recommended)
+   :max-tokens 1024})
 
 ;; OpenAI API
 (orch/start-instance! "gpt"
   {:provider-type :openai-http
    :api-key (System/getenv "OPENAI_API_KEY")
-   :model "gpt-4"})
+   :model "gpt-4-turbo-preview"})
 
-;; Anthropic via OpenAI compatibility endpoint
+;; Anthropic via OpenAI compatibility endpoint (uses Bearer auth)
 (orch/start-instance! "claude-compat"
   {:provider-type :openai-http
-   :api-key (System/getenv "ANTHROPIC_API_KEY")
-   :model "claude-3-5-sonnet-20241022"
-   :base-url "https://api.anthropic.com/v1"})
+   :api-key (System/getenv "CLAUDE_API_KEY")
+   :model "claude-sonnet-4-5-20250929"
+   :base-url "https://api.anthropic.com/v1"
+   :max-tokens 1024})
 ```
 
 **Verification:**
+
+**Unit Tests:**
 ```bash
 $ bb modules/anthropic-http-provider/test/run_tests.clj
-4 tests, 18 assertions, 0 failures, 0 errors ✅
+Ran 4 tests containing 18 assertions.
+0 failures, 0 errors. ✅
 
 $ bb modules/openai-http-provider/test/run_tests.clj
-5 tests, 25 assertions, 0 failures, 0 errors ✅
+Ran 5 tests containing 25 assertions.
+0 failures, 0 errors. ✅
+```
 
+**Real API Tests (both providers verified):**
+```bash
+# Test anthropic-http-provider
+$ . ./.cak.sh && bb -e "(require '[ai-orchestrator.core :as orch] '[anthropic-http.core])
+(let [i (orch/start-instance! \"test\" {:provider-type :anthropic-http
+                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
+                                        :model \"claude-sonnet-4-5-20250929\"
+                                        :max-tokens 100})]
+  (println (orch/ask \"test\" \"Say hello in exactly one word\"))
+  (orch/stop-instance! \"test\"))"
+
+Response: {:content "Hello", :duration_ms 2837} ✅
+
+# Test openai-http-provider (Anthropic compatibility mode)
+$ . ./.cak.sh && bb -e "(require '[ai-orchestrator.core :as orch] '[openai-http.core])
+(let [i (orch/start-instance! \"test\" {:provider-type :openai-http
+                                        :api-key (System/getenv \"CLAUDE_API_KEY\")
+                                        :model \"claude-sonnet-4-5-20250929\"
+                                        :base-url \"https://api.anthropic.com/v1\"
+                                        :max-tokens 100})]
+  (println (orch/ask \"test\" \"Say hello in exactly one word\"))
+  (orch/stop-instance! \"test\"))"
+
+Response: {:content "Hello", :duration_ms 2839} ✅
+```
+
+**Lint & Format:**
+```bash
 $ clj-kondo --lint modules/anthropic-http-provider/src modules/openai-http-provider/src
-0 errors, 0 warnings ✅
+linting took 28ms, 0 errors, 0 warnings ✅
 
 $ cljfmt check modules/anthropic-http-provider/src modules/openai-http-provider/src
 All source files formatted correctly ✅
@@ -881,6 +921,9 @@ All source files formatted correctly ✅
 - ✅ Provider-specific configuration (api-key, base-url, timeouts)
 - ✅ Transport metadata properly structured
 - ✅ All telemetry requirements met
+- ✅ **Async routing integration: HTTP calls non-blocking, promise delivery working**
+- ✅ **Real API connectivity: Both providers successfully tested with Anthropic API**
+- ✅ **No timeout errors: Async promise pattern correctly implemented**
 
 **Next:** Phase 13D - MCP Integration
 
@@ -912,7 +955,7 @@ All source files formatted correctly ✅
 | 13-Port | Port Registry | ✅ Complete | File-based port allocation/discovery, zombie cleanup (12 tests, 36 assertions) |
 | 13E | Expert Registry MVP | ✅ Complete | File-based expert definitions, curriculum loading (9 tests, 29 assertions) |
 | 13B | Multi-Provider Refactor | ✅ Complete | Provider-agnostic orchestration with claude-subprocess provider (5 tests, 17 assertions) |
-| 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers (9 tests, 43 assertions) |
+| 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers with async routing (9 tests, 43 assertions, real API verified) |
 | 13D | MCP Integration | Planned | Expose orchestrator as MCP tools |
 | 13F | Message Bus | Planned | core.async bus, team-based communication |
 | 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
