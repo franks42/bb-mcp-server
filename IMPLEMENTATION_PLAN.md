@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13C Complete (v0.13.4.1) - HTTP Providers + Async Routing
+**Status:** Phase 13B & 13C Complete (v0.13.4.2) - All Providers Working
 **Last Updated:** 2025-11-25
 
 ---
@@ -717,7 +717,7 @@ All source files formatted correctly ✅
 ### Phase 13B: Multi-Provider Refactor ✅ Complete
 
 **Goal:** Extract orchestration infrastructure and make Claude subprocess a provider plugin.
-**Status:** Complete - v0.13.3
+**Status:** Complete - v0.13.4.2 (CLI args fixed)
 
 **Completed Features:**
 1. ✅ Created `modules/ai-orchestrator/` - Provider-agnostic infrastructure
@@ -726,6 +726,7 @@ All source files formatted correctly ✅
 4. ✅ Provider-agnostic registry and request correlation
 5. ✅ Updated expert-registry to use orchestrator API
 6. ✅ Comprehensive tests: 5 tests, 17 assertions, all passing
+7. ✅ **Fixed subprocess CLI args - tested with real Claude CLI (3.85s response)**
 
 **Module Structure:**
 ```
@@ -789,6 +790,25 @@ $ clj-kondo --lint modules/ai-orchestrator/src modules/claude-subprocess-provide
 
 $ cljfmt check modules/ai-orchestrator/src modules/claude-subprocess-provider/src
 All source files formatted correctly ✅
+```
+
+**Subprocess CLI Args Fix (v0.13.4.2):**
+
+Issue discovered: Subprocess provider was passing just the command path to `spawn-process!`, but it expected a full command vector with CLI arguments.
+
+Root cause:
+- Tests only used mock_claude.clj (never tested with real CLI)
+- Missing args: `-p`, `--verbose`, `--input-format stream-json`, `--output-format stream-json`, `--permission-mode bypassPermissions`
+
+Solution:
+- Build command vector in `create-instance` before spawning process
+- Reference working pattern from clay-noj-ai prototype
+- Added `:args` parameter for optional custom arguments
+
+Real API test:
+```bash
+# Response received successfully in 3.85s
+Response: {:content "Hello!", :cost_usd 0, :duration_ms 3850}
 ```
 
 **Next:** Phase 13C - HTTP Providers
