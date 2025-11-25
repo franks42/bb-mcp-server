@@ -1,0 +1,9 @@
+{:name "message-bus"
+ :version "0.1.0"
+ :description "Simple message bus for AI expert communication using atoms and promises"
+ :dependencies []
+ :namespaces [message-bus.core message-bus.teams]
+ :tools []  ;; No MCP tools, library only
+ :lifecycle {:start message-bus.core/module-start
+             :stop message-bus.core/module-stop
+             :status message-bus.core/module-status}}

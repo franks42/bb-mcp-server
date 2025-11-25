@@ -22,7 +22,8 @@
          "modules/claude-manager/src" "modules/claude-manager/test"
          "modules/port-registry/src" "modules/port-registry/test"
          "modules/expert-registry/src" "modules/expert-registry/test"
-         "modules/ai-orchestrator-tools/src" "modules/ai-orchestrator-tools/test"]
+         "modules/ai-orchestrator-tools/src" "modules/ai-orchestrator-tools/test"
+        "modules/message-bus/src" "modules/message-bus/test"]
 
  :tasks
  {;; ==========================================================================
@@ -144,6 +145,9 @@
   test:streamable {:doc "Run streamable-http module tests"
                    :task (load-file "modules/streamable-http/test/run_tests.clj")}
 
+  test:message-bus {:doc "Run message-bus module tests"
+                    :task (load-file "modules/message-bus/test/run_tests.clj")}
+
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)
@@ -154,6 +158,7 @@
                           (run 'test:expert-registry)
                           (run 'test:ai-orchestrator)
                           (run 'test:ai-orchestrator-tools)
+                          (run 'test:message-bus)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 
