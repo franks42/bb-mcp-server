@@ -1,102 +1,75 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-25 (Phase 13F Complete - Message Bus)
-**Current Version:** v0.13.6
+**Last Updated:** 2025-11-25 (Phase 13G Complete - Multi-Agent Orchestration)
+**Current Version:** v0.13.8
 
 ---
 
-## Current State - Phase 13F Complete
+## Current State - Phase 13G Complete 🎉
 
-**Phase 13F Complete:** Message bus implemented with full test coverage.
+**Phase 13G Complete:** Multi-agent orchestration working - 3 AI agents collaborating in 65 seconds!
 
 ### What Was Done:
-1. **Fixed Concurrency Bug** - Pass `request-id` via `:active-request-id` in instance map
-2. **Implemented Message Bus** - Atoms + Promises with Global Response Router
-3. **25 tests, 68 assertions** - All passing
+1. **Multi-Agent Pipeline** - clojure-coder → code-reviewer → test-writer
+2. **Mixed Providers** - subprocess (file access) + anthropic-http (isolated, fast)
+3. **Message Bus Routing** - All agents communicate via ask/reply pattern
+4. **Interaction Learnings** - Documented prompt patterns and anti-patterns
 
-### Concurrency Fix Applied:
-- `router.clj`: Uses `(assoc instance :active-request-id request-id)` before `send-message`
-- All providers read from `:active-request-id` instead of shared atom
-- Each request gets its own request-id scope - no race conditions
-
----
-
-## Message Bus Implementation (Phase 13F)
-
-**Module:** `modules/message-bus/`
-**Design Doc:** `docs/design/message-bus-design.md`
-
-**Implementation:** Atoms + Promises with Global Response Router (NOT core.async)
-
-**Key Features:**
-- **Global Response Router** - Single subscription, O(1) promise lookup
-- **Team Isolation** - Namespaced topics prevent cross-talk
-- **Ring Buffer Log** - Last 100 messages retained for debugging
-- **Error Isolation** - Handler exceptions don't crash bus
-
-**API Surface:**
-```clojure
-;; Core (message_bus.core)
-(subscribe! topic handler-fn)     ; -> unsubscribe-fn
-(publish! topic msg)              ; -> nil
-(ask topic msg :timeout-ms n)     ; -> {:success true :content ...}
-(reply! request-id response)      ; -> boolean
-
-;; Introspection
-(list-topics)                     ; -> {topic count, ...}
-(get-recent-messages n)           ; -> [msg, ...]
-(get-pending-requests)            ; -> count
-
-;; Teams (message_bus.teams)
-(create-team! team-id members)
-(team-publish! team topic msg)
-(team-subscribe! team topic handler-fn)
-(team-broadcast! team msg)
+### Final Test Results:
+```
+clojure-coder (subprocess)    → 36s  (writes code to disk)
+code-reviewer (anthropic-http) → 5s   (isolated review, APPROVED)
+test-writer (anthropic-http)   → 12s  (generates comprehensive tests)
+─────────────────────────────────────
+Total:                          65 seconds
 ```
 
-**Tests:** 25 tests, 68 assertions
+---
 
-**Future:** Datalevin persistence (see `docs/design/datalevin-message-bus-review.md`)
+## Key Learnings (Phase 13G)
+
+**Documented in:** `docs/design/multi-agent-interaction-learnings.md`
+
+### 1. Prompt Patterns
+- ❌ "If the code is PERFECT, respond APPROVED" → endless loops
+- ✅ "If the code will WORK correctly, respond APPROVED" → approved in 5s
+- ✅ Focus on BLOCKER/BUG/CRASH only, ignore style preferences
+
+### 2. Provider Selection
+| Use Case | Provider | Reason |
+|----------|----------|--------|
+| Write files to disk | subprocess | Has file access |
+| Code review | anthropic-http | Isolated, fast, fresh perspective |
+| Test generation | anthropic-http | Isolated, predictable timing |
+
+### 3. Subprocess Isolation
+When using subprocess for text generation (not file writing), add:
+```
+Base your response ONLY on the code provided.
+Do NOT access the project's files or run any commands.
+```
+
+HTTP agents don't need this - isolation is enforced by transport.
 
 ---
 
-## AI Orchestrator MCP Tools (v0.13.5)
+## AI Orchestrator Architecture
 
-**Module:** `modules/ai-orchestrator-tools/`
-
-4 MCP tools for AI instance management:
-
-| Tool | Description |
-|------|-------------|
-| `ai_start_instance` | Start AI instance (any provider) |
-| `ai_ask` | Send message to running instance |
-| `ai_stop_instance` | Stop instance and release resources |
-| `ai_list_instances` | List all running instances |
-
-**Provider Types:**
+### Providers (3 types):
 - `anthropic-http` - Native Anthropic Messages API (recommended for Claude)
 - `openai-http` - OpenAI-compatible API (OpenAI, Gemini, Anthropic compat)
-- `claude-subprocess` - Claude CLI subprocess (~11s startup)
+- `claude-subprocess` - Claude CLI subprocess (~11s startup, has file access)
 
-**OpenAI-compatible Endpoints (via openai-http):**
-- OpenAI: `https://api.openai.com/v1` (default)
-- Gemini: `https://generativelanguage.googleapis.com/v1beta/openai`
-- Anthropic: `https://api.anthropic.com/v1` (Bearer auth)
-
----
-
-## Performance Summary
-
-| Provider | Model | Startup | Ongoing Requests |
-|----------|-------|---------|------------------|
-| anthropic-http | Sonnet 4.5 | ~500ms | 2-3s |
-| openai-http | gpt-4o-mini | ~1ms | 0.9-1.7s |
-| openai-http | gemini-2.0-flash | ~1ms | 0.6-0.8s |
-| claude-subprocess | Sonnet | **~11-12s** | 3-4s |
+### Performance:
+| Provider | Startup | Ongoing | File Access |
+|----------|---------|---------|-------------|
+| anthropic-http | <1s | 2-5s | No |
+| openai-http | <1s | 0.6-1.7s | No |
+| claude-subprocess | ~11-12s | 3-4s | **Yes** |
 
 ---
 
-## Project Structure
+## Module Structure
 
 ### AI Modules (Phase 13)
 ```
@@ -134,6 +107,9 @@ bb server --http 8080          # HTTP on custom port
 bb test:modules                # All module tests
 bb test:ai-orchestrator        # AI orchestrator tests
 
+# Multi-agent test
+source .cak.sh && bb scripts/multi_agent_test.clj
+
 # Verification (REQUIRED before commit)
 clj-kondo --lint <files>       # 0 errors, 0 warnings
 cljfmt check <files>           # All files formatted
@@ -146,9 +122,10 @@ cljfmt check <files>           # All files formatted
 | Document | Purpose |
 |----------|---------|
 | `IMPLEMENTATION_PLAN.md` | Single source of truth for planning |
+| `docs/design/multi-agent-interaction-learnings.md` | **NEW** Prompt patterns & anti-patterns |
+| `docs/design/multi-agent-orchestration-test.md` | Multi-agent test design |
 | `docs/design/message-bus-design.md` | Message bus options analysis |
 | `docs/design/ai-experts-framework.md` | Expert architecture |
-| `docs/design/ai-experts-framework-review-gemini-3.md` | Concurrency bug identified |
 
 ---
 
@@ -162,7 +139,8 @@ cljfmt check <files>           # All files formatted
 - Phase 13B: Multi-provider refactor (v0.13.3-v0.13.4.3)
 - Phase 13C: HTTP providers (v0.13.4.1)
 - Phase 13D: MCP Tool Integration (v0.13.5)
-- **Phase 13F: Message Bus + Concurrency Fix (v0.13.6)**
+- Phase 13F: Message Bus + Concurrency Fix (v0.13.6)
+- **Phase 13G: Multi-Agent Orchestration (v0.13.7-v0.13.8)** ✅
 
 ---
 
@@ -173,7 +151,8 @@ cljfmt check <files>           # All files formatted
 3. **Telemetry required** - taoensso.trove for all I/O
 4. **Zero lint warnings** - Not just errors
 5. **Never commit API keys** - Use .cak.sh (gitignored)
+6. **No `timeout` command** - Use `sleep` (macOS compatibility)
 
 ---
 
-*Context updated for Phase 13F Complete - Message Bus Implementation*
+*Context updated for Phase 13G Complete - Multi-Agent Orchestration*

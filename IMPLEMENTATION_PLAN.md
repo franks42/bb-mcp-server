@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13F Complete (v0.13.6) - Message Bus
+**Status:** Phase 13G Complete (v0.13.8) - Multi-Agent Orchestration
 **Last Updated:** 2025-11-25
 
 ---
@@ -992,7 +992,84 @@ All source files formatted correctly ✅
 - ✅ **Real API connectivity: Both providers successfully tested with Anthropic API**
 - ✅ **No timeout errors: Async promise pattern correctly implemented**
 
-**Next:** Phase 13G - Dynamic Orchestration
+---
+
+### Phase 13G: Multi-Agent Orchestration ✅ Complete
+
+**Goal:** Demonstrate multiple AI agents collaborating on a real task via message bus
+**Status:** Complete - v0.13.8
+
+**Test Scenario:** Code Review Pipeline
+- 3 agents: clojure-coder, code-reviewer, test-writer
+- Task: Implement `retry-with-backoff` function with tests
+
+**Final Architecture:**
+```
+User Task
+    │
+    ▼
+┌─────────────────┐
+│  clojure-coder  │  subprocess (file access for writing code)
+│  Sonnet 4.5     │  36s
+└────────┬────────┘
+         │ code (read from disk)
+         ▼
+┌─────────────────┐
+│  code-reviewer  │  anthropic-http (isolated, fast)
+│  Sonnet 4.5     │  5s
+└────────┬────────┘
+         │ APPROVED
+         ▼
+┌─────────────────┐
+│   test-writer   │  anthropic-http (isolated, fast)
+│  Haiku          │  12s
+└────────┬────────┘
+         │ tests
+         ▼
+    Complete (65s total)
+```
+
+**Key Learnings Documented in `docs/design/multi-agent-interaction-learnings.md`:**
+
+1. **"Good enough" prompts beat "perfect" prompts**
+   - "If PERFECT, respond APPROVED" → endless review loops
+   - "If it WORKS correctly, respond APPROVED" → approved in 5s
+   - Focus on BLOCKER/BUG/CRASH only, ignore style preferences
+
+2. **Subprocess vs HTTP performance**
+   - Subprocess: file access but unpredictable timing (may do extra work)
+   - HTTP API: fast, predictable, isolated (physically cannot access files)
+   - Use subprocess ONLY when file access is REQUIRED
+
+3. **Subprocess isolation prompts**
+   - When using subprocess for text generation, add:
+     "Base your response ONLY on the code provided. Do NOT access files."
+   - HTTP agents don't need this - isolation enforced by transport
+
+**Iterations:**
+| # | Issue | Fix | Result |
+|---|-------|-----|--------|
+| 1 | Reviewer never approved | - | 3 iterations, max reached |
+| 2 | Changed to "good enough" prompt | Focus BLOCKER/BUG/CRASH | **APPROVED in 5s** |
+| 3 | Test-writer timed out (120s) | - | Subprocess doing file ops |
+| 4 | Switched test-writer to HTTP | `anthropic-http` Haiku | **Complete in 65s** |
+
+**Files Created:**
+- `docs/design/multi-agent-orchestration-test.md` - Design document
+- `docs/design/multi-agent-interaction-learnings.md` - Prompt patterns & anti-patterns
+- `docs/design/multi-agent-test-log.md` - Execution log
+- `scripts/multi_agent_test.clj` - Test script
+
+**Verification:**
+```bash
+$ source .cak.sh && bb scripts/multi_agent_test.clj
+✅ 3 agents started (coder subprocess, reviewer HTTP, tester HTTP)
+✅ Code generated (36s)
+✅ Code reviewed and APPROVED (5s)
+✅ Tests generated (12s)
+✅ All agents stopped cleanly
+Total: 65 seconds
+```
 
 ---
 
