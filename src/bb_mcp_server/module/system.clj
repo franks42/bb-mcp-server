@@ -643,3 +643,75 @@
             {:error {:type :reload-sync-failed
                      :message "Module not found in ns-loader after reload"}}))
         {:error (:error reload-result)}))))
+
+(defn load-new-module!
+  "Dynamically load and start a new module at runtime.
+
+  This function allows loading modules after the server is already running,
+  which is useful for hot-loading external modules.
+
+  Args:
+    module-path - Path to module directory (must contain module.edn)
+    opts        - Optional map with:
+                  :config - Module-specific configuration
+
+  Process:
+    1. Add module's src to classpath (via bootstrap)
+    2. Load module via ns_loader
+    3. Start module with dependencies
+    4. Register in system state
+    5. Trigger listChanged notification
+
+  Returns:
+    {:success {:module-name ... :tools [...]}} or {:error {...}}"
+  ([module-path]
+   (load-new-module! module-path {}))
+  ([module-path opts]
+   (log/log! {:level :info
+              :id ::load-new-module-start
+              :msg "Loading new module at runtime"
+              :data {:path module-path}})
+   (try
+     ;; Step 1: Add to classpath
+    (let [boot-add (requiring-resolve 'bb-mcp-server.bootstrap/add-external!)
+          classpath-result (boot-add module-path)]
+      (if (:error classpath-result)
+        {:error {:type :classpath-failed
+                 :path module-path
+                 :cause (:error classpath-result)}}
+         ;; Step 2: Load module via ns_loader
+        (let [load-result (ns-loader/load-module module-path)]
+          (if (:error load-result)
+            {:error {:type :load-failed
+                     :path module-path
+                     :cause (:error load-result)}}
+             ;; Step 3: Get module data and start
+            (let [module-data (:success load-result)
+                  module-name (get-in module-data [:manifest :name])
+                  module-config (get opts :config {})]
+               ;; Add to system state
+              (swap! system-state assoc-in [:modules module-name] module-data)
+               ;; Start the module
+              (let [start-result (start-module-with-deps module-name module-data
+                                                         (assoc (:config @system-state)
+                                                                module-name module-config))]
+                (if (:success start-result)
+                  (do
+                   (swap! system-state assoc-in [:instances module-name]
+                          {:instance (:success start-result)
+                           :started-at (System/currentTimeMillis)})
+                   (log/log! {:level :info
+                              :id ::load-new-module-complete
+                              :msg "New module loaded and started"
+                              :data {:module module-name
+                                     :path module-path}})
+                   {:success {:module-name module-name
+                              :path module-path
+                              :tools (mapv :name (get-in module-data [:module :tools]))}})
+                  {:error {:type :start-failed
+                           :module module-name
+                           :cause (:error start-result)}})))))))
+    (catch Exception e
+           {:error {:type :unexpected-error
+                    :path module-path
+                    :message (ex-message e)}}))))
