@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13G Complete (v0.13.8) - Multi-Agent Orchestration
-**Last Updated:** 2025-11-25
+**Status:** Phase 13G Complete (v0.13.9) - Multi-Agent Orchestration | Phase 14 Planned
+**Last Updated:** 2025-11-26
 
 ---
 
@@ -1319,6 +1319,68 @@ modules/claude-manager/
 │   ├── core.clj      # Public API (spawn, ask, list)
 │   ├── process.clj   # Low-level process & I/O handling
 │   └── registry.clj  # State management (atoms)
+```
+
+---
+
+## Phase 14: Classpath-Based Module Dependencies (Planned)
+
+**Goal:** Simplify module dependency resolution by leveraging Clojure's native classpath mechanism.
+
+**Key Insight (from 2025-11-26 discussion):**
+
+When all module paths are on the classpath (via bb.edn `:paths`), cross-module namespace `require` works automatically - no explicit module loading needed for namespace dependencies. The module system should reflect this:
+
+1. **Namespace dependencies** → Automatic via classpath (Clojure's `require`)
+2. **Module dependencies** → Only for lifecycle ordering (start/stop)
+
+**Current State:**
+- `bb.edn` already has all module paths in `:paths`
+- `ns_loader.clj` redundantly calls `add-classpath` (no-op when path exists)
+- Docs mention this but don't emphasize the practical implications
+
+**Benefits of Clarification:**
+- Selective namespace loading: `(require '[module-b.utils])` without loading module-b
+- Lighter dependencies: Use utilities without full module lifecycle
+- Simpler mental model: Classpath = namespace availability, Module loading = tool registration + lifecycle
+- Testing: Require just what you need without module system ceremony
+
+### 14.1 Update Documentation
+
+| # | Task | Status | File |
+|---|------|--------|------|
+| 14.1.1 | Add "Selective Namespace Loading" section | Planned | docs/dynamic-module-loading.md |
+| 14.1.2 | Clarify two-level dependency model | Planned | docs/design/module-system-design.md |
+| 14.1.3 | Add practical examples (utils from other modules) | Planned | Both docs |
+
+### 14.2 Simplify Code
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 14.2.1 | Make `add-classpath` conditional in ns_loader.clj | Planned | Skip if path already on classpath |
+| 14.2.2 | Add `path-on-classpath?` helper | Planned | Returns true if dir already in cp |
+| 14.2.3 | Update docstrings to reflect insight | Planned | Clear explanation of what loading does vs require |
+
+### 14.3 Add Selective Loading Example
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 14.3.1 | Create example showing utils usage across modules | Planned | Working code example |
+| 14.3.2 | Document when to use require vs load-module | Planned | Decision guide |
+
+**Example (target documentation):**
+```clojure
+;; Scenario: Module A wants to use utilities from Module B
+;; WITHOUT loading Module B (no tool registration, no lifecycle)
+
+(ns module-a.core
+  (:require [module-b.utils :as utils]))  ; Just works!
+
+;; module-b.utils is available via classpath (bb.edn :paths)
+;; Module B's tools are NOT registered
+;; Module B's lifecycle is NOT started
+
+;; This is pure Clojure - classpath IS the dependency mechanism
 ```
 
 ---

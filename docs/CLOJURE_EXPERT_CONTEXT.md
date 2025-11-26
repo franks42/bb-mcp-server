@@ -42,7 +42,36 @@ If required tools (`clj-kondo`, `cljfmt`, `parmezan`) are missing:
 ### 4. Babashka for Scripting
 Use Babashka (`bb`) for automation tasks (install, deploy, CI, tooling). Only use other shells if the user explicitly requests it or `bb` fundamentally cannot perform the operation.
 
-### 5. Telemetry & Logging Are Required
+### 5. Classpath-Based Dependencies (Babashka/Clojure)
+**Key insight:** The classpath IS the dependency mechanism. When directories are on the classpath (via `bb.edn` `:paths` or `deps.edn`), namespaces can be `require`d directly - no explicit "loading" needed.
+
+**Two levels of dependencies:**
+1. **Namespace dependencies** → Automatic via classpath (Clojure's `require`)
+2. **Module/component dependencies** → Only for lifecycle ordering (start/stop)
+
+**Practical implications:**
+```clojure
+;; If module-b/src is on classpath, you can:
+(require '[module-b.utils :as utils])  ; Just works!
+
+;; This does NOT:
+;; - "Load" module-b formally
+;; - Register module-b's tools
+;; - Start module-b's lifecycle
+
+;; Use this for:
+;; - Sharing utility functions across modules
+;; - Testing with minimal ceremony
+;; - Lighter dependencies (just the code you need)
+```
+
+**When to use what:**
+| Need | Approach |
+|------|----------|
+| Just the code/functions | `(require '[module.namespace])` |
+| Tool registration + lifecycle | Module loader / component system |
+
+### 6. Telemetry & Logging Are Required
 Every function that performs I/O, business logic, or crosses a system boundary must emit telemetry using Telemere/Telemere-lite. No exceptions.
 
 ---

@@ -6,24 +6,9 @@
         com.taoensso/timbre {:mvn/version "6.8.0"}
         org.clojure/tools.logging {:mvn/version "1.3.0"}}
 
- :paths ["src" "scripts" "test"
-         "modules/nrepl/src" "modules/nrepl/test"
-         "modules/calculate/src" "modules/calculate/test"
-         "modules/local-eval/src"
-         "modules/http-core/src" "modules/http-core/test"
-         "modules/mcp-http/src" "modules/mcp-http/test"
-         "modules/mcp-stdio/src" "modules/mcp-stdio/test"
-         "modules/rest-api/src" "modules/rest-api/test"
-         "modules/streamable-http/src" "modules/streamable-http/test"
-         "modules/ai-orchestrator/src" "modules/ai-orchestrator/test"
-         "modules/claude-subprocess-provider/src" "modules/claude-subprocess-provider/test"
-         "modules/anthropic-http-provider/src" "modules/anthropic-http-provider/test"
-         "modules/openai-http-provider/src" "modules/openai-http-provider/test"
-         "modules/claude-manager/src" "modules/claude-manager/test"
-         "modules/port-registry/src" "modules/port-registry/test"
-         "modules/expert-registry/src" "modules/expert-registry/test"
-         "modules/ai-orchestrator-tools/src" "modules/ai-orchestrator-tools/test"
-        "modules/message-bus/src" "modules/message-bus/test"]
+ ;; Core paths only - module paths are discovered dynamically by bootstrap.clj
+ ;; Call (bb-mcp-server.bootstrap/ensure-module-paths!) before requiring modules
+ :paths ["src" "scripts" "test"]
 
  :tasks
  {;; ==========================================================================
@@ -60,7 +45,10 @@
   ;; ==========================================================================
 
   server {:doc "Run MCP server [--stdio] [--http [port]] [--help]"
-          :task (apply (requiring-resolve 'bb-mcp-server.main/-main) *command-line-args*)}
+          :task (do
+                  ;; Bootstrap: discover and add all module paths to classpath
+                  ((requiring-resolve 'bb-mcp-server.bootstrap/ensure-module-paths!))
+                  (apply (requiring-resolve 'bb-mcp-server.main/-main) *command-line-args*))}
 
   server:stop {:doc "Stop HTTP server running on [port] (default 3000)"
                :task (load-file "scripts/stop_server.clj")}
@@ -109,43 +97,59 @@
   ;; Module Test Tasks
   ;; ==========================================================================
 
+  ;; Helper to bootstrap module paths before running module code
+  -bootstrap {:task ((requiring-resolve 'bb-mcp-server.bootstrap/ensure-module-paths!))}
+
   test:nrepl {:doc "Run nrepl module unit tests"
+              :depends [-bootstrap]
               :task (load-file "modules/nrepl/test/run_tests.clj")}
 
   test:http-core {:doc "Run http-core module tests"
+                  :depends [-bootstrap]
                   :task (load-file "modules/http-core/test/run_tests.clj")}
 
   test:mcp-http {:doc "Run mcp-http module tests"
+                 :depends [-bootstrap]
                  :task (load-file "modules/mcp-http/test/run_tests.clj")}
 
   test:mcp-stdio {:doc "Run mcp-stdio module tests"
+                  :depends [-bootstrap]
                   :task (load-file "modules/mcp-stdio/test/run_tests.clj")}
 
   test:rest-api {:doc "Run rest-api module tests"
+                 :depends [-bootstrap]
                  :task (load-file "modules/rest-api/test/run_tests.clj")}
 
   test:claude-manager {:doc "Run claude-manager module tests"
+                       :depends [-bootstrap]
                        :task (load-file "modules/claude-manager/test/run_tests.clj")}
 
   test:port-registry {:doc "Run port-registry module tests"
+                      :depends [-bootstrap]
                       :task (load-file "modules/port-registry/test/run_tests.clj")}
 
   test:expert-registry {:doc "Run expert-registry module tests"
+                        :depends [-bootstrap]
                         :task (load-file "modules/expert-registry/test/run_tests.clj")}
 
   test:ai-orchestrator {:doc "Run ai-orchestrator module tests"
+                        :depends [-bootstrap]
                         :task (load-file "modules/ai-orchestrator/test/run_tests.clj")}
 
   test:ai-orchestrator-tools {:doc "Run ai-orchestrator-tools module tests"
+                              :depends [-bootstrap]
                               :task (load-file "modules/ai-orchestrator-tools/test/run_tests.clj")}
 
   test:stdio {:doc "Run stdio transport tests"
+              :depends [-bootstrap]
               :task (load-file "test/run_stdio_tests.clj")}
 
   test:streamable {:doc "Run streamable-http module tests"
+                   :depends [-bootstrap]
                    :task (load-file "modules/streamable-http/test/run_tests.clj")}
 
   test:message-bus {:doc "Run message-bus module tests"
+                    :depends [-bootstrap]
                     :task (load-file "modules/message-bus/test/run_tests.clj")}
 
   test:modules {:doc "Run all module tests"
