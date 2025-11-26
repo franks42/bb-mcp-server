@@ -20,7 +20,11 @@
   - Namespace deps: handled automatically by babashka's require
   - Module deps: cross-module dependencies at the application layer
 
-  Note: :load-order is no longer needed! Babashka handles ns ordering."
+  Note: :load-order is no longer needed! Babashka handles ns ordering.
+
+  External modules: Modules can be loaded from outside the project tree
+  via BB_MCP_EXTERNAL_MODULES env var. These are automatically discovered
+  by bootstrap.clj and made available here via find-module-dir."
     (:require [babashka.classpath :refer [add-classpath]]
               [babashka.fs :as fs]
               [bb-mcp-server.module.protocol :as proto]
@@ -42,6 +46,44 @@
                 :failed-loads 0
                 :reload-count 0
                 :last-operation nil}))
+
+;; =============================================================================
+;; Module Directory Resolution
+;; =============================================================================
+
+(defn find-module-dir
+  "Find module directory by name, checking internal and external locations.
+
+  Searches in order:
+  1. Internal: modules-dir/module-name
+  2. External: paths from bootstrap/list-external-modules
+
+  Args:
+    module-name - Name of module to find
+    modules-dir - Base internal modules directory (default: \"modules\")
+
+  Returns:
+    Path string to module directory, or nil if not found."
+  ([module-name]
+   (find-module-dir module-name "modules"))
+  ([module-name modules-dir]
+   (let [internal-path (fs/path modules-dir module-name)]
+     (cond
+       ;; Check internal first
+       (fs/exists? (fs/path internal-path "module.edn"))
+       (str internal-path)
+
+       ;; Check external modules from bootstrap
+       :else
+       (try
+        (when-let [external-modules ((requiring-resolve 'bb-mcp-server.bootstrap/list-external-modules))]
+                  (some (fn [{:keys [name path]}]
+                          (when (= name module-name)
+                            path))
+                        external-modules))
+        (catch Exception _
+           ;; Bootstrap not loaded yet - that's ok
+               nil))))))
 
 ;; =============================================================================
 ;; Manifest Loading
@@ -414,6 +456,10 @@
 (defn load-modules-from-system
   "Load modules specified in system.edn.
 
+  Searches for modules in order:
+  1. Internal: modules-dir/module-name
+  2. External: paths from bootstrap/list-external-modules
+
   Args:
     system-config - Parsed system.edn {:modules-dir \"...\" :modules [...]}
 
@@ -424,7 +470,8 @@
         module-names (:modules system-config [])]
     (into {}
           (for [name module-names]
-               (let [module-dir (fs/path modules-dir name)
+               (let [module-dir (or (find-module-dir name modules-dir)
+                                    (str (fs/path modules-dir name)))
                      result (load-module module-dir)]
                  (when (:success result)
                    (swap! loaded-modules assoc name (:success result)))

@@ -223,6 +223,9 @@
   Modules are loaded in the order specified in module-names (from system.edn).
   This order must respect module dependencies - dependencies must be listed first.
 
+  Supports both internal modules (in modules-dir) and external modules
+  (from BB_MCP_EXTERNAL_MODULES env var) via ns-loader/find-module-dir.
+
   Args:
     modules-dir  - Path to modules directory
     module-names - Seq of module names to load (in dependency order!)
@@ -231,12 +234,17 @@
     Map of module-name -> {:manifest ... :module ...} or {:error ...}"
   [modules-dir module-names]
   (let [module-dirs (discover-module-dirs modules-dir module-names)
-        ;; Create lookup: module-name -> dir-path
+        ;; Create lookup: module-name -> dir-path (internal modules)
         dir-by-name (into {} (for [d module-dirs]
                                   [(.getName (io/file d)) d]))
-        ;; Load in the order specified in module-names (respects dependencies)
+        ;; Resolve each module name to a directory
+        ;; Uses ns-loader/find-module-dir which checks both internal and external
+        resolve-dir (fn [name]
+                      (or (get dir-by-name name)
+                          (ns-loader/find-module-dir name modules-dir)))
+        ;; Get ordered dirs for all module names
         ordered-dirs (if module-names
-                       (keep #(get dir-by-name %) module-names)
+                       (keep resolve-dir module-names)
                        module-dirs)]
     (into {}
           (for [dir ordered-dirs]

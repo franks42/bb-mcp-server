@@ -33,6 +33,24 @@ See `modules/*/README.md` for details.
 {:modules ["hello" "echo" "calculate" "nrepl" "local-eval"]}
 ```
 
+## External Modules
+
+Load modules from outside the project directory:
+
+```bash
+# Single module or collection of modules
+BB_MCP_EXTERNAL_MODULES=/path/to/my-module bb server --http
+
+# Multiple paths (colon-separated)
+BB_MCP_EXTERNAL_MODULES=/path/to/module1:/path/to/modules-collection bb server --http
+```
+
+Auto-detects:
+- **Single module**: Directory containing `module.edn`
+- **Collection**: Directory with subdirectories containing `module.edn`
+
+Modules must be listed in `system.edn` to be loaded.
+
 ## Claude Code
 
 ```json
