@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 13G Complete (v0.13.9) - Multi-Agent Orchestration | Phase 14 Planned
+**Status:** Phase 14B Complete (v0.14.0) - Dynamic Runtime Module Loading
 **Last Updated:** 2025-11-26
 
 ---
@@ -1323,50 +1323,110 @@ modules/claude-manager/
 
 ---
 
-## Phase 14: Classpath-Based Module Dependencies (Planned)
+## Phase 14: Dynamic Classpath-Based Module Discovery
 
-**Goal:** Simplify module dependency resolution by leveraging Clojure's native classpath mechanism.
+**Status:** Phase 14A & 14B Complete (v0.14.0)
+**Last Updated:** 2025-11-26
+
+### Overview
+
+**Goal:** Enable loading modules from outside the project directory and dynamically at runtime.
+
+**Key Features:**
+1. **External Modules** - Load from `BB_MCP_EXTERNAL_MODULES` env var
+2. **Dynamic Runtime Loading** - Hot-load modules via `load-new-module!`
+3. **Minimal Bootstrap Pattern** - Start with just nrepl, load everything else dynamically
+
+---
+
+### Phase 14A: External Module Loading ✅ Complete
+
+**Goal:** Load modules from arbitrary paths outside the project directory.
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 14A.1 | Implement `BB_MCP_EXTERNAL_MODULES` env var support | ✅ | Colon-separated paths |
+| 14A.2 | Auto-detect single module vs collection | ✅ | Check for module.edn |
+| 14A.3 | Add paths to classpath at startup | ✅ | Via `babashka.classpath/add-classpath` |
+| 14A.4 | Update README with external modules docs | ✅ | Usage examples |
+| 14A.5 | Test with external modules | ✅ | echo/hello from /tmp/external-modules/ |
+
+**Usage:**
+```bash
+# Single module or collection of modules
+BB_MCP_EXTERNAL_MODULES=/path/to/my-module bb server --http
+
+# Multiple paths (colon-separated)
+BB_MCP_EXTERNAL_MODULES=/path/to/module1:/path/to/modules-collection bb server --http
+```
+
+---
+
+### Phase 14B: Runtime Dynamic Loading ✅ Complete
+
+**Goal:** Load modules at runtime after the server is already running.
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 14B.1 | Implement `load-new-module!` function | ✅ | In `system.clj` |
+| 14B.2 | Add classpath manipulation via bootstrap | ✅ | `add-external!` helper |
+| 14B.3 | Support loading + starting + registering | ✅ | Full module lifecycle |
+| 14B.4 | Test via test script | ✅ | `scripts/test_dynamic_load.clj` |
+| 14B.5 | Document minimal bootstrap pattern | ✅ | README updated |
+
+**Core Function:**
+```clojure
+(require '[bb-mcp-server.module.system :as system])
+(system/load-new-module! "/path/to/external-module")
+;; => {:success {:module-name "hello" :tools ["hello.hello"]}}
+```
+
+**Minimal Bootstrap Pattern:**
+```clojure
+;; system.edn - start with just nrepl
+{:modules ["nrepl"]}
+
+;; Then dynamically load everything else via nrepl-eval:
+(system/load-new-module! "/path/to/module-a")
+(system/load-new-module! "/path/to/module-b")
+```
+
+**Key Implementation Details:**
+- `system/load-new-module!` (lines 647-717 in system.clj)
+- Adds module src to classpath via `bootstrap/add-external!`
+- Loads module via `ns-loader/load-module`
+- Starts module with dependencies
+- Registers tools immediately
+- Triggers `listChanged` notification
+
+**Test Verification:**
+```bash
+$ bb scripts/test_dynamic_load.clj
+=== Testing Dynamic Module Loading ===
+Initial state: 2 tools [strings.concat math.add]
+Dynamically loaded echo: 3 tools
+Dynamically loaded hello: 4 tools
+Echo tool result: {:echo "Dynamic loading works!"}
+Hello tool result: {:greeting "Hi, External Module!"}
+=== Dynamic Loading Test Complete ===
+```
+
+---
+
+### Phase 14C: Documentation & Cleanup (Planned)
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 14C.1 | Add "Selective Namespace Loading" section | Planned | docs/dynamic-module-loading.md |
+| 14C.2 | Clarify two-level dependency model | Planned | docs/design/module-system-design.md |
+| 14C.3 | Make `add-classpath` conditional in ns_loader.clj | Planned | Skip if path already on classpath |
 
 **Key Insight (from 2025-11-26 discussion):**
 
-When all module paths are on the classpath (via bb.edn `:paths`), cross-module namespace `require` works automatically - no explicit module loading needed for namespace dependencies. The module system should reflect this:
+When all module paths are on the classpath (via bb.edn `:paths`), cross-module namespace `require` works automatically:
 
 1. **Namespace dependencies** → Automatic via classpath (Clojure's `require`)
 2. **Module dependencies** → Only for lifecycle ordering (start/stop)
-
-**Current State:**
-- `bb.edn` already has all module paths in `:paths`
-- `ns_loader.clj` redundantly calls `add-classpath` (no-op when path exists)
-- Docs mention this but don't emphasize the practical implications
-
-**Benefits of Clarification:**
-- Selective namespace loading: `(require '[module-b.utils])` without loading module-b
-- Lighter dependencies: Use utilities without full module lifecycle
-- Simpler mental model: Classpath = namespace availability, Module loading = tool registration + lifecycle
-- Testing: Require just what you need without module system ceremony
-
-### 14.1 Update Documentation
-
-| # | Task | Status | File |
-|---|------|--------|------|
-| 14.1.1 | Add "Selective Namespace Loading" section | Planned | docs/dynamic-module-loading.md |
-| 14.1.2 | Clarify two-level dependency model | Planned | docs/design/module-system-design.md |
-| 14.1.3 | Add practical examples (utils from other modules) | Planned | Both docs |
-
-### 14.2 Simplify Code
-
-| # | Task | Status | Acceptance Criteria |
-|---|------|--------|---------------------|
-| 14.2.1 | Make `add-classpath` conditional in ns_loader.clj | Planned | Skip if path already on classpath |
-| 14.2.2 | Add `path-on-classpath?` helper | Planned | Returns true if dir already in cp |
-| 14.2.3 | Update docstrings to reflect insight | Planned | Clear explanation of what loading does vs require |
-
-### 14.3 Add Selective Loading Example
-
-| # | Task | Status | Acceptance Criteria |
-|---|------|--------|---------------------|
-| 14.3.1 | Create example showing utils usage across modules | Planned | Working code example |
-| 14.3.2 | Document when to use require vs load-module | Planned | Decision guide |
 
 **Example (target documentation):**
 ```clojure

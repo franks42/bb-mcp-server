@@ -49,7 +49,29 @@ Auto-detects:
 - **Single module**: Directory containing `module.edn`
 - **Collection**: Directory with subdirectories containing `module.edn`
 
-Modules must be listed in `system.edn` to be loaded.
+Modules must be listed in `system.edn` to be loaded at startup.
+
+## Dynamic Module Loading
+
+Load modules at runtime (after server is already running):
+
+```clojure
+;; Via nrepl-eval or direct REPL
+(require '[bb-mcp-server.module.system :as system])
+(system/load-new-module! "/path/to/external-module")
+```
+
+This enables a **minimal bootstrap pattern**:
+1. Start server with just `nrepl` module
+2. Load other modules dynamically via `nrepl-eval`
+3. Tools are registered immediately after loading
+
+```clojure
+;; system.edn - minimal bootstrap
+{:modules ["nrepl"]}  ; Just nrepl!
+```
+
+See `scripts/test_dynamic_load.clj` for a working example.
 
 ## Claude Code
 
