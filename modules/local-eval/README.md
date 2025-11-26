@@ -1,21 +1,21 @@
 # local-eval
 
-Local code evaluation tools using SCI sandbox.
+Local code evaluation with full server access.
 
 ## Overview
 
-Execute Clojure code and load files directly within the MCP server's runtime environment. Useful for server introspection, debugging, and dynamic configuration.
+Execute Clojure code and load files directly within the MCP server's runtime environment using native Babashka `eval`. Provides **full access** to server state, namespaces, and all Clojure capabilities. Useful for server introspection, debugging, dynamic module loading, and configuration.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| `local-eval` | Evaluate Clojure code in MCP server runtime |
+| `local-eval` | Evaluate Clojure code with full server access |
 | `local-load-file` | Load and evaluate Clojure files |
 
 ## Tool: `local-eval`
 
-Execute Clojure code in the server's SCI sandbox.
+Execute Clojure code with full access to the server runtime (no sandbox restrictions).
 
 ```clojure
 ;; Basic evaluation

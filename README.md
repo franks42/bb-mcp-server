@@ -56,20 +56,22 @@ Modules must be listed in `system.edn` to be loaded at startup.
 Load modules at runtime (after server is already running):
 
 ```clojure
-;; Via nrepl-eval or direct REPL
+;; Via local-eval, nrepl-eval, or direct REPL
 (require '[bb-mcp-server.module.system :as system])
 (system/load-new-module! "/path/to/external-module")
 ```
 
 This enables a **minimal bootstrap pattern**:
-1. Start server with just `nrepl` module
-2. Load other modules dynamically via `nrepl-eval`
+1. Start server with just `local-eval` (or `nrepl`)
+2. Load other modules dynamically via `local-eval`
 3. Tools are registered immediately after loading
 
 ```clojure
 ;; system.edn - minimal bootstrap
-{:modules ["nrepl"]}  ; Just nrepl!
+{:modules ["local-eval"]}  ; Just local-eval!
 ```
+
+Both `local-eval` and `nrepl` have full server access (no sandbox restrictions).
 
 See `scripts/test_dynamic_load.clj` for a working example.
 

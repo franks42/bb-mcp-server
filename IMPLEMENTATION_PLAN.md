@@ -1383,13 +1383,15 @@ BB_MCP_EXTERNAL_MODULES=/path/to/module1:/path/to/modules-collection bb server -
 
 **Minimal Bootstrap Pattern:**
 ```clojure
-;; system.edn - start with just nrepl
-{:modules ["nrepl"]}
+;; system.edn - start with just local-eval (or nrepl)
+{:modules ["local-eval"]}
 
-;; Then dynamically load everything else via nrepl-eval:
+;; Then dynamically load everything else via local-eval:
 (system/load-new-module! "/path/to/module-a")
 (system/load-new-module! "/path/to/module-b")
 ```
+
+Both `local-eval` and `nrepl` have full server access (no sandbox restrictions).
 
 **Key Implementation Details:**
 - `system/load-new-module!` (lines 647-717 in system.clj)
