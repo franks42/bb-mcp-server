@@ -1468,13 +1468,9 @@ When all module paths are on the classpath (via bb.edn `:paths`), cross-module n
 
 ## Phase 15: Datalevin Database Integration (Planned)
 
-**Goal:** Add Datalevin as unified persistence and message bus layer.
+**Goal:** Add Datalevin persistence layer with MCP tool interface.
 
-**Background:** Datalevin (Datalog DB) can serve as both:
-1. **Persistent storage** - Conversation history, expert configurations, session state
-2. **Message bus** - Using `d/listen!` for reactive event notifications (Blackboard Architecture)
-
-See `docs/design/datalevin-message-bus-review.md` for full analysis.
+**Design Document:** [docs/design/datalevin-options.md](docs/design/datalevin-options.md)
 
 ### Why Datalevin?
 
@@ -1482,54 +1478,297 @@ See `docs/design/datalevin-message-bus-review.md` for full analysis.
 |---------|-----------------|-----------|
 | Speed | Microseconds | Milliseconds |
 | Persistence | Ephemeral | Durable |
-| Pattern | Fire-and-Forget | Event Sourcing |
 | Querying | Impossible | Full Datalog |
 | History | None | Free |
+| Full-text search | No | Yes |
+| Vector search | No | Yes (0.9+) |
 
 For AI workloads (1-10s latencies per turn), millisecond DB writes are negligible.
+
+### Architecture: Two Modules
+
+```
+┌─────────────────────────────────────┐
+│         MCP Client (AI)             │
+└──────────────┬──────────────────────┘
+               │
+      ┌────────┴────────┐
+      │                 │
+      ▼                 ▼
+┌──────────┐    ┌──────────────┐
+│ local-eval│    │ datalevin-mcp│
+│ (raw clj) │    │ (schema/q/tx)│
+└─────┬─────┘    └──────┬───────┘
+      │                 │
+      └────────┬────────┘
+               │
+               ▼
+        ┌─────────────┐
+        │datalevin-pod│
+        │ (pod + conn)│
+        └──────┬──────┘
+               │
+               ▼
+        ┌─────────────┐
+        │  Datalevin  │
+        │   (LMDB)    │
+        └─────────────┘
+```
+
+| Module | Purpose | AI Access |
+|--------|---------|-----------|
+| `datalevin-pod` | Pod lifecycle, connection management | Via `local-eval` (raw Clojure) |
+| `datalevin-mcp` | MCP tools interface | Via MCP tools (`schema`/`q`/`transact`) |
 
 ### Sub-phases
 
 | # | Sub-phase | Status | Description |
 |---|-----------|--------|-------------|
-| 15A | Core Integration | Planned | Datalevin module, connection lifecycle, basic CRUD |
-| 15B | Conversation Persistence | Planned | Store AI conversation turns with full query support |
-| 15C | Message Bus Migration | Planned | Replace atoms+promises with `d/listen!` |
-| 15D | Expert Registry Persistence | Planned | Store expert definitions in DB |
+| 15A | datalevin-pod module | Planned | Pod loading, connection lifecycle, expose API |
+| 15B | datalevin-mcp module | Planned | MCP tools: `schema`, `q`, `transact` |
+| 15C | Conversation Persistence | Planned | Store AI conversation turns |
+| 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
-### Module Structure
+---
 
+### Phase 15A: datalevin-pod Module
+
+**Goal:** Infrastructure layer - load Datalevin pod, manage connections, expose API to bb runtime.
+
+**Module Structure:**
 ```
-modules/datalevin/
-├── src/datalevin_service/
-│   ├── core.clj        # Connection lifecycle, start/stop
-│   ├── schema.clj      # Entity schemas
-│   ├── bus.clj         # Pub/Sub via d/listen!
-│   └── query.clj       # Common queries
-└── module.edn
+modules/datalevin-pod/
+├── module.edn
+├── src/datalevin_pod/
+│   ├── core.clj        # Public API, module entry point
+│   ├── connection.clj  # Connection lifecycle (get-conn, close)
+│   └── schema.clj      # Schema definitions
+└── test/
+    └── datalevin_pod/
+        └── core_test.clj
 ```
 
-### Key Capabilities
+**Tasks:**
 
-1. **Push notifications** via `d/listen!` (not polling)
-2. **Transaction reports** for reactive updates
-3. **Datalog queries** for conversation history
-4. **LMDB backend** for durability
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 15A.1 | Create module structure | Planned | module.edn, directories |
+| 15A.2 | Implement pod loading | Planned | `(pods/load-pod 'huahaiy/datalevin "0.9.27")` |
+| 15A.3 | Connection management | Planned | `init!`, `get-conn`, `close!` |
+| 15A.4 | Schema definitions | Planned | Conversation, expert, message schemas |
+| 15A.5 | Module lifecycle | Planned | Start loads pod, stop closes conn |
+| 15A.6 | Unit tests | Planned | Connection, basic transact/query |
+| 15A.7 | Integration with local-eval | Planned | AI can use Datalevin via raw Clojure |
 
-### Example Usage
+**Configuration:**
+```clojure
+;; Default path (configurable via env var)
+(def default-db-path "/var/db/datalevin/bb-mcp-server")
+
+(defn db-path []
+  (or (System/getenv "BB_MCP_DATALEVIN_PATH")
+      default-db-path))
+```
+
+**Core API:**
+```clojure
+(ns datalevin-pod.core
+  (:require [babashka.pods :as pods]))
+
+(def default-db-path "/var/db/datalevin/bb-mcp-server")
+(defonce conn (atom nil))
+
+(defn db-path []
+  (or (System/getenv "BB_MCP_DATALEVIN_PATH")
+      default-db-path))
+
+;; Module lifecycle
+(defn start! []
+  (pods/load-pod 'huahaiy/datalevin "0.9.27")
+  (require '[pod.huahaiy.datalevin :as d])
+  (reset! conn (d/get-conn (db-path) schema)))
+
+(defn stop! []
+  (when @conn
+    (d/close @conn)
+    (reset! conn nil)))
+
+;; Public API (available via local-eval)
+(defn get-conn [] @conn)
+(defn db [] (d/db @conn))
+(defn q [query & args] (apply d/q query (db) args))
+(defn transact! [tx-data] (d/transact! @conn tx-data))
+(defn pull [pattern eid] (d/pull (db) pattern eid))
+(defn schema [] ...)  ; Return all user attributes
+```
+
+**Schema (initial):**
+```clojure
+{;; Conversations
+ :conversation/id      {:db/unique :db.unique/identity}
+ :conversation/created {:db/valueType :db.type/instant}
+
+ ;; Turns
+ :turn/id              {:db/unique :db.unique/identity}
+ :turn/conversation    {:db/valueType :db.type/ref}
+ :turn/role            {}  ; :user, :assistant, :system
+ :turn/content         {}
+ :turn/timestamp       {:db/valueType :db.type/instant}
+
+ ;; Experts
+ :expert/id            {:db/unique :db.unique/identity}
+ :expert/name          {}
+ :expert/provider      {}  ; :anthropic-http, :openai-http, :claude-subprocess
+ :expert/capabilities  {:db/cardinality :db.cardinality/many}}
+```
+
+**Testing Strategy:**
+
+Minimal server config for isolated testing:
+```clojure
+;; system.edn for Phase 15A testing
+{:modules ["local-eval" "datalevin-pod"]}
+```
+
+This gives us:
+- `local-eval.local-eval` - Execute raw Clojure
+- `local-eval.local-load-file` - Load Clojure files
+- `datalevin-pod` API available in runtime
+
+**Test via local-eval:**
+```clojure
+;; Via MCP tools/call to local-eval.local-eval:
+(require '[datalevin-pod.core :as dl])
+
+;; Test connection
+(dl/get-conn)
+
+;; Test transact
+(dl/transact! [{:person/name "Test User"}])
+
+;; Test query
+(dl/q '[:find ?name :where [?e :person/name ?name]])
+```
+
+No `datalevin-mcp` tools needed - validates infrastructure layer in isolation.
+
+---
+
+### Phase 15B: datalevin-mcp Module
+
+**Goal:** MCP tools interface - expose Datalevin operations as structured MCP tools.
+
+**Module Structure:**
+```
+modules/datalevin-mcp/
+├── module.edn              # Requires datalevin-pod
+├── src/datalevin_mcp/
+│   ├── core.clj            # Module entry, tool registration
+│   └── tools.clj           # Tool implementations
+└── test/
+    └── datalevin_mcp/
+        └── tools_test.clj
+```
+
+**Tasks:**
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 15B.1 | Create module structure | Planned | module.edn with datalevin-pod dependency |
+| 15B.2 | Implement `schema` tool | Planned | Returns all DB attributes |
+| 15B.3 | Implement `q` tool | Planned | Execute Datalog queries |
+| 15B.4 | Implement `transact` tool | Planned | Write data (guarded) |
+| 15B.5 | Safe EDN parsing | Planned | Helpful error messages for AI |
+| 15B.6 | Unit tests | Planned | Each tool tested |
+| 15B.7 | Integration tests | Planned | Full MCP flow via HTTP |
+
+**Minimal Tool Interface (3 tools):**
 
 ```clojure
-;; Publish
-(d/transact! conn [{:msg/id (random-uuid)
-                    :msg/topic :expert-chat
-                    :msg/content "..."}])
+;; schema - discover data model (AI must call first)
+{:name "datalevin-mcp.schema"
+ :description "Returns all user-defined attributes in the database.
+               CALL THIS FIRST to understand the data model."
+ :inputSchema {:type "object" :properties {} :required []}
+ :handler (fn [_] (datalevin-pod.core/schema))}
 
-;; Subscribe
-(d/listen! conn :my-key
-  (fn [tx-report]
-    ;; Filter datoms for relevant topics
-    ...))
+;; q - read anything (Datalog)
+{:name "datalevin-mcp.q"
+ :description "Execute a Datalog query. Use schema tool first.
+               Returns results as vectors or maps."
+ :inputSchema {:type "object"
+               :properties {:query {:type "string"
+                                    :description "EDN Datalog query"}
+                            :args {:type "string"
+                                   :description "EDN vector of query args"
+                                   :default "[]"}
+                            :limit {:type "integer" :default 100}
+                            :offset {:type "integer" :default 0}}
+               :required ["query"]}
+ :handler (fn [{:keys [query args limit offset]}]
+            (let [parsed-query (safe-read-edn query)
+                  parsed-args (safe-read-edn (or args "[]"))]
+              (->> (apply datalevin-pod.core/q parsed-query parsed-args)
+                   (drop (or offset 0))
+                   (take (or limit 100)))))}
+
+;; transact - write anything
+{:name "datalevin-mcp.transact"
+ :description "Write data to database.
+               tx-data formats:
+               - Entity map: {:person/name \"Alice\"}
+               - Add fact: [:db/add eid :attr value]
+               - Retract: [:db/retract eid :attr value]"
+ :inputSchema {:type "object"
+               :properties {:tx-data {:type "string"
+                                      :description "EDN transaction data"}}
+               :required ["tx-data"]}
+ :handler (fn [{:keys [tx-data]}]
+            (let [parsed (safe-read-edn tx-data)
+                  result (datalevin-pod.core/transact! parsed)]
+              {:tx-id (:max-tx result)
+               :tempids (:tempids result)}))}
 ```
+
+**Safe EDN Reader (for AI self-correction):**
+```clojure
+(defn safe-read-edn [s]
+  (try
+    (clojure.edn/read-string s)
+    (catch Exception e
+      (throw (ex-info "Invalid EDN"
+               {:error (.getMessage e)
+                :input s
+                :hint "Check for unmatched delimiters or invalid syntax"})))))
+```
+
+---
+
+### Phase 15C: Conversation Persistence (After 15A-B)
+
+**Goal:** Use Datalevin to persist AI conversation turns.
+
+| # | Task | Status | Acceptance Criteria |
+|---|------|--------|---------------------|
+| 15C.1 | Create conversation on first turn | Planned | Auto-generate conversation ID |
+| 15C.2 | Store each turn with timestamp | Planned | :turn/role, :turn/content |
+| 15C.3 | Query conversation history | Planned | Datalog query for turns |
+| 15C.4 | Link turns to experts | Planned | :turn/expert ref |
+
+---
+
+### Phase 15D: Message Bus Evaluation (After 15A-C)
+
+**Goal:** Evaluate whether to migrate atoms+promises bus to Datalevin.
+
+**Key Finding:** `d/listen!` is **client-side only** - does NOT push across processes.
+
+**Options:**
+1. **Keep atoms+promises** for real-time, use Datalevin for persistence only
+2. **Polling-based** - query for new messages by timestamp
+3. **Hybrid** - atoms for in-process, Datalevin for persistence/query
+
+**Decision:** Defer until 15A-C complete. Current bus works well for single-process.
 
 ---
 

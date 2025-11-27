@@ -96,6 +96,19 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 
 ---
 
+## Version Lookup Policy
+
+**NEVER trust training data or web search snippets for library versions.**
+
+When looking up the latest version of any library:
+1. **Clojure/Java libs:** `WebFetch` directly on `https://clojars.org/<lib>/versions`
+2. **GitHub projects:** `WebFetch` directly on `https://github.com/<org>/<repo>/releases`
+3. **npm packages:** `WebFetch` directly on `https://www.npmjs.com/package/<pkg>?activeTab=versions`
+
+**Why:** Search results and training data become stale. Using old versions wastes time and may expose fixed bugs. Always fetch the authoritative source directly.
+
+---
+
 ## Planning & Task Tracking
 
 **IMPORTANT:** Use `IMPLEMENTATION_PLAN.md` as the **single source of truth** for:
@@ -123,4 +136,4 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2025-11-24*
+*Last Updated: 2025-11-26*
