@@ -48,6 +48,8 @@
           :task (do
                   ;; Bootstrap: discover and add all module paths to classpath
                   ((requiring-resolve 'bb-mcp-server.bootstrap/ensure-module-paths!))
+                  ;; Load external modules from BB_MCP_EXTERNAL_MODULES env var
+                  ((requiring-resolve 'bb-mcp-server.bootstrap/add-externals-from-env!))
                   (apply (requiring-resolve 'bb-mcp-server.main/-main) *command-line-args*))}
 
   server:stop {:doc "Stop HTTP server running on [port] (default 3000)"
@@ -151,6 +153,10 @@
   test:message-bus {:doc "Run message-bus module tests"
                     :depends [-bootstrap]
                     :task (load-file "modules/message-bus/test/run_tests.clj")}
+
+  test:datalevin-pod {:doc "Run datalevin-pod module tests"
+                      :depends [-bootstrap]
+                      :task (load-file "modules/datalevin-pod/test/run_tests.clj")}
 
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)

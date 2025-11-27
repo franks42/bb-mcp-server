@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 14B Complete (v0.14.0) - Dynamic Runtime Module Loading
-**Last Updated:** 2025-11-26
+**Status:** Phase 15A Complete (v0.15.0) - Datalevin Pod Integration
+**Last Updated:** 2025-11-27
 
 ---
 
@@ -1524,41 +1524,41 @@ For AI workloads (1-10s latencies per turn), millisecond DB writes are negligibl
 
 | # | Sub-phase | Status | Description |
 |---|-----------|--------|-------------|
-| 15A | datalevin-pod module | Planned | Pod loading, connection lifecycle, expose API |
+| 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle, expose API (5 tests, 27 assertions) |
 | 15B | datalevin-mcp module | Planned | MCP tools: `schema`, `q`, `transact` |
 | 15C | Conversation Persistence | Planned | Store AI conversation turns |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
 ---
 
-### Phase 15A: datalevin-pod Module
+### Phase 15A: datalevin-pod Module ✅ Complete
 
 **Goal:** Infrastructure layer - load Datalevin pod, manage connections, expose API to bb runtime.
 
-**Module Structure:**
+**Status:** Complete - v0.15.0
+
+**Module Structure (actual):**
 ```
 modules/datalevin-pod/
-├── module.edn
+├── module.edn                     # Module manifest
 ├── src/datalevin_pod/
-│   ├── core.clj        # Public API, module entry point
-│   ├── connection.clj  # Connection lifecycle (get-conn, close)
-│   └── schema.clj      # Schema definitions
+│   └── core.clj                   # Pod loading, connection, API (220 lines)
 └── test/
-    └── datalevin_pod/
-        └── core_test.clj
+    ├── datalevin_pod/core_test.clj # Unit tests (148 lines)
+    └── run_tests.clj              # Test runner
 ```
 
 **Tasks:**
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 15A.1 | Create module structure | Planned | module.edn, directories |
-| 15A.2 | Implement pod loading | Planned | `(pods/load-pod 'huahaiy/datalevin "0.9.27")` |
-| 15A.3 | Connection management | Planned | `init!`, `get-conn`, `close!` |
-| 15A.4 | Schema definitions | Planned | Conversation, expert, message schemas |
-| 15A.5 | Module lifecycle | Planned | Start loads pod, stop closes conn |
-| 15A.6 | Unit tests | Planned | Connection, basic transact/query |
-| 15A.7 | Integration with local-eval | Planned | AI can use Datalevin via raw Clojure |
+| 15A.1 | Create module structure | ✅ | module.edn, directories |
+| 15A.2 | Implement pod loading | ✅ | `(pods/load-pod 'huahaiy/datalevin "0.9.27")` |
+| 15A.3 | Connection management | ✅ | `get-conn`, connection atom, init on start |
+| 15A.4 | Schema definitions | ✅ | Conversation, expert, turn schemas |
+| 15A.5 | Module lifecycle | ✅ | Start loads pod + opens conn, stop closes conn |
+| 15A.6 | Unit tests | ✅ | 5 tests, 27 assertions - all passing |
+| 15A.7 | Integration with local-eval | ✅ | 6 integration tests via MCP - all passing |
 
 **Configuration:**
 ```clojure

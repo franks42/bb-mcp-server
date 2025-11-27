@@ -1,0 +1,15 @@
+;; Datalevin pod module configuration
+;;
+;; Infrastructure layer for Datalevin database - pod loading and connection management.
+;; No MCP tools - this is accessed via local-eval or by datalevin-mcp module.
+
+{:name "datalevin-pod"
+ :version "0.1.0"
+ :description "Datalevin database pod integration - connection lifecycle and API"
+
+ :requires []
+
+ ;; Entry point
+ :entry "datalevin-pod.core/module"
+
+ :defaults {:db-path "/var/db/datalevin/bb-mcp-server"}}

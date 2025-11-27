@@ -11,10 +11,12 @@
  ;; Note: Modules can be internal (in modules/) or external (via BB_MCP_EXTERNAL_MODULES)
  ;; Note: "hello" is intentionally NOT in this list for dynamic load testing
  :modules ["echo" "strings" "calculate" "local-eval" "nrepl" "math"
+           "datalevin-pod"
            "ai-orchestrator" "anthropic-http-provider" "openai-http-provider"
            "claude-subprocess-provider" "ai-orchestrator-tools"]
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
  :config {"hello" {:greeting "Hi"}
-          "nrepl-test-server" {:port 7888 :host "localhost"}}}
+          "nrepl-test-server" {:port 7888 :host "localhost"}
+          "datalevin-pod" {:db-path "/var/db/datalevin/bb-mcp-server"}}}
