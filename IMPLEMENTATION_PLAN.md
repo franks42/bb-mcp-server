@@ -1281,7 +1281,7 @@ All source files formatted correctly ✅
 | 13C | HTTP Providers | ✅ Complete | Anthropic & OpenAI HTTP providers with async routing (9 tests, 43 assertions, real API verified) |
 | 13D | MCP Integration | ✅ Complete | AI orchestrator exposed as MCP tools (4 tools, 13 tests, 44 assertions) |
 | 13F | Message Bus | ✅ Complete | Atoms+promises bus with Global Response Router (25 tests, 68 assertions) |
-| 13G | Dynamic Orchestration | Planned | On-demand expert creation, task delegation |
+| 13G | Multi-Agent Orchestration | ✅ Complete | 3-agent pipeline (clojure-coder, code-reviewer, test-writer), 65s demo (v0.13.8) |
 
 ### Proposed Tools
 
