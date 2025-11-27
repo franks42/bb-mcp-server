@@ -167,135 +167,135 @@
 ;; =============================================================================
 
 (def schema-tool
-       "Schema tool definition."
-       {:name "schema"
-        :description "Get the database schema. Returns all defined attributes and their configuration."
-        :module "datalevin-mcp"
-        :inputSchema {:type "object"
-                      :properties {}
-                      :required []}
-        :handler schema-handler})
+     "Schema tool definition."
+     {:name "schema"
+      :description "Get the database schema. Returns all defined attributes and their configuration."
+      :module "datalevin-mcp"
+      :inputSchema {:type "object"
+                    :properties {}
+                    :required []}
+      :handler schema-handler})
 
-  (def q-tool
-       "Query tool definition."
-       {:name "q"
-        :description "Execute a Datalog query against the database.
+(def q-tool
+     "Query tool definition."
+     {:name "q"
+      :description "Execute a Datalog query against the database.
 
 Example queries:
 - Find all names: [:find ?name :where [?e :person/name ?name]]
 - Find by attribute: [:find ?e ?name :where [?e :person/name ?name] [?e :person/email ?email]]
 - With inputs: [:find ?name :in $ ?email :where [?e :person/email ?email] [?e :person/name ?name]]"
-        :module "datalevin-mcp"
-        :inputSchema {:type "object"
-                      :properties {:query {:type "string"
-                                           :description "Datalog query as EDN string, e.g. '[:find ?name :where [?e :person/name ?name]]'"}
-                                   :args {:type "string"
-                                          :description "Optional query arguments as EDN vector, e.g. '[\"alice@example.com\"]'"}}
-                      :required ["query"]}
-        :handler q-handler})
+      :module "datalevin-mcp"
+      :inputSchema {:type "object"
+                    :properties {:query {:type "string"
+                                         :description "Datalog query as EDN string, e.g. '[:find ?name :where [?e :person/name ?name]]'"}
+                                 :args {:type "string"
+                                        :description "Optional query arguments as EDN vector, e.g. '[\"alice@example.com\"]'"}}
+                    :required ["query"]}
+      :handler q-handler})
 
-  (def transact-tool
-       "Transact tool definition."
-       {:name "transact"
-        :description "Execute a database transaction to add or update data.
+(def transact-tool
+     "Transact tool definition."
+     {:name "transact"
+      :description "Execute a database transaction to add or update data.
 
 Example transactions:
 - Add entity: [{:person/name \"Alice\" :person/email \"alice@example.com\"}]
 - Update by lookup: [{:person/id \"alice\" :person/name \"Alice Smith\"}]
 - Multiple entities: [{:person/name \"Alice\"} {:person/name \"Bob\"}]"
-        :module "datalevin-mcp"
-        :inputSchema {:type "object"
-                      :properties {:tx-data {:type "string"
-                                             :description "Transaction data as EDN vector of maps, e.g. '[{:person/name \"Alice\"}]'"}}
-                      :required ["tx-data"]}
-        :handler transact-handler})
+      :module "datalevin-mcp"
+      :inputSchema {:type "object"
+                    :properties {:tx-data {:type "string"
+                                           :description "Transaction data as EDN vector of maps, e.g. '[{:person/name \"Alice\"}]'"}}
+                    :required ["tx-data"]}
+      :handler transact-handler})
 
-  (def pull-tool
-       "Pull tool definition."
-       {:name "pull"
-        :description "Pull an entity by ID or lookup ref with optional attribute pattern.
+(def pull-tool
+     "Pull tool definition."
+     {:name "pull"
+      :description "Pull an entity by ID or lookup ref with optional attribute pattern.
 
 Examples:
 - Pull by ID: eid=\"123\", pattern=\"[*]\" (all attributes)
 - Pull by lookup ref: eid=\"[:person/id \\\"alice\\\"]\", pattern=\"[:person/name :person/email]\"
 - Pull all: eid=\"123\" (pattern defaults to [*])"
-        :module "datalevin-mcp"
-        :inputSchema {:type "object"
-                      :properties {:eid {:type "string"
-                                         :description "Entity ID (number) or lookup ref as EDN, e.g. '123' or '[:person/id \"alice\"]'"}
-                                   :pattern {:type "string"
-                                             :description "Optional pull pattern as EDN vector, e.g. '[*]' or '[:person/name :person/email]'. Defaults to '[*]'"}}
-                      :required ["eid"]}
-        :handler pull-handler})
+      :module "datalevin-mcp"
+      :inputSchema {:type "object"
+                    :properties {:eid {:type "string"
+                                       :description "Entity ID (number) or lookup ref as EDN, e.g. '123' or '[:person/id \"alice\"]'"}
+                                 :pattern {:type "string"
+                                           :description "Optional pull pattern as EDN vector, e.g. '[*]' or '[:person/name :person/email]'. Defaults to '[*]'"}}
+                    :required ["eid"]}
+      :handler pull-handler})
 
-  (def find-by-tool
-       "Find-by tool definition."
-       {:name "find-by"
-        :description "Find entities by a single attribute value. Simpler than raw Datalog for common lookups.
+(def find-by-tool
+     "Find-by tool definition."
+     {:name "find-by"
+      :description "Find entities by a single attribute value. Simpler than raw Datalog for common lookups.
 
 Examples:
 - Find by email: attribute=\":person/email\", value=\"\\\"alice@example.com\\\"\"
 - Find by name: attribute=\":person/name\", value=\"\\\"Alice\\\"\"
 - Find by ID: attribute=\":person/id\", value=\"\\\"alice\\\"\""
-        :module "datalevin-mcp"
-        :inputSchema {:type "object"
-                      :properties {:attribute {:type "string"
-                                               :description "Attribute keyword as EDN, e.g. ':person/email'"}
-                                   :value {:type "string"
-                                           :description "Value to search for as EDN, e.g. '\"alice@example.com\"' (string) or '42' (number)"}
-                                   :limit {:type "integer"
-                                           :description "Maximum number of entities to return. Default: 10"}}
-                      :required ["attribute" "value"]}
-        :handler find-by-handler})
+      :module "datalevin-mcp"
+      :inputSchema {:type "object"
+                    :properties {:attribute {:type "string"
+                                             :description "Attribute keyword as EDN, e.g. ':person/email'"}
+                                 :value {:type "string"
+                                         :description "Value to search for as EDN, e.g. '\"alice@example.com\"' (string) or '42' (number)"}
+                                 :limit {:type "integer"
+                                         :description "Maximum number of entities to return. Default: 10"}}
+                    :required ["attribute" "value"]}
+      :handler find-by-handler})
 
 ;; =============================================================================
 ;; Module Lifecycle
 ;; =============================================================================
 
-  (defn start
-    "Start the datalevin-mcp module. Registers MCP tools."
-    [_deps config]
-    (log/log! {:level :info
-               :id ::starting
-               :msg "Starting datalevin-mcp module"
-               :data {:config config}})
-    (registry/register! schema-tool)
-    (registry/register! q-tool)
-    (registry/register! transact-tool)
-    (registry/register! pull-tool)
-    (registry/register! find-by-tool)
-    (log/log! {:level :info
-               :id ::started
-               :msg "datalevin-mcp module started"
-               :data {:tools ["schema" "q" "transact" "pull" "find-by"]}})
-    {:registered-tools ["schema" "q" "transact" "pull" "find-by"]})
+(defn start
+  "Start the datalevin-mcp module. Registers MCP tools."
+  [_deps config]
+  (log/log! {:level :info
+             :id ::starting
+             :msg "Starting datalevin-mcp module"
+             :data {:config config}})
+  (registry/register! schema-tool)
+  (registry/register! q-tool)
+  (registry/register! transact-tool)
+  (registry/register! pull-tool)
+  (registry/register! find-by-tool)
+  (log/log! {:level :info
+             :id ::started
+             :msg "datalevin-mcp module started"
+             :data {:tools ["schema" "q" "transact" "pull" "find-by"]}})
+  {:registered-tools ["schema" "q" "transact" "pull" "find-by"]})
 
-  (defn stop
-    "Stop the datalevin-mcp module. Unregisters MCP tools."
-    [_instance]
-    (log/log! {:level :info
-               :id ::stopping
-               :msg "Stopping datalevin-mcp module"})
-    (registry/unregister! "datalevin-mcp.schema")
-    (registry/unregister! "datalevin-mcp.q")
-    (registry/unregister! "datalevin-mcp.transact")
-    (registry/unregister! "datalevin-mcp.pull")
-    (registry/unregister! "datalevin-mcp.find-by")
-    nil)
+(defn stop
+  "Stop the datalevin-mcp module. Unregisters MCP tools."
+  [_instance]
+  (log/log! {:level :info
+             :id ::stopping
+             :msg "Stopping datalevin-mcp module"})
+  (registry/unregister! "datalevin-mcp.schema")
+  (registry/unregister! "datalevin-mcp.q")
+  (registry/unregister! "datalevin-mcp.transact")
+  (registry/unregister! "datalevin-mcp.pull")
+  (registry/unregister! "datalevin-mcp.find-by")
+  nil)
 
-  (defn status
-    "Get datalevin-mcp module status."
-    [_instance]
-    {:status :ok
-     :registered-tools ["schema" "q" "transact" "pull" "find-by"]
-     :db-connected (boolean (dl/get-conn))})
+(defn status
+  "Get datalevin-mcp module status."
+  [_instance]
+  {:status :ok
+   :registered-tools ["schema" "q" "transact" "pull" "find-by"]
+   :db-connected (boolean (dl/get-conn))})
 
 ;; =============================================================================
 ;; Module Export
 ;; =============================================================================
 
-  (def module
-       "Datalevin-mcp module lifecycle implementation."
-       {:start start
-        :stop stop
-        :status status})
+(def module
+     "Datalevin-mcp module lifecycle implementation."
+     {:start start
+      :stop stop
+      :status status})

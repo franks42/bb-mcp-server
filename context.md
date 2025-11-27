@@ -1,13 +1,18 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-27 (Phase 15B Complete)
-**Current Version:** v0.15.1
+**Last Updated:** 2025-11-27 (Phase 15B+ Complete)
+**Current Version:** v0.15.2
 
 ---
 
-## Current State - Phase 15B Complete, Ready for 15C
+## Current State - Phase 15B+ Complete, Ready for 15C
 
-**Phase 15B (datalevin-mcp) is complete.** Ready to implement Phase 15C: Conversation Persistence.
+**Phase 15B+ (datalevin-mcp enhanced) is complete.** Ready to implement Phase 15C: Conversation Persistence.
+
+### Phase 15B+ Completed (2025-11-27):
+- Added optional tools: `pull`, `find-by`
+- Now 5 MCP tools total: schema, q, transact, pull, find-by
+- Unit tests: 20 tests, 71 assertions - all passing
 
 ### Phase 15B Completed (2025-11-27):
 - Created `modules/datalevin-mcp/` module structure
@@ -57,7 +62,7 @@
 | Module | Purpose | AI Access |
 |--------|---------|-----------|
 | `datalevin-pod` | Pod lifecycle, connection management | Via `local-eval` (raw Clojure) |
-| `datalevin-mcp` | MCP tools interface | Via MCP tools (`schema`/`q`/`transact`) |
+| `datalevin-mcp` | MCP tools interface | Via MCP tools (`schema`/`q`/`transact`/`pull`/`find-by`) |
 
 ### Configuration:
 - **Default path:** `/var/db/datalevin/bb-mcp-server`
@@ -75,6 +80,7 @@
 |---|-----------|--------|-------------|
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle |
 | 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` |
+| 15B+ | Optional tools | ✅ Complete | Added `pull`, `find-by` (20 tests, 71 assertions) |
 | 15C | Conversation Persistence | Planned | Store AI conversation turns |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
@@ -134,4 +140,4 @@ cljfmt check <files>           # All files formatted
 
 ---
 
-*Context updated 2025-11-27 - Phase 15B Complete, ready for Phase 15C*
+*Context updated 2025-11-27 - Phase 15B+ Complete (5 tools), ready for Phase 15C*
