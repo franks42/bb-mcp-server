@@ -64,13 +64,13 @@
 
 (deftest ^:integration test-q-handler-simple
          (testing "Simple query returns results"
-    ;; Insert test data
-                  (dl/transact! [{:person/name "Alice" :person/email "alice@example.com"}])
+    ;; Insert test data with unique email for this test
+                  (dl/transact! [{:person/name "QueryTestAlice" :person/email "query-test@example.com"}])
 
-                  (let [result (mcp/q-handler {:query "[:find ?name :where [?e :person/name ?name]]"})]
+                  (let [result (mcp/q-handler {:query "[:find ?name :where [?e :person/name ?name] [?e :person/email \"query-test@example.com\"]]"})]
                     (is (vector? (:result result)))
                     (is (= 1 (:count result)))
-                    (is (= [["Alice"]] (:result result))))))
+                    (is (= [["QueryTestAlice"]] (:result result))))))
 
 (deftest ^:integration test-q-handler-invalid-query
          (testing "Invalid query EDN returns error"
@@ -112,12 +112,109 @@
                     (is (:hint result)))))
 
 ;; =============================================================================
+;; Pull Tool Tests
+;; =============================================================================
+
+(deftest ^:integration test-pull-handler-by-id
+         (testing "Pull handler retrieves entity by ID"
+                  ;; Insert test data
+                  (dl/transact! [{:person/name "Charlie" :person/email "charlie@example.com"}])
+
+                  ;; Get the entity ID from a query
+                  (let [query-result (dl/q '[:find ?e :where [?e :person/name "Charlie"]])
+                        eid (ffirst query-result)
+                        result (mcp/pull-handler {:eid (str eid)})]
+                    (is (:found result))
+                    (is (= "Charlie" (get-in result [:entity :person/name])))
+                    (is (= "charlie@example.com" (get-in result [:entity :person/email]))))))
+
+(deftest ^:integration test-pull-handler-with-pattern
+         (testing "Pull handler respects attribute pattern"
+                  (dl/transact! [{:person/name "Diana" :person/email "diana@example.com"}])
+
+                  (let [query-result (dl/q '[:find ?e :where [?e :person/name "Diana"]])
+                        eid (ffirst query-result)
+                        result (mcp/pull-handler {:eid (str eid)
+                                                  :pattern "[:person/name]"})]
+                    (is (:found result))
+                    (is (= "Diana" (get-in result [:entity :person/name])))
+                    ;; Email should not be in result since not in pattern
+                    (is (nil? (get-in result [:entity :person/email]))))))
+
+(deftest ^:integration test-pull-handler-invalid-eid
+         (testing "Pull handler returns error for invalid EDN"
+                  (let [result (mcp/pull-handler {:eid "[invalid ::"})]
+                    (is (:error result))
+                    (is (re-find #"Failed to parse" (:error result))))))
+
+(deftest ^:integration test-pull-handler-not-found
+         (testing "Pull handler returns entity with only :db/id for non-existent entity"
+                  (let [result (mcp/pull-handler {:eid "999999999"})]
+                    ;; Should not error
+                    (is (not (:error result)))
+                    ;; Datalevin returns {:db/id eid} for non-existent entities
+                    ;; Check that there are no other attributes besides :db/id
+                    (is (= 1 (count (keys (:entity result))))))))
+
+;; =============================================================================
+;; Find-by Tool Tests
+;; =============================================================================
+
+(deftest ^:integration test-find-by-handler-success
+         (testing "Find-by handler finds entities by attribute"
+                  (dl/transact! [{:person/name "Eve" :person/email "eve@example.com"}
+                                 {:person/name "Frank" :person/email "frank@example.com"}])
+
+                  (let [result (mcp/find-by-handler {:attribute ":person/email"
+                                                     :value "\"eve@example.com\""})]
+                    (is (= 1 (:count result)))
+                    (is (= 1 (:total-matches result)))
+                    (is (= "Eve" (get-in result [:entities 0 :person/name]))))))
+
+(deftest ^:integration test-find-by-handler-multiple-results
+         (testing "Find-by handler finds multiple entities"
+                  (dl/transact! [{:person/name "George" :person/role "admin"}
+                                 {:person/name "Hannah" :person/role "admin"}])
+
+                  (let [result (mcp/find-by-handler {:attribute ":person/role"
+                                                     :value "\"admin\""})]
+                    (is (>= (:count result) 2))
+                    (is (>= (:total-matches result) 2)))))
+
+(deftest ^:integration test-find-by-handler-with-limit
+         (testing "Find-by handler respects limit"
+                  (dl/transact! [{:person/name "User1" :person/group "test"}
+                                 {:person/name "User2" :person/group "test"}
+                                 {:person/name "User3" :person/group "test"}])
+
+                  (let [result (mcp/find-by-handler {:attribute ":person/group"
+                                                     :value "\"test\""
+                                                     :limit 2})]
+                    (is (= 2 (:count result)))
+                    (is (>= (:total-matches result) 3)))))
+
+(deftest ^:integration test-find-by-handler-no-results
+         (testing "Find-by handler returns empty for no matches"
+                  (let [result (mcp/find-by-handler {:attribute ":person/email"
+                                                     :value "\"nonexistent@example.com\""})]
+                    (is (= 0 (:count result)))
+                    (is (= 0 (:total-matches result)))
+                    (is (empty? (:entities result))))))
+
+(deftest ^:integration test-find-by-handler-invalid-attribute
+         (testing "Find-by handler returns error for invalid attribute EDN"
+                  (let [result (mcp/find-by-handler {:attribute "[invalid"
+                                                     :value "\"test\""})]
+                    (is (:error result)))))
+
+;; =============================================================================
 ;; Module Lifecycle Tests
 ;; =============================================================================
 
 (deftest test-tool-definitions
          (testing "Tool definitions have required fields"
-                  (doseq [tool [mcp/schema-tool mcp/q-tool mcp/transact-tool]]
+                  (doseq [tool [mcp/schema-tool mcp/q-tool mcp/transact-tool
+                                mcp/pull-tool mcp/find-by-tool]]
                          (is (string? (:name tool)))
                          (is (string? (:description tool)))
                          (is (= "datalevin-mcp" (:module tool)))
@@ -128,5 +225,5 @@
          (testing "Status returns expected structure"
                   (let [status (mcp/status nil)]
                     (is (= :ok (:status status)))
-                    (is (= ["schema" "q" "transact"] (:registered-tools status)))
+                    (is (= ["schema" "q" "transact" "pull" "find-by"] (:registered-tools status)))
                     (is (boolean? (:db-connected status))))))

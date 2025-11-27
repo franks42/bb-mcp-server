@@ -4,8 +4,8 @@
 ;; Depends on datalevin-pod for connection management.
 
 {:name "datalevin-mcp"
- :version "0.1.0"
- :description "MCP tools for Datalevin database - schema, query, transact"
+ :version "0.2.0"
+ :description "MCP tools for Datalevin database - schema, query, transact, pull, find-by"
 
  :requires ["datalevin-pod"]
 
@@ -13,4 +13,4 @@
  :entry "datalevin-mcp.core/module"
 
  ;; Tools registered by this module
- :tools ["schema" "q" "transact"]}
+ :tools ["schema" "q" "transact" "pull" "find-by"]}
