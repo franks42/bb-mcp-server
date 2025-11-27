@@ -1466,6 +1466,73 @@ When all module paths are on the classpath (via bb.edn `:paths`), cross-module n
 
 ---
 
+## Phase 15: Datalevin Database Integration (Planned)
+
+**Goal:** Add Datalevin as unified persistence and message bus layer.
+
+**Background:** Datalevin (Datalog DB) can serve as both:
+1. **Persistent storage** - Conversation history, expert configurations, session state
+2. **Message bus** - Using `d/listen!` for reactive event notifications (Blackboard Architecture)
+
+See `docs/design/datalevin-message-bus-review.md` for full analysis.
+
+### Why Datalevin?
+
+| Feature | Atoms (Current) | Datalevin |
+|---------|-----------------|-----------|
+| Speed | Microseconds | Milliseconds |
+| Persistence | Ephemeral | Durable |
+| Pattern | Fire-and-Forget | Event Sourcing |
+| Querying | Impossible | Full Datalog |
+| History | None | Free |
+
+For AI workloads (1-10s latencies per turn), millisecond DB writes are negligible.
+
+### Sub-phases
+
+| # | Sub-phase | Status | Description |
+|---|-----------|--------|-------------|
+| 15A | Core Integration | Planned | Datalevin module, connection lifecycle, basic CRUD |
+| 15B | Conversation Persistence | Planned | Store AI conversation turns with full query support |
+| 15C | Message Bus Migration | Planned | Replace atoms+promises with `d/listen!` |
+| 15D | Expert Registry Persistence | Planned | Store expert definitions in DB |
+
+### Module Structure
+
+```
+modules/datalevin/
+├── src/datalevin_service/
+│   ├── core.clj        # Connection lifecycle, start/stop
+│   ├── schema.clj      # Entity schemas
+│   ├── bus.clj         # Pub/Sub via d/listen!
+│   └── query.clj       # Common queries
+└── module.edn
+```
+
+### Key Capabilities
+
+1. **Push notifications** via `d/listen!` (not polling)
+2. **Transaction reports** for reactive updates
+3. **Datalog queries** for conversation history
+4. **LMDB backend** for durability
+
+### Example Usage
+
+```clojure
+;; Publish
+(d/transact! conn [{:msg/id (random-uuid)
+                    :msg/topic :expert-chat
+                    :msg/content "..."}])
+
+;; Subscribe
+(d/listen! conn :my-key
+  (fn [tx-report]
+    ;; Filter datoms for relevant topics
+    ...))
+```
+
+---
+
 ## Future Improvements
 
 ### Transport-Module Coupling (Revisit Later)
