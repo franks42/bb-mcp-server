@@ -1413,6 +1413,25 @@ Hello tool result: {:greeting "Hi, External Module!"}
 === Dynamic Loading Test Complete ===
 ```
 
+**Minimal Bootstrap Verification (local-eval only):**
+Tested 2025-11-26 - server starts with ONLY `local-eval`, dynamically loads modules via HTTP:
+
+```bash
+# system.edn contains only: {:modules ["local-eval"]}
+# Result: Server starts with 2 tools (local-eval.local-eval, local-eval.local-load-file)
+
+# Use base64-encoded code to avoid JSON escaping issues:
+# Code: (do (require (quote [bb-mcp-server.module.system :as sys]))
+#           (sys/load-new-module! "modules/echo"))
+# Base64: KGRvIChyZXF1aXJlIChxdW90ZSBbYmItbWNwLXNlcnZlci5tb2R1bGUuc3lzdGVtIDphcyBzeXNdKSkgKHN5cy9sb2FkLW5ldy1tb2R1bGUhICJtb2R1bGVzL2VjaG8iKSk=
+
+# Call local-eval with input-base64: true
+# Result: {:success {:module-name "echo", :path "modules/echo", :tools []}}
+# Tools after: 3 (echo.echo added)
+```
+
+This confirms `local-eval` can serve as the sole bootstrap module - full server access, no sandbox.
+
 ---
 
 ### Phase 14C: Documentation & Cleanup (Planned)

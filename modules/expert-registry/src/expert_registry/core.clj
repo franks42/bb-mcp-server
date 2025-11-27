@@ -35,6 +35,7 @@
               [expert-registry.curriculum :as curriculum]
               [port-registry.core :as port-registry]
               [ai-orchestrator.core :as orchestrator]
+              [message-bus.core :as bus]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -200,6 +201,43 @@
           (vals @expert-definitions)))
 
 ;; =============================================================================
+;; Expert Message Handling
+;; =============================================================================
+
+(defn- make-expert-message-handler
+  "Create a message handler for an expert instance.
+   
+   This handler connects the Message Bus to the AI Orchestrator.
+   When a message is received on the bus:
+   1. It is forwarded to the AI instance via orchestrator/ask
+   2. The AI's response is sent back to the bus via bus/reply!"
+  [instance-name]
+  (fn [{:keys [content request-id from] :as _msg}]
+    (log/log! {:level :debug
+               :id    ::expert-handle-message
+               :msg   "Expert received message from bus"
+               :data  {:instance instance-name :from from}})
+    (when content
+      (try
+        ;; Forward to AI and await response
+       (let [response (orchestrator/ask instance-name content)]
+         (if (:error response)
+           (log/log! {:level :error
+                      :id    ::ai-error
+                      :msg   "AI returned error"
+                      :data  {:instance instance-name :response response}})
+
+            ;; If this was a request, reply with the content
+           (when request-id
+             (bus/reply! request-id (:content response)))))
+       (catch Exception e
+              (log/log! {:level :error
+                         :id    ::handler-failed
+                         :msg   "Expert message handler failed"
+                         :error e
+                         :data  {:instance instance-name}}))))))
+
+;; =============================================================================
 ;; Expert Instance Management
 ;; =============================================================================
 
@@ -275,18 +313,23 @@
                    (orchestrator/ask instance-name curriculum-content))
 
           ;; Step 7: Register instance
-         (let [instance-info {:expert-id     expert-id
+         (let [handler (make-expert-message-handler instance-name)
+                ;; Subscribe to personal topic (e.g. :my-coder)
+               bus-unsub (bus/subscribe! (keyword instance-name) handler)
+
+               instance-info {:expert-id     expert-id
                               :instance-name instance-name
                               :port          port
                               :session-id    (:session-id ai-instance)
+                              :bus-unsub     bus-unsub
                               :created-at    (System/currentTimeMillis)}]
+
            (swap! expert-instances assoc instance-name instance-info)
 
            (log/log! {:level :info
                       :id    ::expert-spawned
                       :msg   "Expert instance spawned successfully"
                       :data  {:expert-id expert-id :instance-name instance-name :port port}})
-
            instance-info))
 
        (catch Exception e
@@ -310,10 +353,12 @@
 
   (if-let [instance (get @expert-instances instance-name)]
           (do
-      ;; Stop AI instance via orchestrator
-           (orchestrator/stop-instance! instance-name)
+      ;; Unsubscribe from bus
+           (when-let [unsub (:bus-unsub instance)]
+                     (unsub))
 
-      ;; Release port
+      ;; Stop AI instance via orchestrator
+           (orchestrator/stop-instance! instance-name)      ;; Release port
            (port-registry/release-port! (:port instance))
 
       ;; Unregister
