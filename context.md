@@ -1,23 +1,25 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-27 (Phase 15A Complete)
-**Current Version:** v0.15.0
+**Last Updated:** 2025-11-27 (Phase 15B Complete)
+**Current Version:** v0.15.1
 
 ---
 
-## Current State - Phase 15A Complete, Ready for 15B
+## Current State - Phase 15B Complete, Ready for 15C
 
-**Phase 15A (datalevin-pod) is complete.** Ready to implement Phase 15B: datalevin-mcp module.
+**Phase 15B (datalevin-mcp) is complete.** Ready to implement Phase 15C: Conversation Persistence.
+
+### Phase 15B Completed (2025-11-27):
+- Created `modules/datalevin-mcp/` module structure
+- Implemented 3 MCP tools: schema, q, transact
+- Safe EDN parsing with helpful AI error messages
+- Unit tests: 11 tests, 40 assertions - all passing
+- HTTP integration tests: 6 tests - all passing
 
 ### Phase 15A Completed (2025-11-27):
-- Created `modules/datalevin-pod/` module structure
-- Implemented pod loading (Datalevin v0.9.27)
-- Connection management via defonce atom
-- Schema for conversations, turns, messages, persons
-- Module lifecycle: start!/stop!/status
-- Unit tests: 5 tests, 27 assertions - all passing
-- Integration tests: 6 tests via local-eval MCP - all passing
-- Commit: `30bb8a3` feat(datalevin-pod): Implement Phase 15A
+- datalevin-pod module with Datalevin v0.9.27
+- Unit tests: 5 tests, 27 assertions
+- Integration via local-eval: 6 tests
 
 ---
 
@@ -72,7 +74,7 @@
 | # | Sub-phase | Status | Description |
 |---|-----------|--------|-------------|
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle |
-| 15B | datalevin-mcp module | **Next** | MCP tools: `schema`, `q`, `transact` |
+| 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` |
 | 15C | Conversation Persistence | Planned | Store AI conversation turns |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
@@ -132,4 +134,4 @@ cljfmt check <files>           # All files formatted
 
 ---
 
-*Context updated 2025-11-27 - Phase 15A Complete, ready for Phase 15B*
+*Context updated 2025-11-27 - Phase 15B Complete, ready for Phase 15C*

@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 15A Complete (v0.15.0) - Datalevin Pod Integration
+**Status:** Phase 15B Complete (v0.15.1) - Datalevin MCP Tools
 **Last Updated:** 2025-11-27
 
 ---
@@ -1525,7 +1525,7 @@ For AI workloads (1-10s latencies per turn), millisecond DB writes are negligibl
 | # | Sub-phase | Status | Description |
 |---|-----------|--------|-------------|
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle, expose API (5 tests, 27 assertions) |
-| 15B | datalevin-mcp module | Planned | MCP tools: `schema`, `q`, `transact` |
+| 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` (11 tests, 40 assertions + 6 HTTP integration) |
 | 15C | Conversation Persistence | Planned | Store AI conversation turns |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
@@ -1654,33 +1654,34 @@ No `datalevin-mcp` tools needed - validates infrastructure layer in isolation.
 
 ---
 
-### Phase 15B: datalevin-mcp Module
+### Phase 15B: datalevin-mcp Module ✅ Complete
 
 **Goal:** MCP tools interface - expose Datalevin operations as structured MCP tools.
 
-**Module Structure:**
+**Status:** Complete - v0.15.1
+
+**Module Structure (actual):**
 ```
 modules/datalevin-mcp/
-├── module.edn              # Requires datalevin-pod
+├── module.edn                       # Requires datalevin-pod
 ├── src/datalevin_mcp/
-│   ├── core.clj            # Module entry, tool registration
-│   └── tools.clj           # Tool implementations
+│   └── core.clj                     # Module entry + tool implementations (180 lines)
 └── test/
-    └── datalevin_mcp/
-        └── tools_test.clj
+    ├── datalevin_mcp/core_test.clj  # Unit tests
+    └── run_tests.clj                # Test runner
 ```
 
 **Tasks:**
 
 | # | Task | Status | Acceptance Criteria |
 |---|------|--------|---------------------|
-| 15B.1 | Create module structure | Planned | module.edn with datalevin-pod dependency |
-| 15B.2 | Implement `schema` tool | Planned | Returns all DB attributes |
-| 15B.3 | Implement `q` tool | Planned | Execute Datalog queries |
-| 15B.4 | Implement `transact` tool | Planned | Write data (guarded) |
-| 15B.5 | Safe EDN parsing | Planned | Helpful error messages for AI |
-| 15B.6 | Unit tests | Planned | Each tool tested |
-| 15B.7 | Integration tests | Planned | Full MCP flow via HTTP |
+| 15B.1 | Create module structure | ✅ | module.edn with datalevin-pod dependency |
+| 15B.2 | Implement `schema` tool | ✅ | Returns all DB attributes |
+| 15B.3 | Implement `q` tool | ✅ | Execute Datalog queries |
+| 15B.4 | Implement `transact` tool | ✅ | Write data |
+| 15B.5 | Safe EDN parsing | ✅ | Helpful error messages for AI |
+| 15B.6 | Unit tests | ✅ | 11 tests, 40 assertions - all passing |
+| 15B.7 | Integration tests | ✅ | 6 HTTP integration tests - all passing |
 
 **Minimal Tool Interface (3 tools):**
 

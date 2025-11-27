@@ -1,0 +1,16 @@
+;; Datalevin MCP tools module configuration
+;;
+;; MCP tools layer for Datalevin database - schema, query, transact tools.
+;; Depends on datalevin-pod for connection management.
+
+{:name "datalevin-mcp"
+ :version "0.1.0"
+ :description "MCP tools for Datalevin database - schema, query, transact"
+
+ :requires ["datalevin-pod"]
+
+ ;; Entry point
+ :entry "datalevin-mcp.core/module"
+
+ ;; Tools registered by this module
+ :tools ["schema" "q" "transact"]}
