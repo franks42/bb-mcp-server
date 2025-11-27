@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 15B Complete (v0.15.1) - Datalevin MCP Tools
+**Status:** Phase 15B+ Complete (v0.15.2) - Datalevin MCP Tools (5 tools)
 **Last Updated:** 2025-11-27
 
 ---
@@ -1526,7 +1526,8 @@ For AI workloads (1-10s latencies per turn), millisecond DB writes are negligibl
 |---|-----------|--------|-------------|
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle, expose API (5 tests, 27 assertions) |
 | 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` (11 tests, 40 assertions + 6 HTTP integration) |
-| 15C | Conversation Persistence | Planned | Store AI conversation turns |
+| 15B+ | Optional tools | ✅ Complete | Added `pull`, `find-by` (20 tests, 71 assertions) |
+| 15C | AI Knowledge Persistence | Planned | Experts, prompts, conversations in Datalevin (6 sub-phases) |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
 ---
@@ -1745,16 +1746,129 @@ modules/datalevin-mcp/
 
 ---
 
-### Phase 15C: Conversation Persistence (After 15A-B)
+### Phase 15C: AI Knowledge Persistence (After 15A-B)
 
-**Goal:** Use Datalevin to persist AI conversation turns.
+**Goal:** Migrate expert definitions, curriculum, and conversation history to Datalevin for dynamic management and queryability.
 
-| # | Task | Status | Acceptance Criteria |
-|---|------|--------|---------------------|
-| 15C.1 | Create conversation on first turn | Planned | Auto-generate conversation ID |
-| 15C.2 | Store each turn with timestamp | Planned | :turn/role, :turn/content |
-| 15C.3 | Query conversation history | Planned | Datalog query for turns |
-| 15C.4 | Link turns to experts | Planned | :turn/expert ref |
+**Scope Expansion (2025-11-27):** Originally just "conversation persistence", now includes full AI knowledge management - experts, prompts, tool requirements, and conversations.
+
+#### Current State (File-Based)
+
+| What | Location | Limitations |
+|------|----------|-------------|
+| Expert definitions | `.experts/{id}/manifest.edn` | Requires restart to update |
+| Curriculum (prompts) | `.experts/{id}/essential/*.md` | Static, no versioning |
+| Tool requirements | Implicit (via domain) | Not queryable |
+| Conversations | None | Lost on restart |
+
+#### Target State (Datalevin)
+
+| What | Schema | Benefits |
+|------|--------|----------|
+| Expert definitions | `:expert/*` | Hot-swap experts, query by capability |
+| Curriculum/prompts | `:prompt/*` | Version history, A/B testing |
+| Tool requirements | `:expert/tools` | Dynamic tool assignment |
+| Conversations | `:conversation/*`, `:turn/*` | Full history, search |
+
+#### Sub-phases
+
+| # | Task | Status | Description |
+|---|------|--------|-------------|
+| 15C.1 | Conversation schema & persistence | Planned | Store turns with timestamps, roles |
+| 15C.2 | Expert definitions → Datalevin | Planned | Migrate manifest.edn to DB |
+| 15C.3 | Dynamic Prompt Store | Planned | Curriculum as versioned DB entities |
+| 15C.4 | Tool requirements per expert | Planned | `:expert/tools` refs |
+| 15C.5 | Query experts by capabilities | Planned | Datalog queries for expert discovery |
+| 15C.6 | Hot-swap expert instructions | Planned | Update prompts without restart |
+
+#### Schema Design (Proposed)
+
+```clojure
+{;; === Experts ===
+ :expert/id           {:db/unique :db.unique/identity}
+ :expert/name         {}
+ :expert/description  {}
+ :expert/domain       {}  ; :clojure-tools, :aws-tools, etc.
+ :expert/provider     {}  ; :anthropic-http, :claude-subprocess
+ :expert/capabilities {:db/cardinality :db.cardinality/many}
+ :expert/tools        {:db/cardinality :db.cardinality/many
+                       :db/valueType :db.type/ref}  ; refs to tool entities
+ :expert/active-prompt {:db/valueType :db.type/ref}  ; current prompt version
+ :expert/created      {:db/valueType :db.type/instant}
+ :expert/updated      {:db/valueType :db.type/instant}
+
+ ;; === Prompts (Dynamic Prompt Store) ===
+ :prompt/id           {:db/unique :db.unique/identity}
+ :prompt/expert       {:db/valueType :db.type/ref}  ; which expert
+ :prompt/type         {}  ; :system, :essential, :reference
+ :prompt/template     {}  ; the actual prompt text
+ :prompt/variables    {:db/cardinality :db.cardinality/many}  ; template vars
+ :prompt/version      {}
+ :prompt/created      {:db/valueType :db.type/instant}
+ :prompt/notes        {}  ; why this version was created
+
+ ;; === Tools (for expert→tool refs) ===
+ :tool/id             {:db/unique :db.unique/identity}
+ :tool/name           {}
+ :tool/module         {}
+ :tool/description    {}
+
+ ;; === Conversations ===
+ :conversation/id     {:db/unique :db.unique/identity}
+ :conversation/expert {:db/valueType :db.type/ref}
+ :conversation/created {:db/valueType :db.type/instant}
+ :conversation/metadata {}  ; EDN for flexible data
+
+ ;; === Turns ===
+ :turn/id             {:db/unique :db.unique/identity}
+ :turn/conversation   {:db/valueType :db.type/ref}
+ :turn/role           {}  ; :user, :assistant, :system
+ :turn/content        {}
+ :turn/timestamp      {:db/valueType :db.type/instant}
+ :turn/tokens         {}  ; token count for cost tracking
+ :turn/duration-ms    {}}  ; response time
+```
+
+#### Key Queries (Datalog)
+
+```clojure
+;; Find experts by capability
+[:find ?expert ?name
+ :where [?expert :expert/capabilities "clojure"]
+        [?expert :expert/name ?name]]
+
+;; Get latest prompt version for expert
+[:find ?prompt ?version
+ :in $ ?expert-id
+ :where [?e :expert/id ?expert-id]
+        [?e :expert/active-prompt ?prompt]
+        [?prompt :prompt/version ?version]]
+
+;; Conversation history (last N turns)
+[:find ?role ?content ?ts
+ :in $ ?conv-id
+ :where [?c :conversation/id ?conv-id]
+        [?t :turn/conversation ?c]
+        [?t :turn/role ?role]
+        [?t :turn/content ?content]
+        [?t :turn/timestamp ?ts]
+ :order-by [?ts :asc]]
+
+;; Expert usage stats
+[:find ?expert (count ?turn)
+ :where [?e :expert/id ?expert]
+        [?c :conversation/expert ?e]
+        [?turn :turn/conversation ?c]]
+```
+
+#### Migration Strategy
+
+1. **Phase 15C.1-2**: Add new schemas, keep file-based as fallback
+2. **Phase 15C.3**: Implement `prompt-store` namespace with CRUD
+3. **Phase 15C.4-5**: Update expert-registry to read from DB
+4. **Phase 15C.6**: Add MCP tools for prompt management
+
+**Design Principle:** File-based `.experts/` remains the "source of truth" for version control. Datalevin is the runtime cache that enables dynamic updates between deployments.
 
 ---
 
@@ -1804,4 +1918,4 @@ modules/datalevin-mcp/
 
 ---
 
-*Last Updated: 2025-11-24*
+*Last Updated: 2025-11-27*

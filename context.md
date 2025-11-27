@@ -1,30 +1,38 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-27 (Phase 15B+ Complete)
+**Last Updated:** 2025-11-27 (Phase 15B+ Complete, 15C Planned)
 **Current Version:** v0.15.2
 
 ---
 
-## Current State - Phase 15B+ Complete, Ready for 15C
+## Current State - Phase 15B+ Complete, 15C Planned
 
-**Phase 15B+ (datalevin-mcp enhanced) is complete.** Ready to implement Phase 15C: Conversation Persistence.
+**Phase 15B+ (datalevin-mcp enhanced) is complete.** Phase 15C scope expanded to "AI Knowledge Persistence".
+
+### Phase 15C: AI Knowledge Persistence (Next)
+
+Scope expanded beyond just conversations to include full AI knowledge management:
+
+| # | Task | Description |
+|---|------|-------------|
+| 15C.1 | Conversation persistence | Store turns with timestamps, roles |
+| 15C.2 | Expert definitions → DB | Migrate manifest.edn to Datalevin |
+| 15C.3 | Dynamic Prompt Store | Curriculum as versioned DB entities |
+| 15C.4 | Tool requirements | `:expert/tools` refs |
+| 15C.5 | Query by capabilities | Datalog queries for expert discovery |
+| 15C.6 | Hot-swap instructions | Update prompts without restart |
+
+**Design Principle:** File-based `.experts/` remains source of truth for version control. Datalevin is runtime cache for dynamic updates.
 
 ### Phase 15B+ Completed (2025-11-27):
 - Added optional tools: `pull`, `find-by`
 - Now 5 MCP tools total: schema, q, transact, pull, find-by
 - Unit tests: 20 tests, 71 assertions - all passing
 
-### Phase 15B Completed (2025-11-27):
-- Created `modules/datalevin-mcp/` module structure
-- Implemented 3 MCP tools: schema, q, transact
+### Phase 15A-B Completed (2025-11-27):
+- datalevin-pod: Datalevin v0.9.27, connection management
+- datalevin-mcp: 3 core tools (schema, q, transact)
 - Safe EDN parsing with helpful AI error messages
-- Unit tests: 11 tests, 40 assertions - all passing
-- HTTP integration tests: 6 tests - all passing
-
-### Phase 15A Completed (2025-11-27):
-- datalevin-pod module with Datalevin v0.9.27
-- Unit tests: 5 tests, 27 assertions
-- Integration via local-eval: 6 tests
 
 ---
 
@@ -81,7 +89,7 @@
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle |
 | 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` |
 | 15B+ | Optional tools | ✅ Complete | Added `pull`, `find-by` (20 tests, 71 assertions) |
-| 15C | Conversation Persistence | Planned | Store AI conversation turns |
+| 15C | AI Knowledge Persistence | Planned | Experts, prompts, conversations (6 sub-phases) |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
 ---
@@ -140,4 +148,4 @@ cljfmt check <files>           # All files formatted
 
 ---
 
-*Context updated 2025-11-27 - Phase 15B+ Complete (5 tools), ready for Phase 15C*
+*Context updated 2025-11-27 - Phase 15B+ Complete (5 tools), Phase 15C expanded to AI Knowledge Persistence*
