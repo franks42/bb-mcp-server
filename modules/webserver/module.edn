@@ -1,0 +1,16 @@
+;; Webserver module - simple static file server for human-facing output
+;;
+;; Provides HTTP server for HTML/CSS/JS with optional live reload and Hiccup support.
+;; No MCP tools - controlled via local-eval.
+
+{:name "webserver"
+ :version "0.1.0"
+ :description "Simple static file server with live reload and Hiccup support"
+
+ :requires []
+
+ ;; Entry point
+ :entry "webserver.core/module"
+
+ ;; No tools - API via local-eval
+ :tools []}

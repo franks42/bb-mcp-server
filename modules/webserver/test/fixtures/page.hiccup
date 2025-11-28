@@ -1,0 +1,5 @@
+[:html
+ [:head [:title "Hiccup Test"]]
+ [:body
+  [:h1 {:id "hiccup-title"} "Rendered from Hiccup"]
+  [:p {:id "hiccup-content"} "This page was rendered from a .hiccup file."]]]
