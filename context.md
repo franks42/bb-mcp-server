@@ -1,13 +1,31 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-27 (Phase 15B+ Complete, 15C Planned)
-**Current Version:** v0.15.2
+**Last Updated:** 2025-11-28 (Phase 15.5 Webserver Complete)
+**Current Version:** v0.15.5
 
 ---
 
-## Current State - Phase 15B+ Complete, 15C Planned
+## Current State - Phase 15.5 Webserver Complete
 
-**Phase 15B+ (datalevin-mcp enhanced) is complete.** Phase 15C scope expanded to "AI Knowledge Persistence".
+**Phase 15.5 (webserver module) is complete.** Next: Phase 15C "AI Knowledge Persistence".
+
+### Phase 15.5: Webserver Module ✅ (2025-11-28)
+
+Simple static file server for human-facing dashboards/UIs:
+
+- Static file serving (HTML/CSS/JS) with 25+ MIME types
+- Live reload via WebSocket + file watcher (toggle at runtime)
+- Hiccup template rendering (.hiccup → HTML)
+- Multiple concurrent servers on different ports
+- API: `start!`, `stop!`, `list-servers`, `set-reload!`
+- Default port 9876 (avoids 8080 conflicts)
+- 20 unit tests, 54 assertions - all passing
+- Playwright browser tests ready
+
+```clojure
+(require '[webserver.core :as ws])
+(ws/start! {:port 9876 :root "./webroot" :reload true :hiccup true})
+```
 
 ### Phase 15C: AI Knowledge Persistence (Next)
 
@@ -89,6 +107,7 @@ Scope expanded beyond just conversations to include full AI knowledge management
 | 15A | datalevin-pod module | ✅ Complete | Pod loading, connection lifecycle |
 | 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` |
 | 15B+ | Optional tools | ✅ Complete | Added `pull`, `find-by` (20 tests, 71 assertions) |
+| 15.5 | Webserver module | ✅ Complete | Static file server, live reload, hiccup (20 tests, 54 assertions) |
 | 15C | AI Knowledge Persistence | Planned | Experts, prompts, conversations (6 sub-phases) |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
 
@@ -148,4 +167,4 @@ cljfmt check <files>           # All files formatted
 
 ---
 
-*Context updated 2025-11-27 - Phase 15B+ Complete (5 tools), Phase 15C expanded to AI Knowledge Persistence*
+*Context updated 2025-11-28 - Phase 15.5 Webserver Complete, Phase 15C next*

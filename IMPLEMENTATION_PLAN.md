@@ -1,7 +1,31 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 15B+ Complete (v0.15.2) - Datalevin MCP Tools (5 tools)
-**Last Updated:** 2025-11-27
+**Status:** Phase 15B+ Complete + Webserver Module
+**Last Updated:** 2025-11-28
+
+---
+
+## Phase 15.5: Webserver Module ✅
+
+**Goal:** Simple static file server for human-facing dashboards/UIs.
+
+**Completed:**
+- Static file serving (HTML/CSS/JS) with 25+ MIME types
+- Live reload via WebSocket + file watcher (toggle at runtime)
+- Hiccup template rendering (.hiccup → HTML)
+- Multiple concurrent servers on different ports
+- API: start!, stop!, list-servers, set-reload!
+- Default port 9876 (avoids 8080 conflicts)
+- Auto-open browser on start
+- 20 unit tests, 54 assertions
+- Playwright browser tests ready
+
+**Files:**
+- `modules/webserver/src/webserver/core.clj` - Public API
+- `modules/webserver/src/webserver/handler.clj` - HTTP handler, MIME types
+- `modules/webserver/src/webserver/reload.clj` - WebSocket live reload
+- `modules/webserver/src/webserver/hiccup.clj` - Template rendering
+- `modules/webserver/README.md` - User guide
 
 ---
 
