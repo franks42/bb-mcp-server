@@ -1,13 +1,28 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-28 (Phase 15.5 Webserver Complete)
+**Last Updated:** 2025-11-28 (Phase 15.5 Webserver Complete, tagged v0.15.5)
 **Current Version:** v0.15.5
+
+---
+
+## For Next Claude Session
+
+**What just happened:**
+1. Completed Phase 15.5 - Webserver module for human-facing dashboards
+2. All code committed, tagged v0.15.5, pushed to main
+
+**Next task:** Phase 15C - AI Knowledge Persistence (see table below)
+
+**Start fresh session with:**
+```
+Read CLAUDE.md, docs/CLOJURE_EXPERT_CONTEXT.md, IMPLEMENTATION_PLAN.md, and this context.md
+```
 
 ---
 
 ## Current State - Phase 15.5 Webserver Complete
 
-**Phase 15.5 (webserver module) is complete.** Next: Phase 15C "AI Knowledge Persistence".
+**Phase 15.5 (webserver module) is complete and tagged v0.15.5.** Next: Phase 15C "AI Knowledge Persistence".
 
 ### Phase 15.5: Webserver Module ✅ (2025-11-28)
 
@@ -26,6 +41,13 @@ Simple static file server for human-facing dashboards/UIs:
 (require '[webserver.core :as ws])
 (ws/start! {:port 9876 :root "./webroot" :reload true :hiccup true})
 ```
+
+**Key files:**
+- `modules/webserver/src/webserver/core.clj` - Public API
+- `modules/webserver/src/webserver/handler.clj` - HTTP handler, MIME types
+- `modules/webserver/src/webserver/reload.clj` - WebSocket live reload
+- `modules/webserver/src/webserver/hiccup.clj` - Template rendering
+- `modules/webserver/README.md` - User guide
 
 ### Phase 15C: AI Knowledge Persistence (Next)
 
@@ -108,49 +130,23 @@ Scope expanded beyond just conversations to include full AI knowledge management
 | 15B | datalevin-mcp module | ✅ Complete | MCP tools: `schema`, `q`, `transact` |
 | 15B+ | Optional tools | ✅ Complete | Added `pull`, `find-by` (20 tests, 71 assertions) |
 | 15.5 | Webserver module | ✅ Complete | Static file server, live reload, hiccup (20 tests, 54 assertions) |
-| 15C | AI Knowledge Persistence | Planned | Experts, prompts, conversations (6 sub-phases) |
+| 15C | AI Knowledge Persistence | **Next** | Experts, prompts, conversations (6 sub-phases) |
 | 15D | Message Bus Migration | Planned | Evaluate replacing atoms with Datalevin |
-
----
-
-## Phase 15A Testing Strategy
-
-Minimal server config for isolated testing:
-```clojure
-;; system.edn for Phase 15A testing
-{:modules ["local-eval" "datalevin-pod"]}
-```
-
-Test via local-eval:
-```clojure
-(require '[datalevin-pod.core :as dl])
-(dl/get-conn)
-(dl/transact! [{:person/name "Test User"}])
-(dl/q '[:find ?name :where [?e :person/name ?name]])
-```
-
----
-
-## Key Design Docs
-
-| Document | Purpose |
-|----------|---------|
-| `IMPLEMENTATION_PLAN.md` | Single source of truth for planning |
-| `docs/design/datalevin-options.md` | Datalevin integration design |
-| `docs/design/datalevin-options-review.md` | Gemini's review |
 
 ---
 
 ## Key Commands
 
 ```bash
-# Run server (minimal for testing)
+# Run server
 bb server --http               # HTTP on port 3000
+bb server --stdio              # stdio transport (Claude Desktop)
 
 # Testing
 bb test:modules                # All module tests
+bb test:webserver              # Webserver module tests
 
-# Verification (REQUIRED before commit)
+# Verification (REQUIRED before commit - ZERO warnings)
 clj-kondo --lint <files>       # 0 errors, 0 warnings
 cljfmt check <files>           # All files formatted
 ```
@@ -164,7 +160,18 @@ cljfmt check <files>           # All files formatted
 3. **Telemetry required** - taoensso.trove for all I/O
 4. **Zero lint warnings** - Not just errors
 5. **Never commit API keys** - Use .cak.sh (gitignored)
+6. **defonce no docstrings** - Babashka SCI doesn't support docstrings in defonce
 
 ---
 
-*Context updated 2025-11-28 - Phase 15.5 Webserver Complete, Phase 15C next*
+## Recent Commits
+
+```
+e5c12f4 docs: Update plan and context for Phase 15.5 webserver
+74b7770 feat(webserver): Add static file server module with live reload
+f0d4680 docs: Expand Phase 15C scope to AI Knowledge Persistence
+```
+
+---
+
+*Context updated 2025-11-28 - Phase 15.5 Webserver Complete (v0.15.5), Phase 15C next*
