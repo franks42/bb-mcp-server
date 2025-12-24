@@ -9,8 +9,10 @@
    Key difference from socket connections:
    - Browsers connect TO us (vs Claude connecting to nREPL servers)
    - Claude discovers browsers via `op=list`, then selects one to eval in"
-    (:require [sente-lite.server :as sente-server]
+    (:require [clojure.set :as set]
+              [sente-lite.server :as sente-server]
               [nrepl.state.connection :as conn-state]
+              [nrepl.state.results :as results]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -19,6 +21,9 @@
 
 ;; Map of sente-conn-id -> mcp-conn-id
 (defonce ^:private !browser-connections (atom {}))
+
+;; Connection sync task control
+(defonce ^:private !sync-task-running (atom false))
 
 ;; =============================================================================
 ;; Browser Connection Management
@@ -52,15 +57,26 @@
                               :mcp-conn-id mcp-conn-id}})))
 
 (defn- on-browser-message
-  "Handle message from browser.
-   For now, just log it - full nREPL response routing comes in Phase 2."
-  [conn-id event-id data]
+  "Handle message from browser - route nREPL responses to waiting promises."
+  [sente-conn-id event-id data]
   (log/log! {:level :debug
              :id ::browser-message
              :msg "Received browser message"
-             :data {:conn-id conn-id
+             :data {:sente-conn-id sente-conn-id
                     :event-id event-id
-                    :data data}}))
+                    :data-keys (keys data)}})
+
+  ;; Route nREPL responses to waiting promises
+  (when (= event-id :nrepl/response)
+    (when-let [_mcp-conn-id (get @!browser-connections sente-conn-id)]
+              (when-let [msg-id (:id data)]
+                        (log/log! {:level :debug
+                                   :id ::routing-response
+                                   :msg "Routing nREPL response"
+                                   :data {:msg-id msg-id
+                                          :status (:status data)}})
+        ;; deliver-result! looks up connection from message-id internally
+                        (results/deliver-result! msg-id {:status :success :response data})))))
 
 ;; =============================================================================
 ;; Public API
@@ -96,6 +112,47 @@
   (sente-server/send-event-to-connection! sente-conn-id event))
 
 ;; =============================================================================
+;; Connection Sync Task
+;; =============================================================================
+
+(defn- sync-connections!
+  "Sync our browser registry with sente-lite's connection state.
+   Detects new connections and disconnections."
+  []
+  (let [sente-conns (set (map :conn-id (sente-server/get-connections)))
+        our-conns (set (keys @!browser-connections))
+        new-conns (set/difference sente-conns our-conns)
+        gone-conns (set/difference our-conns sente-conns)]
+
+    ;; Register new connections
+    (doseq [conn-id new-conns]
+           (handle-browser-connect! conn-id))
+
+    ;; Handle disconnections
+    (doseq [conn-id gone-conns]
+           (handle-browser-disconnect! conn-id))))
+
+(defn- start-sync-task!
+  "Start background task to sync connections every 500ms."
+  []
+  (reset! !sync-task-running true)
+  (future
+   (while @!sync-task-running
+          (try
+           (sync-connections!)
+           (catch Exception e
+                  (log/log! {:level :error
+                             :id ::sync-error
+                             :msg "Connection sync error"
+                             :data {:error (.getMessage e)}})))
+          (Thread/sleep 500))))
+
+(defn- stop-sync-task!
+  "Stop the connection sync background task."
+  []
+  (reset! !sync-task-running false))
+
+;; =============================================================================
 ;; Server Lifecycle
 ;; =============================================================================
 
@@ -118,8 +175,9 @@
       :port port
       :on-message on-browser-message})
 
-    ;; Add watch to track connections from sente-lite
-    ;; sente-lite registers connections in its registry
+    ;; Start background task to sync browser connections
+    (start-sync-task!)
+
     (log/log! {:level :info
                :id ::started
                :msg "Sente WebSocket server started"
@@ -134,6 +192,9 @@
              :id ::stopping
              :msg "Stopping sente WebSocket server"
              :data {:browser-count (browser-count)}})
+
+  ;; Stop sync task first
+  (stop-sync-task!)
 
   ;; Mark all browser connections as closed
   (doseq [[_sente-conn-id mcp-conn-id] @!browser-connections]

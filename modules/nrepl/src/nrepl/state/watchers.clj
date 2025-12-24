@@ -12,39 +12,69 @@
 ;; Send Queue Watcher - Phase 2b.2
 ;; =============================================================================
 
+(defn- send-to-browser!
+  "Send message to browser via registered send function.
+   Returns true if sent successfully, false otherwise."
+  [sente-conn-id message]
+  (if-let [send-fn (msg-state/get-browser-send-fn)]
+          (do
+           (send-fn sente-conn-id [:nrepl/eval {:id (:id message)
+                                                :code (:code message)
+                                                :ns (:ns message "user")}])
+           true)
+          (do
+           (log/log! {:level :error
+                      :id ::no-browser-send-fn
+                      :msg "No browser send function registered"})
+           false)))
+
 (defn- process-send-queue!
   "DUMB WATCHER: Process one READY-TO-SEND message from connection-specific queue.
    All formatting and validation was done at enqueue time.
-   This just dequeues and sends - no logic, no adaptation."
+   Routes to socket (nREPL) or browser (sente) based on connection type."
   [connection-id]
   (when-let [ready-to-send (msg-state/dequeue-message! connection-id)]
-            (let [{:keys [message-id connection message]} ready-to-send]
+            (let [{:keys [message-id type message]} ready-to-send]
               (try
-        ;; Update status to sending
+       ;; Update status to sending
                (msg-state/update-message-status! message-id :sending
                                                  :sent-at (System/currentTimeMillis))
 
-        ;; Fire-and-forget send - don't wait for responses
                (log/log! {:level :debug
                           :id ::send-fire-and-forget
-                          :msg "Fire-and-forget sending READY message"
-                          :data {:message-id message-id}})
+                          :msg "Sending message"
+                          :data {:message-id message-id :type type}})
 
-        ;; Use fire-and-forget send (receive-watcher will handle responses)
-               (nrepl-ops/send-message-fire-and-forget connection message)
+       ;; Route based on connection type
+               (if (= :browser type)
+         ;; Browser connection - send via sente WebSocket
+                 (let [sente-conn-id (:sente-conn-id ready-to-send)]
+                   (if (send-to-browser! sente-conn-id message)
+                     (do
+                      (msg-state/update-message-status! message-id :sent
+                                                        :sent-at (System/currentTimeMillis))
+                      (log/log! {:level :debug
+                                 :id ::browser-message-sent
+                                 :msg "Browser message sent"
+                                 :data {:message-id message-id :sente-conn-id sente-conn-id}}))
+                     (do
+                      (msg-state/update-message-status! message-id :error
+                                                        :error "Browser send function not available")
+                      (results/deliver-error! message-id "Browser send function not available"))))
 
-        ;; Update status to sent (not waiting for response)
-               (msg-state/update-message-status! message-id :sent
-                                                 :sent-at (System/currentTimeMillis))
-
-               (log/log! {:level :debug
-                          :id ::send-message-sent
-                          :msg "READY message sent (fire-and-forget)"
-                          :data {:message-id message-id}})
+         ;; Socket connection - use nREPL bencode protocol
+                 (let [connection (:connection ready-to-send)]
+                   (nrepl-ops/send-message-fire-and-forget connection message)
+                   (msg-state/update-message-status! message-id :sent
+                                                     :sent-at (System/currentTimeMillis))
+                   (log/log! {:level :debug
+                              :id ::socket-message-sent
+                              :msg "Socket message sent (fire-and-forget)"
+                              :data {:message-id message-id}})))
 
                (catch Exception e
-          ;; Handle fire-and-forget send errors
-                      (let [error-msg (str "Failed to fire-and-forget send: "
+        ;; Handle send errors
+                      (let [error-msg (str "Failed to send: "
                                            (or (.getMessage e)
                                                (.toString e)
                                                "Unknown error"))]
@@ -53,8 +83,8 @@
                         (results/deliver-error! message-id error-msg)
                         (log/log! {:level :error
                                    :id ::send-error
-                                   :msg "Fire-and-forget send error"
-                                   :data {:message-id message-id :error error-msg :exception (str e)}})))))))
+                                   :msg "Send error"
+                                   :data {:message-id message-id :type type :error error-msg :exception (str e)}})))))))
 
 (defn- send-queue-watcher
   "Watcher function that processes connection send queues when they change.

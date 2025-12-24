@@ -25,14 +25,47 @@
 
 (defn adapt-connection-for-messaging
   "Convert connection state format to messaging client format.
-   Wraps socket InputStream with PushbackInputStream for bencode compatibility."
+   Wraps socket InputStream with PushbackInputStream for bencode compatibility.
+   Returns nil for browser connections (they use WebSocket, not socket)."
   [connection]
-  (when connection
-    (let [socket (:socket connection)]
-      {:out (.getOutputStream socket)
-       :in (java.io.PushbackInputStream. (.getInputStream socket))
-       :id (:connection-id connection)
-       :socket socket})))
+  (when (and connection (not= :browser (:type connection)))
+    (when-let [socket (:socket connection)]
+              {:out (.getOutputStream socket)
+               :in (java.io.PushbackInputStream. (.getInputStream socket))
+               :id (:connection-id connection)
+               :socket socket})))
+
+;; =============================================================================
+;; Browser Connection Adapter Registry
+;; =============================================================================
+
+;; Registered function to send messages to browser connections.
+;; Set by sente-browser module on startup.
+;; Signature: (fn [sente-conn-id event] ...)
+(defonce ^:private !browser-send-fn (atom nil))
+
+(defn register-browser-send-fn!
+  "Register a function for sending messages to browser connections.
+   Called by sente-browser module on startup."
+  [send-fn]
+  (reset! !browser-send-fn send-fn)
+  (log/log! {:level :info
+             :id ::browser-send-fn-registered
+             :msg "Browser send function registered"}))
+
+(defn unregister-browser-send-fn!
+  "Unregister the browser send function.
+   Called by sente-browser module on shutdown."
+  []
+  (reset! !browser-send-fn nil)
+  (log/log! {:level :info
+             :id ::browser-send-fn-unregistered
+             :msg "Browser send function unregistered"}))
+
+(defn get-browser-send-fn
+  "Get the registered browser send function, or nil if not registered."
+  []
+  @!browser-send-fn)
 
 ;; =============================================================================
 ;; Connection Queue Management
@@ -65,68 +98,99 @@
 ;; Queue Operations - Phase 4 Multi-Connection Implementation
 ;; =============================================================================
 
+(defn- enqueue-message-internal!
+  "Internal helper to add a message to the queue.
+   Called after connection-type-specific setup."
+  [connection-id message-id ready-to-send timestamp]
+  ;; Ensure connection queue exists
+  (ensure-connection-queue! connection-id)
+
+  ;; Create result promise first
+  (results/create-result-promise! connection-id message-id)
+
+  ;; Add to connection-specific queue and pending messages
+  (swap! connection-message-queues
+         (fn [queues]
+           (update-in queues [connection-id]
+                      (fn [queue-state]
+                        (-> queue-state
+                            (update :send-queue conj ready-to-send)
+                            (assoc-in [:pending-messages message-id]
+                                      (assoc ready-to-send
+                                             :created-at timestamp
+                                             :status :pending))
+                            (update :message-counter inc))))))
+
+  ;; Log for debugging
+  (log/log! {:level :debug
+             :id ::message-enqueued
+             :msg "Enqueued message"
+             :data {:message-id message-id
+                    :connection-id connection-id
+                    :type (:type ready-to-send)
+                    :status :pending}})
+  message-id)
+
 (defn enqueue-message!
   "Add a READY-TO-SEND message to the send queue with pre-formatted connection.
    This makes watchers simple - they just dequeue and send without any logic.
-   
+
+   Handles both socket connections (nREPL servers) and browser connections (sente).
+
    Args:
      connection-id - Connection ID to enqueue message for
      message - nREPL message map to send
-   
+
    Returns:
      message-id - UUID v7 string for tracking this message
      nil - if connection not found or connection formatting fails"
   [connection-id message]
   ;; Get and validate specific connection by connection-id
   (if-let [raw-connection (conn-state/get-connection-by-id connection-id)]
-          (if-let [formatted-connection (adapt-connection-for-messaging raw-connection)]
-                  (do
-        ;; Ensure connection queue exists
-                   (ensure-connection-queue! connection-id)
-                   (let [message-id (uuid/uuid-v7-with-tag :tag "msg")
-                         timestamp (System/currentTimeMillis)
-              ;; Create READY-TO-SEND entry - everything formatted for watcher
-                         ready-to-send {:message-id message-id
-                                        :connection-id connection-id  ; ← Store connection-id
-                                        :connection formatted-connection  ; ← Pre-formatted connection 
-                                        :message (assoc message :id message-id)  ; ← Original message with ID
-                                        :timestamp timestamp
-                                        :attempts 0
-                                        :status :pending}]
+          (let [message-id (uuid/uuid-v7-with-tag :tag "msg")
+                timestamp (System/currentTimeMillis)
+                message-with-id (assoc message :id message-id)]
 
-          ;; Create result promise first
-                     (results/create-result-promise! connection-id message-id)
-
-          ;; Add to connection-specific queue and pending messages
-                     (swap! connection-message-queues
-                            (fn [queues]
-                              (update-in queues [connection-id]
-                                         (fn [queue-state]
-                                           (-> queue-state
-                                    ;; Add to FIFO send queue using PersistentQueue conj
-                                               (update :send-queue conj ready-to-send)
-                                    ;; Create pending entry in messages map with status
-                                               (assoc-in [:pending-messages message-id]
-                                                         (assoc ready-to-send
-                                                                :created-at timestamp
-                                                                :status :pending))
-                                    ;; Increment counter for metrics
-                                               (update :message-counter inc))))))
-
-          ;; Log for debugging
-                     (log/log! {:level :debug
-                                :id ::message-enqueued
-                                :msg "Enqueued message"
-                                :data {:message-id message-id :connection-id connection-id :status :pending}})
-                     message-id))
-
-      ;; Connection adaptation failed
+      ;; Branch based on connection type
+            (if (= :browser (:type raw-connection))
+        ;; Browser connection - use sente WebSocket
+              (let [sente-conn-id (:sente-conn-id raw-connection)
+                    ready-to-send {:message-id message-id
+                                   :connection-id connection-id
+                                   :type :browser
+                                   :sente-conn-id sente-conn-id
+                                   :message message-with-id
+                                   :timestamp timestamp
+                                   :attempts 0
+                                   :status :pending}]
+                (if sente-conn-id
+                  (enqueue-message-internal! connection-id message-id ready-to-send timestamp)
                   (do
                    (log/log! {:level :error
-                              :id ::connection-adapt-failed
-                              :msg "Failed to adapt connection for message"
+                              :id ::browser-missing-sente-id
+                              :msg "Browser connection missing sente-conn-id"
                               :data {:connection-id connection-id}})
-                   nil))
+                   nil)))
+
+        ;; Socket connection - use nREPL bencode protocol
+              (if-let [formatted-connection (adapt-connection-for-messaging raw-connection)]
+                      (let [ready-to-send {:message-id message-id
+                                           :connection-id connection-id
+                                           :type :socket
+                                           :connection formatted-connection
+                                           :message message-with-id
+                                           :timestamp timestamp
+                                           :attempts 0
+                                           :status :pending}]
+                        (enqueue-message-internal! connection-id message-id ready-to-send timestamp))
+
+          ;; Connection adaptation failed
+                      (do
+                       (log/log! {:level :error
+                                  :id ::connection-adapt-failed
+                                  :msg "Failed to adapt connection for message"
+                                  :data {:connection-id connection-id}})
+                       nil))))
 
     ;; Connection not found
           (do

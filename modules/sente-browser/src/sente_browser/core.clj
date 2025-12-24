@@ -5,6 +5,8 @@
    running Scittle nREPL clients. Browsers auto-register as nREPL connections
    that Claude can interact with using existing nrepl-eval tools."
     (:require [sente-browser.server :as server]
+              [sente-browser.bootstrap :as bootstrap]
+              [nrepl.state.messages :as msg-state]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -31,22 +33,35 @@
                   :msg "Starting sente-browser module"
                   :data {:config config}})
 
-        ;; Start WebSocket server
-       (let [ws-server (server/start! config)]
+        ;; Start WebSocket server first
+       (let [ws-server (server/start! config)
+             ;; Then start bootstrap HTTP server
+             http-server (bootstrap/start! config)]
+
+         ;; Register send function so nrepl can route messages to browsers
+         (msg-state/register-browser-send-fn! server/send-to-browser!)
+
          {:ws-server ws-server
+          :http-server http-server
           :config config})))))
 
 (defn stop
   "Stop the sente-browser module.
 
-   Stops WebSocket server and disconnects all browsers."
+   Stops WebSocket server, bootstrap HTTP server, and disconnects all browsers."
   [instance]
   (when instance
     (log/log! {:level :info
                :id ::stopping
                :msg "Stopping sente-browser module"})
 
-    ;; Stop WebSocket server
+    ;; Unregister send function first
+    (msg-state/unregister-browser-send-fn!)
+
+    ;; Stop bootstrap HTTP server
+    (bootstrap/stop!)
+
+    ;; Then stop WebSocket server
     (server/stop!))
   nil)
 
