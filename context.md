@@ -1,17 +1,18 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-11-28 (Phase 15.5 Webserver Complete, tagged v0.15.5)
-**Current Version:** v0.15.5
+**Last Updated:** 2025-12-24 (nrepl-proxy-server Complete, tagged v1.3.0)
+**Current Version:** v1.3.0
 
 ---
 
 ## For Next Claude Session
 
 **What just happened:**
-1. Completed Phase 15.5 - Webserver module for human-facing dashboards
-2. All code committed, tagged v0.15.5, pushed to main
+1. Completed nrepl-proxy-server module - shadow-cljs style browser REPL proxy
+2. Integration tested with 3 concurrent Playwright browser tabs
+3. All code committed, tagged v1.3.0, pushed to main
 
-**Next task:** Phase 15C - AI Knowledge Persistence (see table below)
+**Key achievement:** Standard nREPL clients (Calva, terminal) can now connect to port 1667 and switch between bb and browser REPLs using shadow-cljs style API.
 
 **Start fresh session with:**
 ```
@@ -20,7 +21,41 @@ Read CLAUDE.md, docs/CLOJURE_EXPERT_CONTEXT.md, IMPLEMENTATION_PLAN.md, and this
 
 ---
 
-## Current State - Phase 15.5 Webserver Complete
+## Current State - nrepl-proxy-server Complete (v1.3.0)
+
+### nrepl-proxy-server Module ✅ (2025-12-24)
+
+Shadow-cljs style browser REPL proxy - connect Calva/terminal to browser REPLs:
+
+**API:**
+```clojure
+(browser/list)           ; List available browsers
+(browser/repl :browser-127)  ; Switch to browser context
+:cljs/quit               ; Return to bb context
+```
+
+**Features:**
+- Multi-browser support (tested with 3 concurrent Playwright tabs)
+- Seamless switching between browsers
+- ClojureScript eval in browser (`js/navigator`, `js/document`, etc.)
+- Automatic session cleanup on disconnect
+- Module dependencies: `sente-browser` for WebSocket browser connections
+
+**Architecture:**
+- `session.clj` - Per-nREPL-session target routing (:bb or browser-id)
+- `api.clj` - Browser API namespace with list/repl/quit commands
+- `server.clj` - TCP nREPL server with bencode protocol
+- `core.clj` - Module entry point with `:start`/`:stop`/`:status`
+
+**Key files:**
+- `modules/nrepl-proxy-server/src/nrepl_proxy_server/*.clj`
+- `system.edn` - config with `:enabled true :port 1667`
+
+**Tests:** 15 tests, 44 assertions - all passing
+
+---
+
+## Previous State - Phase 15.5 Webserver Complete
 
 **Phase 15.5 (webserver module) is complete and tagged v0.15.5.** Next: Phase 15C "AI Knowledge Persistence".
 
@@ -167,11 +202,11 @@ cljfmt check <files>           # All files formatted
 ## Recent Commits
 
 ```
-e5c12f4 docs: Update plan and context for Phase 15.5 webserver
-74b7770 feat(webserver): Add static file server module with live reload
-f0d4680 docs: Expand Phase 15C scope to AI Knowledge Persistence
+c58cbaa chore: Add design docs, utils, and update gitignore
+7daf3a6 feat(nrepl-proxy-server): Add shadow-cljs style browser REPL proxy
+7da2ea3 feat(sente-browser): Show connection nickname in browser UI
 ```
 
 ---
 
-*Context updated 2025-11-28 - Phase 15.5 Webserver Complete (v0.15.5), Phase 15C next*
+*Context updated 2025-12-24 - nrepl-proxy-server Complete (v1.3.0)*

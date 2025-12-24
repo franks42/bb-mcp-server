@@ -1,7 +1,37 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 15B+ Complete + Webserver Module
-**Last Updated:** 2025-11-28
+**Status:** Phase 16 Complete - nrepl-proxy-server (v1.3.0)
+**Last Updated:** 2025-12-24
+
+---
+
+## Phase 16: nrepl-proxy-server ✅ (v1.3.0)
+
+**Goal:** Shadow-cljs style nREPL proxy - connect Calva/terminal to bb or browser REPLs.
+
+**Completed:**
+- TCP nREPL server with bencode protocol
+- Session-based routing (each nREPL session maps to :bb or browser-id)
+- Shadow-cljs style API: `(browser/list)`, `(browser/repl :id)`, `:cljs/quit`
+- Multi-browser support (tested with 3 concurrent Playwright tabs)
+- ClojureScript eval in browser (`js/navigator`, `js/document`, etc.)
+- Automatic session cleanup on disconnect
+- Module lifecycle with `:start`/`:stop`/`:status`
+- 15 tests, 44 assertions - all passing
+
+**Files:**
+- `modules/nrepl-proxy-server/src/nrepl_proxy_server/core.clj` - Public API
+- `modules/nrepl-proxy-server/src/nrepl_proxy_server/server.clj` - TCP server
+- `modules/nrepl-proxy-server/src/nrepl_proxy_server/session.clj` - Session routing
+- `modules/nrepl-proxy-server/src/nrepl_proxy_server/api.clj` - Browser API
+- `modules/nrepl-proxy-server/README.md` - User guide
+
+**Dependencies:** `sente-browser` module for WebSocket browser connections
+
+**Configuration (system.edn):**
+```clojure
+"nrepl-proxy-server" {:enabled true :port 1667 :write-port-file? true}
+```
 
 ---
 
