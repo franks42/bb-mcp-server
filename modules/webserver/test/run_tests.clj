@@ -11,7 +11,7 @@
 (require 'webserver.core-test)
 
 (def test-results
-  (t/run-tests 'webserver.core-test))
+     (t/run-tests 'webserver.core-test))
 
 (when (or (pos? (:fail test-results))
           (pos? (:error test-results)))
