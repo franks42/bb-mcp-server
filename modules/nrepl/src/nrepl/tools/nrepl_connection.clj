@@ -170,29 +170,45 @@
                        {:pretty true})}]}))
 
 (defn handle-list
-  "Handle nREPL list connections operation - shows ALL connections in multi-connection mode"
+  "Handle nREPL list connections operation.
+   Shows socket connections and ONLY validated browser connections.
+   Browser connections must respond to :describe with eval capability to be listed."
   [_args]
-  (let [all-connections (state/list-all-connections)
+  (let [;; Get socket connections (always shown)
+        socket-connections (state/get-socket-connections)
+        ;; Get only validated browser connections (responded to :describe with eval)
+        validated-browsers (state/get-validated-browser-connections)
+        ;; Combine them
+        all-connections (merge socket-connections validated-browsers)
         summary (state/get-connection-summary)
         active-conn-id (:active-connection summary)]
     {:content [{:type "text"
                 :text (json/generate-string
                        {:status "success"
                         :operation "list"
-                        :connection-count (:connection-count summary)
+                        :connection-count (count all-connections)
                         :active-connection active-conn-id
                         :connections (vec (map (fn [[conn-id conn-details]]
-                                                 (let [nickname (state/get-nickname-for-connection conn-id)]
-                                                   {:connection-id conn-id
-                                                    :hostname (:hostname conn-details)
-                                                    :port (:port conn-details)
-                                                    :resolved-ip (:resolved-ip conn-details)
-                                                    :status (:status conn-details)
-                                                    :nickname nickname
-                                                    :created-at (:created-at conn-details)
-                                                    :closed-at (:closed-at conn-details)
-                                                    :is-active (= conn-id active-conn-id)
-                                                    :connection (str (:hostname conn-details) ":" (:port conn-details))}))
+                                                 (let [nickname (state/get-nickname-for-connection conn-id)
+                                                       is-browser (= :browser (:type conn-details))
+                                                       capabilities (:capabilities conn-details)]
+                                                   (cond-> {:connection-id conn-id
+                                                            :type (or (:type conn-details) :socket)
+                                                            :status (:status conn-details)
+                                                            :nickname nickname
+                                                            :created-at (:created-at conn-details)
+                                                            :closed-at (:closed-at conn-details)
+                                                            :is-active (= conn-id active-conn-id)}
+                                                     ;; Socket connections have hostname/port
+                                                           (not is-browser)
+                                                           (assoc :hostname (:hostname conn-details)
+                                                                  :port (:port conn-details)
+                                                                  :resolved-ip (:resolved-ip conn-details)
+                                                                  :connection (str (:hostname conn-details) ":" (:port conn-details)))
+                                                     ;; Browser connections have capabilities
+                                                           is-browser
+                                                           (assoc :nrepl-version (:nrepl-version capabilities)
+                                                                  :ops (:ops capabilities)))))
                                                all-connections))
                         :nicknames (:nicknames summary)}
                        {:pretty true})}]}))

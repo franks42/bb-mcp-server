@@ -350,11 +350,39 @@
   [connection-id]
   (= :browser (get-in @connection-state [:connections connection-id :type])))
 
+(defn update-browser-capabilities!
+  "Update capabilities for a browser connection after :describe validation.
+   Capabilities include :ops (list of supported operations) and :nrepl-version."
+  [connection-id capabilities]
+  (when (get-in @connection-state [:connections connection-id])
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections connection-id :capabilities] capabilities)
+                 (assoc-in [:connections connection-id :validated] true))))
+    (log/log! {:level :debug
+               :id ::browser-capabilities-updated
+               :msg "Updated browser capabilities"
+               :data {:connection-id connection-id :capabilities capabilities}})))
+
+(defn get-browser-capabilities
+  "Get capabilities for a browser connection."
+  [connection-id]
+  (get-in @connection-state [:connections connection-id :capabilities]))
+
 (defn get-browser-connections
   "Get all browser connections (type = :browser)."
   []
   (->> (:connections @connection-state)
        (filter (fn [[_ conn]] (= :browser (:type conn))))
+       (into {})))
+
+(defn get-validated-browser-connections
+  "Get only validated browser connections (have responded to :describe)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (and (= :browser (:type conn))
+                                   (:validated conn))))
        (into {})))
 
 (defn get-socket-connections

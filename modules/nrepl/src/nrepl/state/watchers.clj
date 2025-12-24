@@ -14,14 +14,26 @@
 
 (defn- send-to-browser!
   "Send message to browser via registered send function.
+   Sends :nrepl/request with native EDN map - browser_adapter stringifies at FakeWebSocket boundary.
    Returns true if sent successfully, false otherwise."
   [sente-conn-id message]
   (if-let [send-fn (msg-state/get-browser-send-fn)]
-          (do
-           (send-fn sente-conn-id [:nrepl/eval {:id (:id message)
-                                                :code (:code message)
-                                                :ns (:ns message "user")}])
-           true)
+          (let [;; Build nREPL message map with :op :eval
+                ;; Send native map - browser_adapter will stringify before FakeWebSocket
+                nrepl-msg {:op :eval
+                           :id (:id message)
+                           :code (:code message)
+                           :session (or (:session message) "browser")
+                           :ns (or (:ns message) "user")}]
+            (log/log! {:level :info
+                       :id ::browser-send
+                       :msg "Sending nREPL request to browser"
+                       :data {:sente-conn-id sente-conn-id
+                              :msg-id (:id message)
+                              :nrepl-msg nrepl-msg}})
+            ;; Send [:nrepl/request native-map] - browser_adapter stringifies at boundary
+            (send-fn sente-conn-id [:nrepl/request nrepl-msg])
+            true)
           (do
            (log/log! {:level :error
                       :id ::no-browser-send-fn
@@ -40,7 +52,7 @@
                (msg-state/update-message-status! message-id :sending
                                                  :sent-at (System/currentTimeMillis))
 
-               (log/log! {:level :debug
+               (log/log! {:level :info
                           :id ::send-fire-and-forget
                           :msg "Sending message"
                           :data {:message-id message-id :type type}})
@@ -96,7 +108,7 @@
                new-queue-count (count (:send-queue queue-state))]
       ;; Only process if this connection's send queue has grown (new messages added)
            (when (> new-queue-count old-queue-count)
-             (log/log! {:level :debug
+             (log/log! {:level :info
                         :id ::send-queue-changed
                         :msg "Send queue changed, processing"
                         :data {:connection-id connection-id}})

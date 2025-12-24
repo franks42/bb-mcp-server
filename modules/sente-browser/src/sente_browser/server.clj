@@ -3,23 +3,28 @@
 
    When a browser connects via WebSocket:
    1. sente-lite handles the WebSocket lifecycle
-   2. We register the browser as an nREPL connection (type :browser)
-   3. Claude can then use nrepl-eval with that connection
+   2. We send :describe probe to verify nREPL capability
+   3. On valid response, register as validated nREPL connection
+   4. Claude can then use nrepl-eval with that connection
 
    Key difference from socket connections:
    - Browsers connect TO us (vs Claude connecting to nREPL servers)
-   - Claude discovers browsers via `op=list`, then selects one to eval in"
+   - Claude discovers browsers via `op=list`, then selects one to eval in
+   - Only validated browsers (responded to :describe) are listed"
     (:require [clojure.set :as set]
               [sente-lite.server :as sente-server]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.results :as results]
+              [nrepl.utils.uuid-v7 :as uuid]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; State
 ;; =============================================================================
 
-;; Map of sente-conn-id -> {:mcp-conn-id string, :last-heartbeat epoch-ms}
+;; Map of sente-conn-id -> {:mcp-conn-id string, :last-heartbeat epoch-ms,
+;;                          :status :pending-validation | :validated,
+;;                          :probe-id string, :capabilities {...}}
 (defonce ^:private !browser-connections (atom {}))
 
 ;; Connection sync task control
@@ -31,46 +36,118 @@
 ;; Heartbeat configuration (in ms)
 (def ^:private heartbeat-interval-ms 10000)  ; Send heartbeat every 10s
 (def ^:private heartbeat-timeout-ms 30000)   ; Consider stale after 30s
+;; NOTE: validation-timeout-ms not yet used - pending validation cleanup runs via heartbeat
 
 ;; =============================================================================
 ;; Browser Connection Management
 ;; =============================================================================
 
+(defn- send-describe-probe!
+  "Send :describe probe to verify browser has nREPL capability."
+  [sente-conn-id probe-id]
+  (log/log! {:level :info
+             :id ::sending-describe-probe
+             :msg "Sending :describe probe to validate nREPL capability"
+             :data {:sente-conn-id sente-conn-id :probe-id probe-id}})
+  (sente-server/send-event-to-connection!
+   sente-conn-id
+   [:nrepl/request {:op :describe :id probe-id}]))
+
 (defn handle-browser-connect!
   "Called when a browser connects via WebSocket.
-   Registers the browser as an nREPL connection.
+   Starts in pending-validation status and sends :describe probe.
+   Connection is promoted to validated after successful :describe response.
    Called by connection sync task when new sente connections are detected."
   [sente-conn-id]
-  (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)
+  (let [probe-id (str "probe-" (uuid/uuid-v7-string))
         now (System/currentTimeMillis)]
+    ;; Track as pending validation (not yet registered with conn-state)
     (swap! !browser-connections assoc sente-conn-id
-           {:mcp-conn-id mcp-conn-id
+           {:status :pending-validation
+            :probe-id probe-id
+            :connected-at now
             :last-heartbeat now})
     (log/log! {:level :info
-               :id ::browser-connected
-               :msg "Browser connected"
-               :data {:sente-conn-id sente-conn-id
-                      :mcp-conn-id mcp-conn-id}})
-    mcp-conn-id))
+               :id ::browser-connected-pending
+               :msg "Browser connected, pending nREPL validation"
+               :data {:sente-conn-id sente-conn-id :probe-id probe-id}})
+    ;; Send describe probe to validate nREPL capability
+    (send-describe-probe! sente-conn-id probe-id)
+    probe-id))
 
 (defn handle-browser-disconnect!
   "Called when a browser disconnects.
    Called by connection sync task when sente connections disappear."
   [sente-conn-id]
-  (when-let [{:keys [mcp-conn-id]} (get @!browser-connections sente-conn-id)]
-            (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed")
+  (when-let [conn-info (get @!browser-connections sente-conn-id)]
+    ;; Only close in conn-state if it was validated (has mcp-conn-id)
+            (when-let [mcp-conn-id (:mcp-conn-id conn-info)]
+                      (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed"))
             (swap! !browser-connections dissoc sente-conn-id)
             (log/log! {:level :info
                        :id ::browser-disconnected
                        :msg "Browser disconnected"
                        :data {:sente-conn-id sente-conn-id
-                              :mcp-conn-id mcp-conn-id}})))
+                              :status (:status conn-info)
+                              :mcp-conn-id (:mcp-conn-id conn-info)}})))
 
 (defn- update-heartbeat!
   "Update last-heartbeat timestamp for a connection."
   [sente-conn-id]
   (swap! !browser-connections update sente-conn-id
          assoc :last-heartbeat (System/currentTimeMillis)))
+
+(defn- promote-to-validated!
+  "Promote a pending connection to validated after successful :describe response.
+   Registers with conn-state and stores capabilities."
+  [sente-conn-id describe-response]
+  (let [ops (get describe-response :ops {})
+        versions (get describe-response :versions {})]
+    (if (get ops "eval")
+      ;; Valid nREPL - has eval capability
+      (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)
+            capabilities {:ops (keys ops)
+                          :nrepl-version (get versions "sci-nrepl")}]
+        ;; Update connection state with capabilities
+        (conn-state/update-browser-capabilities! mcp-conn-id capabilities)
+        ;; Update our tracking
+        (swap! !browser-connections update sente-conn-id merge
+               {:status :validated
+                :mcp-conn-id mcp-conn-id
+                :capabilities capabilities})
+        (log/log! {:level :info
+                   :id ::browser-validated
+                   :msg "Browser nREPL validated"
+                   :data {:sente-conn-id sente-conn-id
+                          :mcp-conn-id mcp-conn-id
+                          :ops (keys ops)
+                          :nrepl-version (get versions "sci-nrepl")}})
+        mcp-conn-id)
+      ;; No eval capability - not a valid nREPL
+      (do
+       (log/log! {:level :warn
+                  :id ::browser-validation-failed
+                  :msg "Browser lacks eval capability, not registering"
+                  :data {:sente-conn-id sente-conn-id
+                         :ops (keys ops)}})
+       (swap! !browser-connections dissoc sente-conn-id)
+       nil))))
+
+(defn- handle-describe-response!
+  "Handle :describe response for pending validation."
+  [sente-conn-id response]
+  (let [conn-info (get @!browser-connections sente-conn-id)
+        probe-id (:probe-id conn-info)
+        response-id (:id response)]
+    (when (and (= :pending-validation (:status conn-info))
+               (= probe-id response-id))
+      (log/log! {:level :debug
+                 :id ::describe-response-received
+                 :msg "Received :describe response for probe"
+                 :data {:sente-conn-id sente-conn-id
+                        :probe-id probe-id
+                        :ops (keys (:ops response))}})
+      (promote-to-validated! sente-conn-id response))))
 
 (defn- on-browser-message
   "Handle message from browser - route nREPL responses and heartbeats."
@@ -92,17 +169,34 @@
                 :msg "Heartbeat pong received"
                 :data {:sente-conn-id sente-conn-id}}))
 
-    ;; nREPL response - route to waiting promises
+    ;; nREPL response - native map format (browser_adapter parses before sending)
     :nrepl/response
-    (when-let [{:keys [_mcp-conn-id]} (get @!browser-connections sente-conn-id)]
-              (when-let [msg-id (:id data)]
-                        (log/log! {:level :debug
-                                   :id ::routing-response
-                                   :msg "Routing nREPL response"
-                                   :data {:msg-id msg-id
-                                          :status (:status data)}})
-        ;; deliver-result! looks up connection from message-id internally
-                        (results/deliver-result! msg-id {:status :success :response data})))
+    (let [conn-info (get @!browser-connections sente-conn-id)
+          msg-id (:id data)]
+      (cond
+        ;; Check if this is a describe probe response for pending validation
+        (and (= :pending-validation (:status conn-info))
+             (= (:probe-id conn-info) msg-id))
+        (handle-describe-response! sente-conn-id data)
+
+        ;; Validated connection - route to waiting promises
+        (= :validated (:status conn-info))
+        (do
+         (log/log! {:level :debug
+                    :id ::routing-response
+                    :msg "Routing nREPL response"
+                    :data {:msg-id msg-id
+                           :status (:status data)
+                           :value (:value data)}})
+          ;; deliver-result! looks up connection from message-id internally
+         (results/deliver-result! msg-id {:status :success :response data}))
+
+        :else
+        (log/log! {:level :warn
+                   :id ::unexpected-response
+                   :msg "Response from unvalidated connection"
+                   :data {:sente-conn-id sente-conn-id
+                          :status (:status conn-info)}})))
 
     ;; Unknown event - log it
     (log/log! {:level :debug
