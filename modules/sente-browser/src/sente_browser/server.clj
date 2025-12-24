@@ -14,7 +14,9 @@
     (:require [clojure.set :as set]
               [sente-lite.server :as sente-server]
               [nrepl.state.connection :as conn-state]
+              [nrepl.state.messages :as msg-state]
               [nrepl.state.results :as results]
+              [nrepl.state.watchers :as watchers]
               [nrepl.utils.uuid-v7 :as uuid]
               [taoensso.trove :as log]))
 
@@ -196,7 +198,10 @@
                    :id ::unexpected-response
                    :msg "Response from unvalidated connection"
                    :data {:sente-conn-id sente-conn-id
-                          :status (:status conn-info)}})))
+                          :status (:status conn-info)
+                          :msg-id msg-id
+                          :probe-id (:probe-id conn-info)
+                          :response-keys (keys data)}})))
 
     ;; Unknown event - log it
     (log/log! {:level :debug
@@ -383,6 +388,12 @@
       :port port
       :on-message on-browser-message})
 
+    ;; Register browser send function so watchers can send to browsers
+    (msg-state/register-browser-send-fn! send-to-browser!)
+
+    ;; Start global message queue watcher
+    (watchers/start-all-watchers!)
+
     ;; Start background task to sync browser connections
     (start-sync-task!)
 
@@ -409,6 +420,12 @@
 
   ;; Stop sync task
   (stop-sync-task!)
+
+  ;; Stop global message queue watcher
+  (watchers/stop-all-watchers!)
+
+  ;; Unregister browser send function
+  (msg-state/unregister-browser-send-fn!)
 
   ;; Mark all browser connections as closed
   (doseq [[_sente-conn-id {:keys [mcp-conn-id]}] @!browser-connections]
