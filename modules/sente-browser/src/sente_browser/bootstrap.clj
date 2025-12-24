@@ -175,6 +175,10 @@
                              (case event-id
                                :heartbeat/ping
                                (client/send! client-id [:heartbeat/pong {}])
+                               :nrepl/registered
+                               (let [{:keys [nickname connection-id]} data]
+                                 (set-status! \"connected\" (str \"Connected as \" nickname))
+                                 (log! \"info\" (str \"Registered as \" nickname \" (\" connection-id \")\")))
                                :nrepl/request
                                (log! \"eval\" (str \"Request: \" (pr-str data)))
                                nil))}))

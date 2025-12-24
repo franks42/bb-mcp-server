@@ -12,6 +12,7 @@
    - Claude discovers browsers via `op=list`, then selects one to eval in
    - Only validated browsers (responded to :describe) are listed"
     (:require [clojure.set :as set]
+              [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.messages :as msg-state]
@@ -19,6 +20,9 @@
               [nrepl.state.watchers :as watchers]
               [nrepl.utils.uuid-v7 :as uuid]
               [taoensso.trove :as log]))
+
+;; Forward declarations
+(declare send-to-browser!)
 
 ;; =============================================================================
 ;; State
@@ -101,13 +105,18 @@
 
 (defn- promote-to-validated!
   "Promote a pending connection to validated after successful :describe response.
-   Registers with conn-state and stores capabilities."
+   Registers with conn-state and stores capabilities.
+   Sends :nrepl/registered event to browser with connection nickname."
   [sente-conn-id describe-response]
   (let [ops (get describe-response :ops {})
         versions (get describe-response :versions {})]
     (if (get ops "eval")
       ;; Valid nREPL - has eval capability
       (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)
+            ;; Extract nickname from mcp-conn-id (e.g., "browser-2-uuid" -> "browser-2")
+            nickname (when mcp-conn-id
+                       (let [parts (str/split mcp-conn-id #"-")]
+                         (str (first parts) "-" (second parts))))
             capabilities {:ops (keys ops)
                           :nrepl-version (get versions "sci-nrepl")}]
         ;; Update connection state with capabilities
@@ -116,12 +125,17 @@
         (swap! !browser-connections update sente-conn-id merge
                {:status :validated
                 :mcp-conn-id mcp-conn-id
+                :nickname nickname
                 :capabilities capabilities})
+        ;; Send registration confirmation to browser with nickname
+        (send-to-browser! sente-conn-id [:nrepl/registered {:nickname nickname
+                                                            :connection-id mcp-conn-id}])
         (log/log! {:level :info
                    :id ::browser-validated
                    :msg "Browser nREPL validated"
                    :data {:sente-conn-id sente-conn-id
                           :mcp-conn-id mcp-conn-id
+                          :nickname nickname
                           :ops (keys ops)
                           :nrepl-version (get versions "sci-nrepl")}})
         mcp-conn-id)
