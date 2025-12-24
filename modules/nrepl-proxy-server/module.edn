@@ -1,0 +1,19 @@
+{:name "nrepl-proxy-server"
+ :version "0.1.0"
+ :description "nREPL proxy server - connect Calva/terminal to bb or browser REPLs (shadow-cljs style)"
+
+ ;; Depends on nrepl for connection state, sente-browser for browser connections
+ :requires ["nrepl" "sente-browser"]
+
+ ;; Entry point
+ :entry "nrepl-proxy-server.core/module"
+
+ ;; Default configuration
+ :defaults {:enabled false
+            :port 0          ; 0 = ephemeral port
+            :host "127.0.0.1"
+            :port-file ".nrepl-proxy-port"
+            :write-port-file? true}
+
+ ;; Test runner
+ :test-runner "test/run_tests.clj"}
