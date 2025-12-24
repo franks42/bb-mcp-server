@@ -94,7 +94,13 @@
                      (set-status! \"disconnected\" \"Disconnected\")
                      (log! \"info\" \"WebSocket disconnected\"))
          :on-message (fn [event-id data]
-                       (when (= event-id :nrepl/eval)
+                       (case event-id
+                         ;; Heartbeat ping - respond with pong
+                         :heartbeat/ping
+                         (sente-lite/send! client [:heartbeat/pong {}])
+
+                         ;; nREPL eval - execute code and respond
+                         :nrepl/eval
                          (let [{:keys [id code ns]} data
                                ns-sym (or (symbol ns) 'user)]
                            (log! \"eval\" (str \"[\" id \"] \" code))
@@ -111,7 +117,10 @@
                                (sente-lite/send! client
                                  [:nrepl/response {:id id
                                                    :err (.-message e)
-                                                   :status #{:done :error}}]))))))}))
+                                                   :status #{:done :error}}]))))
+
+                         ;; Unknown event - ignore
+                         nil))}))
 
     (log! \"info\" \"Browser nREPL ready - waiting for Claude...\")
   </script>

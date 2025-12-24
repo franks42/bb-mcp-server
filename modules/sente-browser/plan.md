@@ -13,7 +13,7 @@
 | Pre-work | Verify nrepl tests, lint, dependencies | ✅ Complete |
 | Phase 1 | Module structure + WebSocket server | ✅ Complete |
 | Phase 2 | Full nREPL support + Bootstrap HTML | ✅ Complete |
-| Phase 3 | Developer experience improvements | ⏳ Pending |
+| Phase 3 | Developer experience improvements | ⏳ In Progress |
 
 ---
 
@@ -98,16 +98,33 @@
 
 ---
 
-## Phase 3: Developer Experience
+## Phase 3: Developer Experience (In Progress)
 
 **Objective:** Polish and improve DX
 
 ### Tasks
 
-- [ ] Connection health monitoring with heartbeat
-- [ ] Broadcast to all browsers support
+- [x] Connection health monitoring with heartbeat
+- [x] Broadcast to all browsers support
 - [ ] Documentation and examples
 - [ ] Integration tests
+
+### Implementation Details
+
+**Heartbeat Monitoring:**
+- Ping sent every 10s to all connected browsers
+- Pong responses update `last-heartbeat` timestamp
+- Connections stale after 30s without pong automatically disconnected
+- `get-connection-health` returns health status for all browsers
+
+**Broadcast Support:**
+- `broadcast-to-browsers!` sends event to all connected browsers
+- Returns count of browsers message was sent to
+
+### Files Modified
+
+- `modules/sente-browser/src/sente_browser/server.clj` - Added heartbeat task, broadcast, health API
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Bootstrap HTML responds to heartbeat pings
 
 ---
 
@@ -131,4 +148,4 @@ After MVP works, refactor to cleaner architecture:
 
 ---
 
-*Last Updated: 2025-12-24*
+*Last Updated: 2025-12-24 (Phase 3 heartbeat/broadcast)*

@@ -19,11 +19,18 @@
 ;; State
 ;; =============================================================================
 
-;; Map of sente-conn-id -> mcp-conn-id
+;; Map of sente-conn-id -> {:mcp-conn-id string, :last-heartbeat epoch-ms}
 (defonce ^:private !browser-connections (atom {}))
 
 ;; Connection sync task control
 (defonce ^:private !sync-task-running (atom false))
+
+;; Heartbeat task control
+(defonce ^:private !heartbeat-task-running (atom false))
+
+;; Heartbeat configuration (in ms)
+(def ^:private heartbeat-interval-ms 10000)  ; Send heartbeat every 10s
+(def ^:private heartbeat-timeout-ms 30000)   ; Consider stale after 30s
 
 ;; =============================================================================
 ;; Browser Connection Management
@@ -34,8 +41,11 @@
    Registers the browser as an nREPL connection.
    Called by connection sync task when new sente connections are detected."
   [sente-conn-id]
-  (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)]
-    (swap! !browser-connections assoc sente-conn-id mcp-conn-id)
+  (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)
+        now (System/currentTimeMillis)]
+    (swap! !browser-connections assoc sente-conn-id
+           {:mcp-conn-id mcp-conn-id
+            :last-heartbeat now})
     (log/log! {:level :info
                :id ::browser-connected
                :msg "Browser connected"
@@ -47,7 +57,7 @@
   "Called when a browser disconnects.
    Called by connection sync task when sente connections disappear."
   [sente-conn-id]
-  (when-let [mcp-conn-id (get @!browser-connections sente-conn-id)]
+  (when-let [{:keys [mcp-conn-id]} (get @!browser-connections sente-conn-id)]
             (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed")
             (swap! !browser-connections dissoc sente-conn-id)
             (log/log! {:level :info
@@ -56,8 +66,14 @@
                        :data {:sente-conn-id sente-conn-id
                               :mcp-conn-id mcp-conn-id}})))
 
+(defn- update-heartbeat!
+  "Update last-heartbeat timestamp for a connection."
+  [sente-conn-id]
+  (swap! !browser-connections update sente-conn-id
+         assoc :last-heartbeat (System/currentTimeMillis)))
+
 (defn- on-browser-message
-  "Handle message from browser - route nREPL responses to waiting promises."
+  "Handle message from browser - route nREPL responses and heartbeats."
   [sente-conn-id event-id data]
   (log/log! {:level :debug
              :id ::browser-message
@@ -66,9 +82,19 @@
                     :event-id event-id
                     :data-keys (keys data)}})
 
-  ;; Route nREPL responses to waiting promises
-  (when (= event-id :nrepl/response)
-    (when-let [_mcp-conn-id (get @!browser-connections sente-conn-id)]
+  (case event-id
+    ;; Heartbeat pong - update timestamp
+    :heartbeat/pong
+    (do
+     (update-heartbeat! sente-conn-id)
+     (log/log! {:level :trace
+                :id ::heartbeat-pong
+                :msg "Heartbeat pong received"
+                :data {:sente-conn-id sente-conn-id}}))
+
+    ;; nREPL response - route to waiting promises
+    :nrepl/response
+    (when-let [{:keys [_mcp-conn-id]} (get @!browser-connections sente-conn-id)]
               (when-let [msg-id (:id data)]
                         (log/log! {:level :debug
                                    :id ::routing-response
@@ -76,7 +102,13 @@
                                    :data {:msg-id msg-id
                                           :status (:status data)}})
         ;; deliver-result! looks up connection from message-id internally
-                        (results/deliver-result! msg-id {:status :success :response data})))))
+                        (results/deliver-result! msg-id {:status :success :response data})))
+
+    ;; Unknown event - log it
+    (log/log! {:level :debug
+               :id ::unknown-event
+               :msg "Unknown browser event"
+               :data {:event-id event-id}})))
 
 ;; =============================================================================
 ;; Public API
@@ -88,20 +120,20 @@
   (count @!browser-connections))
 
 (defn get-browser-connections
-  "Get all browser connections as {sente-conn-id mcp-conn-id}."
+  "Get all browser connections as {sente-conn-id {:mcp-conn-id ... :last-heartbeat ...}}."
   []
   @!browser-connections)
 
 (defn get-mcp-conn-id
   "Get MCP connection ID for a sente connection ID."
   [sente-conn-id]
-  (get @!browser-connections sente-conn-id))
+  (get-in @!browser-connections [sente-conn-id :mcp-conn-id]))
 
 (defn get-sente-conn-id
   "Get sente connection ID for an MCP connection ID."
-  [mcp-conn-id]
+  [target-mcp-conn-id]
   (->> @!browser-connections
-       (filter (fn [[_ mcp]] (= mcp mcp-conn-id)))
+       (filter (fn [[_ {:keys [mcp-conn-id]}]] (= mcp-conn-id target-mcp-conn-id)))
        first
        first))
 
@@ -110,6 +142,28 @@
    Returns true if sent, false otherwise."
   [sente-conn-id event]
   (sente-server/send-event-to-connection! sente-conn-id event))
+
+(defn broadcast-to-browsers!
+  "Send an event to all connected browsers.
+   Returns count of browsers message was sent to."
+  [event]
+  (let [conn-ids (keys @!browser-connections)]
+    (doseq [conn-id conn-ids]
+           (send-to-browser! conn-id event))
+    (count conn-ids)))
+
+(defn get-connection-health
+  "Get health status for all browser connections.
+   Returns map of sente-conn-id -> {:healthy? bool :last-seen-ms-ago long}."
+  []
+  (let [now (System/currentTimeMillis)]
+    (into {}
+          (map (fn [[sente-conn-id {:keys [mcp-conn-id last-heartbeat]}]]
+                 (let [ms-ago (- now last-heartbeat)]
+                   [sente-conn-id {:mcp-conn-id mcp-conn-id
+                                   :healthy? (< ms-ago heartbeat-timeout-ms)
+                                   :last-seen-ms-ago ms-ago}]))
+               @!browser-connections))))
 
 ;; =============================================================================
 ;; Connection Sync Task
@@ -153,6 +207,66 @@
   (reset! !sync-task-running false))
 
 ;; =============================================================================
+;; Heartbeat Task
+;; =============================================================================
+
+(defn- send-heartbeat-ping!
+  "Send heartbeat ping to a single browser."
+  [sente-conn-id]
+  (try
+   (send-to-browser! sente-conn-id [:heartbeat/ping {:ts (System/currentTimeMillis)}])
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::heartbeat-send-failed
+                     :msg "Failed to send heartbeat"
+                     :data {:sente-conn-id sente-conn-id :error (.getMessage e)}}))))
+
+(defn- check-stale-connections!
+  "Check for and disconnect stale browsers (no heartbeat response)."
+  []
+  (let [now (System/currentTimeMillis)
+        stale-conns (->> @!browser-connections
+                         (filter (fn [[_ {:keys [last-heartbeat]}]]
+                                   (> (- now last-heartbeat) heartbeat-timeout-ms)))
+                         (map first))]
+    (when (seq stale-conns)
+      (log/log! {:level :info
+                 :id ::stale-connections-detected
+                 :msg "Disconnecting stale browsers"
+                 :data {:count (count stale-conns)}})
+      (doseq [conn-id stale-conns]
+             (handle-browser-disconnect! conn-id)))))
+
+(defn- heartbeat-cycle!
+  "Run one heartbeat cycle: send pings to all, check for stale."
+  []
+  ;; Send pings to all connected browsers
+  (doseq [conn-id (keys @!browser-connections)]
+         (send-heartbeat-ping! conn-id))
+  ;; Check for stale connections
+  (check-stale-connections!))
+
+(defn- start-heartbeat-task!
+  "Start background heartbeat task."
+  []
+  (reset! !heartbeat-task-running true)
+  (future
+   (while @!heartbeat-task-running
+          (try
+           (heartbeat-cycle!)
+           (catch Exception e
+                  (log/log! {:level :error
+                             :id ::heartbeat-error
+                             :msg "Heartbeat cycle error"
+                             :data {:error (.getMessage e)}})))
+          (Thread/sleep heartbeat-interval-ms))))
+
+(defn- stop-heartbeat-task!
+  "Stop the heartbeat background task."
+  []
+  (reset! !heartbeat-task-running false))
+
+;; =============================================================================
 ;; Server Lifecycle
 ;; =============================================================================
 
@@ -178,6 +292,9 @@
     ;; Start background task to sync browser connections
     (start-sync-task!)
 
+    ;; Start heartbeat task for connection health monitoring
+    (start-heartbeat-task!)
+
     (log/log! {:level :info
                :id ::started
                :msg "Sente WebSocket server started"
@@ -193,11 +310,14 @@
              :msg "Stopping sente WebSocket server"
              :data {:browser-count (browser-count)}})
 
-  ;; Stop sync task first
+  ;; Stop heartbeat task first
+  (stop-heartbeat-task!)
+
+  ;; Stop sync task
   (stop-sync-task!)
 
   ;; Mark all browser connections as closed
-  (doseq [[_sente-conn-id mcp-conn-id] @!browser-connections]
+  (doseq [[_sente-conn-id {:keys [mcp-conn-id]}] @!browser-connections]
          (conn-state/mark-connection-closed! mcp-conn-id :server-shutdown "Server stopping"))
 
   ;; Clear our tracking
