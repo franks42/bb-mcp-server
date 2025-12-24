@@ -309,6 +309,62 @@
          first))) ; Returns nickname or nil
 
 ;; =============================================================================
+;; Browser Connection Support (for sente-browser module)
+;; =============================================================================
+
+(defn register-browser-connection!
+  "Register a browser connection from sente-lite WebSocket.
+   Returns the MCP connection ID.
+
+   Browser connections differ from socket connections:
+   - No socket object (uses sente WebSocket channel)
+   - Connection initiated by browser, not Claude
+   - Claude discovers via list, then selects to eval"
+  [sente-conn-id]
+  (let [conn-counter (inc (:connection-counter @connection-state))
+        conn-id (str "browser-" conn-counter "-" (uuid/uuid-v7-string))
+        nickname (str "browser-" conn-counter)
+        connection-data {:connection-id conn-id
+                         :type :browser              ; Key differentiator from :socket
+                         :sente-conn-id sente-conn-id
+                         :status :connected
+                         :created-at (System/currentTimeMillis)
+                         :closed-at nil
+                         :error nil}]
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections conn-id] connection-data)
+                 (assoc-in [:nicknames nickname] conn-id)
+                 (assoc :connection-counter conn-counter))))
+    (log/log! {:level :info
+               :id ::browser-connection-registered
+               :msg "Registered browser connection"
+               :data {:connection-id conn-id
+                      :nickname nickname
+                      :sente-conn-id sente-conn-id}})
+    conn-id))
+
+(defn is-browser-connection?
+  "Check if connection is a browser (sente) connection vs socket connection."
+  [connection-id]
+  (= :browser (get-in @connection-state [:connections connection-id :type])))
+
+(defn get-browser-connections
+  "Get all browser connections (type = :browser)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (= :browser (:type conn))))
+       (into {})))
+
+(defn get-socket-connections
+  "Get all socket connections (type != :browser or nil)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (not= :browser (:type conn))))
+       (into {})))
+
+;; =============================================================================
 ;; Debug Support
 ;; =============================================================================
 
