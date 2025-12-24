@@ -168,6 +168,10 @@
                   :depends [-bootstrap]
                   :task (load-file "modules/webserver/test/run_tests.clj")}
 
+  test:sente-browser {:doc "Run sente-browser module tests"
+                      :depends [-bootstrap]
+                      :task (load-file "modules/sente-browser/test/run_tests.clj")}
+
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)

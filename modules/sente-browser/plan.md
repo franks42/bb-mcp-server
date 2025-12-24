@@ -13,7 +13,7 @@
 | Pre-work | Verify nrepl tests, lint, dependencies | ✅ Complete |
 | Phase 1 | Module structure + WebSocket server | ✅ Complete |
 | Phase 2 | Full nREPL support + Bootstrap HTML | ✅ Complete |
-| Phase 3 | Developer experience improvements | ⏳ In Progress |
+| Phase 3 | Developer experience improvements | ✅ Complete |
 
 ---
 
@@ -98,7 +98,7 @@
 
 ---
 
-## Phase 3: Developer Experience (In Progress)
+## Phase 3: Developer Experience (Complete)
 
 **Objective:** Polish and improve DX
 
@@ -106,8 +106,8 @@
 
 - [x] Connection health monitoring with heartbeat
 - [x] Broadcast to all browsers support
-- [ ] Documentation and examples
-- [ ] Integration tests
+- [x] Documentation (README.md)
+- [x] Unit tests (6 tests, 7 assertions)
 
 ### Implementation Details
 
@@ -121,10 +121,19 @@
 - `broadcast-to-browsers!` sends event to all connected browsers
 - Returns count of browsers message was sent to
 
-### Files Modified
+**Documentation & Tests:**
+- README.md with usage, API reference, configuration
+- Unit tests for state access and lookup functions
+- Test task added to bb.edn (`bb test:sente-browser`)
+
+### Files Created/Modified
 
 - `modules/sente-browser/src/sente_browser/server.clj` - Added heartbeat task, broadcast, health API
 - `modules/sente-browser/src/sente_browser/bootstrap.clj` - Bootstrap HTML responds to heartbeat pings
+- `modules/sente-browser/README.md` - Module documentation
+- `modules/sente-browser/test/run_tests.clj` - Test runner
+- `modules/sente-browser/test/sente_browser/server_test.clj` - Unit tests
+- `bb.edn` - Added test:sente-browser task
 
 ---
 
@@ -145,7 +154,9 @@ After MVP works, refactor to cleaner architecture:
 | 2025-12-23 | 1b3d75f | docs: Add sente-browser module design documents |
 | 2025-12-24 | 854e498 | feat(sente-browser): Implement Phase 1 - module structure |
 | 2025-12-24 | 1739d41 | feat(sente-browser): Implement Phase 2 - full nREPL support |
+| 2025-12-24 | 931da10 | feat(sente-browser): Implement Phase 3 heartbeat & broadcast |
+| 2025-12-24 | (pending) | feat(sente-browser): Complete Phase 3 - docs & tests |
 
 ---
 
-*Last Updated: 2025-12-24 (Phase 3 heartbeat/broadcast)*
+*Last Updated: 2025-12-24 (Phase 3 complete)*
