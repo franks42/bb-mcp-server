@@ -108,7 +108,7 @@ After MVP works, refactor to cleaner architecture:
 |------|--------|-------------|
 | 2025-12-23 | 5b8a12b | chore: Update clj-kondo imports and fix webserver test formatting |
 | 2025-12-23 | 1b3d75f | docs: Add sente-browser module design documents |
-| 2025-12-24 | ecd54ab | feat(sente-browser): Implement Phase 1 - module structure |
+| 2025-12-24 | 854e498 | feat(sente-browser): Implement Phase 1 - module structure |
 
 ---
 
