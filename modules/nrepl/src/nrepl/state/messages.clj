@@ -121,8 +121,8 @@
                                              :status :pending))
                             (update :message-counter inc))))))
 
-  ;; Log for debugging
-  (log/log! {:level :debug
+  ;; Log for debugging - elevated to :info for tracing
+  (log/log! {:level :info
              :id ::message-enqueued
              :msg "Enqueued message"
              :data {:message-id message-id
@@ -163,6 +163,12 @@
                                    :timestamp timestamp
                                    :attempts 0
                                    :status :pending}]
+                (log/log! {:level :info
+                           :id ::browser-enqueue-attempt
+                           :msg "Attempting to enqueue browser message"
+                           :data {:connection-id connection-id
+                                  :sente-conn-id sente-conn-id
+                                  :message-id message-id}})
                 (if sente-conn-id
                   (enqueue-message-internal! connection-id message-id ready-to-send timestamp)
                   (do

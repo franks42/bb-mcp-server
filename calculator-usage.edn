@@ -9,3 +9,5 @@
 {:has-let? false, :expr-depth 2, :functions-used #{* - +}, :duration-ms 0, :has-threading? false, :expr "(* (+ 2 3) (- 10 4))", :result-type "class java.lang.Long", :error nil, :timestamp 1763854484252, :success? true}
 {:has-let? false, :expr-depth 1, :functions-used #{*}, :duration-ms 0, :has-threading? false, :expr "(* 7 6)", :result-type "class java.lang.Long", :error nil, :timestamp 1763860445546, :success? true}
 {:has-let? false, :expr-depth 1, :functions-used #{*}, :duration-ms 1, :has-threading? false, :expr "(* 7 6)", :result-type "class java.lang.Long", :error nil, :timestamp 1763867424003, :success? true}
+{:has-let? false, :expr-depth 1, :functions-used #{+}, :duration-ms 0, :has-threading? false, :expr "(+ 1 2 3)", :result-type "class java.lang.Long", :error nil, :timestamp 1764177753380, :success? true}
+{:has-let? false, :expr-depth 1, :functions-used #{factorial}, :duration-ms 3, :has-threading? false, :expr "(factorial 5)", :result-type "error", :error "Unable to resolve symbol: factorial", :timestamp 1764177753385, :success? false}

@@ -39,6 +39,10 @@ Thumbs.db
 # Project-specific
 tmp/
 logs/
+server.log
+*.pid
+.nrepl-proxy-port
+.cak.sh
 
 # Claude Code local settings
 .claude/

@@ -4,10 +4,37 @@
    Embeds a sente-lite WebSocket server that accepts browser connections
    running Scittle nREPL clients. Browsers auto-register as nREPL connections
    that Claude can interact with using existing nrepl-eval tools."
-    (:require [sente-browser.server :as server]
+    (:require [clojure.java.io :as io]
+              [sente-browser.server :as server]
               [sente-browser.bootstrap :as bootstrap]
               [nrepl.state.messages :as msg-state]
               [taoensso.trove :as log]))
+
+;; =============================================================================
+;; Bundle Path Resolution
+;; =============================================================================
+
+(defn- find-bundle-path
+  "Find the sente-lite-nrepl.cljs bundle file.
+
+   Checks in order:
+   1. :bundle-path from config
+   2. SENTE_LITE_BUNDLE_PATH env var
+   3. SENTE_LITE_PATH/dist/sente-lite-nrepl.cljs
+   4. ~/Development/sente_lite/dist/sente-lite-nrepl.cljs (dev default)"
+  [config]
+  (let [candidates [(get config :bundle-path)
+                    (System/getenv "SENTE_LITE_BUNDLE_PATH")
+                    (when-let [base (System/getenv "SENTE_LITE_PATH")]
+                              (str base "/dist/sente-lite-nrepl.cljs"))
+                    (str (System/getProperty "user.home")
+                         "/Development/sente_lite/dist/sente-lite-nrepl.cljs")]]
+    (->> candidates
+         (filter some?)
+         (map io/file)
+         (filter #(.exists %))
+         (first)
+         (str))))
 
 ;; =============================================================================
 ;; Module Lifecycle
@@ -27,23 +54,34 @@
                   :id ::disabled
                   :msg "Sente-browser module disabled"})
        nil)
-      (do
-       (log/log! {:level :info
-                  :id ::starting
-                  :msg "Starting sente-browser module"
-                  :data {:config config}})
+      (let [bundle-path (find-bundle-path config)]
+        (when-not bundle-path
+          (log/log! {:level :warn
+                     :id ::bundle-not-found
+                     :msg "sente-lite-nrepl.cljs bundle not found - browser nREPL may not work"
+                     :data {:checked ["config :bundle-path"
+                                      "SENTE_LITE_BUNDLE_PATH env"
+                                      "SENTE_LITE_PATH/dist/sente-lite-nrepl.cljs"
+                                      "~/Development/sente_lite/dist/sente-lite-nrepl.cljs"]}}))
+
+        (log/log! {:level :info
+                   :id ::starting
+                   :msg "Starting sente-browser module"
+                   :data {:config config :bundle-path bundle-path}})
 
         ;; Start WebSocket server first
-       (let [ws-server (server/start! config)
-             ;; Then start bootstrap HTTP server
-             http-server (bootstrap/start! config)]
+        (let [ws-server (server/start! config)
+              ;; Then start bootstrap HTTP server with bundle path
+              bootstrap-config (assoc config :bundle-path bundle-path)
+              http-server (bootstrap/start! bootstrap-config)]
 
-         ;; Register send function so nrepl can route messages to browsers
-         (msg-state/register-browser-send-fn! server/send-to-browser!)
+          ;; Register send function so nrepl can route messages to browsers
+          (msg-state/register-browser-send-fn! server/send-to-browser!)
 
-         {:ws-server ws-server
-          :http-server http-server
-          :config config})))))
+          {:ws-server ws-server
+           :http-server http-server
+           :bundle-path bundle-path
+           :config config})))))
 
 (defn stop
   "Stop the sente-browser module.

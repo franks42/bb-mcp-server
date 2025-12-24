@@ -10,12 +10,22 @@
 
 Using Datalevin as the message bus shifts the architecture from a traditional **Message Passing** model (Pub/Sub) to a **Blackboard Architecture** (or Tuple Space). In this model, agents do not send messages *to* each other; they write information to a shared, persistent knowledge base, and other agents react to changes in that base.
 
+### Technical Confirmation (2025-11-25)
+Research into Datalevin's capabilities confirms two critical features that make this architecture robust:
+
+1.  **Push-Based Notifications (No Polling)**:
+    *   Datalevin supports `d/listen!`, which registers a callback that is invoked **immediately** whenever a transaction commits.
+    *   The server pushes a **Transaction Report** to the client over the persistent connection.
+    *   This means the "Subscribe" mechanism is truly event-driven, not a polling loop.
+
+2.  **Stored Procedures (via SCI)**:
+    *   Datalevin supports **User Defined Functions (UDFs)** executed on the server using the **SCI (Small Clojure Interpreter)** sandbox.
+    *   While not strictly necessary for basic Pub/Sub (since `d/listen!` handles the notification), this allows for powerful server-side filtering or transaction logic if needed in the future.
+
 ### How it would work
 *   **Publish**: `(d/transact! conn [{:msg/id (random-uuid) :msg/topic :expert-chat :msg/content "..."}])`
 *   **Subscribe**: `(d/listen! conn :key (fn [tx-report] ...))`
-    *   The listener inspects the transaction report (`:tx-data`) to see if any new datoms match the topics the agent is interested in.
-
-## 2. Trade-Off Analysis
+*   The listener inspects the transaction report (`:tx-data`) to see if any new datoms match the topics the agent is interested in.## 2. Trade-Off Analysis
 
 ### Advantages (The "Blackboard" Superpowers)
 1.  **Free Persistence**: Every message is automatically saved to disk. You get conversation history, audit logs, and "replayability" for free.

@@ -172,6 +172,10 @@
                       :depends [-bootstrap]
                       :task (load-file "modules/sente-browser/test/run_tests.clj")}
 
+  test:nrepl-proxy-server {:doc "Run nrepl-proxy-server module tests"
+                           :depends [-bootstrap]
+                           :task (load-file "modules/nrepl-proxy-server/test/run_tests.clj")}
+
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)
