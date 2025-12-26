@@ -14,8 +14,11 @@
                             start-res (server/start! {:project-root root
                                                       :executable-path executable})]
 
-                        (is (= "started" (:status start-res)))
-                        (is (integer? (:pid start-res)))
+          ;; New client returns "initialized" after full LSP handshake
+                        (is (= "initialized" (:status start-res)))
+                        (is (map? (:capabilities start-res)))
+                        (is (server/running?))
+                        (is (server/initialized?))
 
                         (let [stop-res (server/stop!)]
                           (is (= "stopped" (:status stop-res))))
@@ -33,5 +36,5 @@
                     (when clj-lsp
                       (let [res (server/init! {:project-root root
                                                :executable-path (str clj-lsp)})]
-                        (is (= "started" (:status res)))
+                        (is (= "initialized" (:status res)))
                         (server/stop!))))))

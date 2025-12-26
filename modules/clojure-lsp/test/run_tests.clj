@@ -28,7 +28,9 @@
 
 (def test-namespaces
      "List of test namespaces to run."
-     '[bb-mcp-server.modules.clojure-lsp.server-test])
+     '[bb-mcp-server.modules.clojure-lsp.jsonrpc-test
+       bb-mcp-server.modules.clojure-lsp.client-test
+       bb-mcp-server.modules.clojure-lsp.server-test])
 
 (println "=" (apply str (repeat 60 "=")))
 (println "Running clojure-lsp Module Tests")
