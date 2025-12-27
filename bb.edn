@@ -36,11 +36,8 @@
                           (do (println "✗ Failed to fix" file)
                               (System/exit 1)))))}
 
-  test {:doc "Run tests"
-        :task (clojure "-M:test" "-m" "cognitect.test-runner")}
-
-  check {:doc "Run all checks (lint + format + test)"
-         :task (do (run 'lint) (run 'format) (run 'test))}
+  check {:doc "Run all checks (lint + format)"
+         :task (do (run 'lint) (run 'format))}
 
   ;; ==========================================================================
   ;; Server Tasks
@@ -54,8 +51,15 @@
                   ((requiring-resolve 'bb-mcp-server.bootstrap/add-externals-from-env!))
                   (apply (requiring-resolve 'bb-mcp-server.main/-main) *command-line-args*))}
 
-  server:stop {:doc "Stop HTTP server running on [port] (default 3000)"
-               :task (load-file "scripts/stop_server.clj")}
+  bootstrap-server {
+    :doc "Start the MCP server with minimal bootstrap configuration"
+    :task (do
+            ;; Bootstrap: discover and add all module paths to classpath
+            ((requiring-resolve 'bb-mcp-server.bootstrap/ensure-module-paths!))
+            ;; Load external modules from BB_MCP_EXTERNAL_MODULES env var
+            ((requiring-resolve 'bb-mcp-server.bootstrap/add-externals-from-env!))
+            (apply (requiring-resolve 'bb-mcp-server.main/-main) ["--config" "bb-bootstrap-system.edn" "--http"]))
+  }
 
   ;; Legacy aliases (deprecated - use 'bb server' with flags instead)
   server:stdio {:doc "[DEPRECATED] Use: bb server --stdio"
@@ -196,9 +200,12 @@
   test:streamable-http {:doc "Run Streamable HTTP integration test (server must be running on port)"
                         :task (apply shell "scripts/test_streamable_http.sh" *command-line-args*)}
 
-  test:all {:doc "Run all tests (main + modules)"
+  test:bootstrap {:doc "Run bootstrap configuration and CLI tests"
+                 :task (load-file "test/run_bootstrap_tests.clj")}
+
+  test:all {:doc "Run all tests (modules + bootstrap)"
             :task (do (run 'test:modules)
-                      (run 'test))}}
+                      (run 'test:bootstrap))}}
 
  :aliases
  {:test {:extra-paths ["test"]

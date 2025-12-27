@@ -1,0 +1,7 @@
+{
+  "pid" : 35360,
+  "port" : 3003,
+  "nickname" : "test-bootstrap",
+  "config" : "bb-bootstrap-system.edn",
+  "timestamp" : "2025-12-27T06:39:55.665605Z"
+}

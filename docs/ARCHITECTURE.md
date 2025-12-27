@@ -277,10 +277,47 @@ bb-mcp-server/
 │   ├── nrepl/                   # nREPL tools
 │   ├── calculate/               # Calculator tool
 │   └── ...                      # Other tool modules
-├── scripts/                     # Server startup scripts
-└── docs/                        # Documentation
+├── test/bb_mcp_server/          # Core tests
+│   ├── protocol/                # Protocol tests
+│   ├── handlers/                # Handler tests
+│   ├── cli/                     # CLI parsing tests
+│   ├── bootstrap/               # Bootstrap config tests
+│   └── pid_file_test.clj        # PID file tests
+└── test/run_bootstrap_tests.clj # Bootstrap test runner
 ```
 
 ---
 
-*Last updated: 2025-11-24 (Phase 9 complete, lint cleanup)*
+## Testing Architecture
+
+The project uses a layered testing approach:
+
+### Module Tests
+Each module has its own test runner:
+```bash
+bb test:mcp-stdio      # Test stdio transport
+bb test:http-core      # Test HTTP utilities
+bb test:mcp-http       # Test HTTP MCP transport
+bb test:rest-api       # Test REST endpoints
+```
+
+### Bootstrap Tests
+Tests for core server functionality:
+- **CLI Argument Parsing**: Verifies `--http`, `--port`, `--nickname`, `--config` flags
+- **PID File Management**: Tests nickname-based port files and JSON format
+- **Bootstrap Configuration**: Validates `bb-bootstrap-system.edn` loading
+
+```bash
+bb test:bootstrap     # Run bootstrap tests
+bb test:all          # Run all tests (modules + bootstrap)
+```
+
+### Test Quality
+- **0 linting errors** (clj-kondo)
+- **0 linting warnings** 
+- All tests use Babashka-compatible `clojure.test`
+- Test fixtures for cleanup and isolation
+
+---
+
+*Last updated: 2025-12-27 (Bootstrap testing suite added)*

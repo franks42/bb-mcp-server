@@ -92,9 +92,32 @@ See `scripts/test_dynamic_load.clj` for a working example.
 ## Development
 
 ```bash
-bb test           # Run tests
-bb lint           # clj-kondo
+bb test           # Run all tests (modules + bootstrap)
+bb test:modules  # Run module tests only
+bb test:bootstrap # Run bootstrap configuration and CLI tests
+bb lint           # clj-kondo (0 errors, 0 warnings)
+bb format         # cljfmt
 bb server:stop 3000  # Stop HTTP server
+```
+
+### Bootstrap Configuration
+
+The server supports minimal bootstrap configurations for quick startup:
+
+```bash
+# Bootstrap with minimal module set (local-eval only)
+bb bootstrap-server
+
+# Custom bootstrap config
+bb server --config bb-bootstrap-system.edn
+
+# With nickname for port file identification
+bb server --config bb-bootstrap-system.edn --nickname my-server
+```
+
+Bootstrap config file (`bb-bootstrap-system.edn`):
+```clojure
+{:modules ["local-eval"]}  ; Minimal setup for local evaluation
 ```
 
 ## Status

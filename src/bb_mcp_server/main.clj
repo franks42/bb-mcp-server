@@ -18,7 +18,7 @@
               [bb-mcp-server.registry :as registry]
               [mcp-stdio.core :as stdio]
               [streamable-http.core :as shttp]
-              [pid-util :as pid-util]
+              [bb-mcp-server.pid-util :as pid-util]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -44,13 +44,7 @@
               (recur rest-args (assoc opts :stdio true))
 
               (= arg "--http")
-              (let [next-arg (first rest-args)
-                    next-port (if (and next-arg (re-matches #"\d+" next-arg))
-                                (Integer/parseInt next-arg)
-                                3000)]
-                (if next-port
-                  (recur (rest rest-args) (assoc opts :http true :port next-port))
-                  (recur rest-args (assoc opts :http true :port 3000))))
+              (recur rest-args (assoc opts :http true))
 
               (= arg "--port")
               (let [port-str (first rest-args)
@@ -89,7 +83,7 @@ USAGE:
 
 OPTIONS:
   --stdio         Run stdio transport (JSON-RPC over stdin/stdout)
-  --http [PORT]   Run HTTP transport (default port: 3000)
+  --http          Run HTTP transport (default port: 3000)
   --port PORT     Set HTTP port explicitly
   --config PATH   Set configuration file path
   --nickname NAME Set nickname for the server
@@ -98,7 +92,7 @@ OPTIONS:
 EXAMPLES:
   bb server                    # stdio only (default, for Claude Desktop)
   bb server --http             # HTTP only on port 3000
-  bb server --http 8080        # HTTP only on port 8080
+  bb server --http --port 8080 # HTTP only on port 8080
   bb server --port 8080 --http # Same as above
   bb server --stdio --http     # Both transports simultaneously
 
@@ -187,12 +181,14 @@ TRANSPORTS:
   (log/log! {:level :info
              :id    ::http-starting
              :msg   "Starting HTTP transport"
-             :data  {:port port}})
+             :data  {:port port
+                     :nickname (:nickname opts)
+                     :config-path (:config opts)}})
   (println (str "\n=== Starting HTTP transport on port " port " ==="))
 
   ;; Write PID file (only if port is known, skip for ephemeral until assigned)
   (when-not (zero? port)
-    (pid-util/write-pid-file! port))
+    (pid-util/write-pid-file! port (:nickname opts) (:config opts)))
 
   ;; Create JSON-RPC handler
   (let [handler (fn [ctx request] (router/route-request ctx request))

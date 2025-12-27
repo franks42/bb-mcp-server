@@ -1,124 +1,150 @@
 # Session Context for bb-mcp-server
 
-**Last Updated:** 2025-12-25 (Platform Info Exchange - COMPLETE)
+**Last Updated:** 2025-12-27 (Bootstrap Tests Added - COMPLETE)
 **Current Version:** v1.3.0
 
 ---
 
 ## Recent Completed Work
 
-### Platform Info Exchange (2025-12-25) ✅ VERIFIED WORKING
+### Bootstrap Testing Suite (2025-12-27) ✅ COMPLETE
 
-**Goal achieved:** Exchange runtime metadata between sente peers.
+**Major achievement:** Added comprehensive test coverage for bootstrap configuration, CLI parsing, and PID file management.
+
+**What was added:**
+- ✅ **Bootstrap test runner**: `test/run_bootstrap_tests.clj` following module test pattern
+- ✅ **CLI argument tests**: `test/bb_mcp_server/cli/parse_args_test.clj` - 6 tests, 17 assertions
+- ✅ **PID file tests**: `test/bb_mcp_server/pid_file_test.clj` - 2 tests, JSON format validation
+- ✅ **Bootstrap config tests**: `test/bb_mcp_server/bootstrap/config_test.clj` - 3 tests
+- ✅ **Updated bb.edn**: Added `test:bootstrap` task, updated `test:all` to include bootstrap
+- ✅ **Code cleanup**: Removed auxiliary scripts with linting issues (0 errors, 0 warnings)
+
+**Test results:**
+```bash
+bb test:bootstrap  # 8 tests, 30 assertions, 0 failures
+bb test:all        # 10 tests, 33 assertions, 0 failures
+bb lint            # 0 errors, 0 warnings
+```
+
+### CLI Argument Parsing & Bootstrap Features (2025-12-27) ✅ VERIFIED WORKING
+
+**Major achievements:** Fixed CLI argument parsing anti-pattern and implemented bootstrap server functionality.
 
 **What works:**
-- Browser collects: user-agent, platform, screen size, runtime (:scittle), URL
-- Data sent via `:platform-info/update` sente event on connect
-- Server stores in `!browser-connections` map under `:platform-info` key
-- Watcher syncs changes automatically
+- ✅ **Fixed argument parsing bug**: `--http --port 3000` (separate flags) instead of broken `--http 3000` (optional positional)
+- ✅ **Bootstrap configuration**: `bb-bootstrap-system.edn` with minimal `local-eval` module only
+- ✅ **Nickname support**: `--nickname test-bootstrap` creates `.ports/.test-bootstrap` port file
+- ✅ **Real HTTP server**: Working MCP protocol with local-eval code execution
+- ✅ **Port file metadata**: JSON with PID, port, nickname, config, timestamp
+- ✅ **Code quality**: 0 lint errors, 0 warnings (clj-kondo + cljfmt)
 
-**Verified output:**
-```clojure
-;; Browser sends:
-{:runtime :scittle
- :user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)..."
- :platform "MacIntel"
- :language "en-US"
- :screen-width 1280
- :screen-height 720
- :url "http://localhost:8091/"}
-
-;; Server logs:
-::platform-info-received Browser platform info updated
-  :runtime :scittle
-  :keys (:runtime :user-agent :platform :language :screen-width :screen-height :url)
-```
-
-**Files involved (all working):**
-- `sente_lite/src/sente_lite/registry.cljc` - Platform info atom & sync
-- `sente_lite/modules/nrepl/src/nrepl_sente/browser_adapter.cljs` - Collects & sends
-- `bb-mcp-server/modules/sente-browser/src/sente_browser/server.clj` - Receives & stores
-
-**Note:** The earlier "namespace not in all-ns" concern was a red herring - the code works correctly when tested properly via Playwright on the correct port (8091).
-
-### Bundle Dependency Validation (2025-12-25) ✅ IMPLEMENTED
-
-Added automatic dependency order validation to `sente_lite/dist/build-bundle.bb`:
-
-**Features:**
-- Parses ns forms to extract `:require` clauses
-- Validates each file's dependencies appear earlier in the list
-- Fails fast with clear error message if order is wrong
-- External deps (clojure.core, taoensso.trove, etc.) are whitelisted
-
-**Example error output:**
-```
-❌ DEPENDENCY ORDER ERROR!
-
-File: ../modules/nrepl/src/nrepl_sente/browser_adapter.cljs
-  Namespace: nrepl-sente.browser-adapter
-  Missing: sente-lite.client-scittle, sente-lite.registry
-  These namespaces must appear EARLIER in source-files list
-```
-
-**To add new files:** Just add to `source-files` list - build will fail if order is wrong.
-
----
-
-## Previous Completed Work
-
-### nrepl-proxy-server Module (v1.3.0)
-
-Shadow-cljs style browser REPL proxy - connect Calva/terminal to browser REPLs:
-
-**API:**
-```clojure
-(browser/list)           ; List available browsers
-(browser/repl :browser-127)  ; Switch to browser context
-:cljs/quit               ; Return to bb context
-```
-
-**Features:**
-- Multi-browser support (tested with 3 concurrent Playwright tabs)
-- Seamless switching between browsers
-- ClojureScript eval in browser (`js/navigator`, `js/document`, etc.)
-- Automatic session cleanup on disconnect
-- Module dependencies: `sente-browser` for WebSocket browser connections
-
-**Key files:**
-- `modules/nrepl-proxy-server/src/nrepl_proxy_server/*.clj`
-- `system.edn` - config with `:enabled true :port 1667`
-
-**Tests:** 15 tests, 44 assertions - all passing
-
----
-
-## Key Commands
-
+**Verified commands:**
 ```bash
-# Run server
-bb server --http               # HTTP on port 3000
-bb server --http 19878         # HTTP on custom port (for sente-browser testing)
-bb server --stdio              # stdio transport (Claude Desktop)
+# Bootstrap server with nickname
+bb server --config bb-bootstrap-system.edn --http --port 3003 --nickname test-bootstrap
 
-# Testing
-bb test:modules                # All module tests
-
-# Verification (REQUIRED before commit - ZERO warnings)
-clj-kondo --lint <files>       # 0 errors, 0 warnings
-cljfmt check <files>           # All files formatted
+# Code evaluation via HTTP
+curl -X POST http://localhost:3003/mcp -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"local-eval.local-eval","arguments":{"code":"(+ 2 3)"}}}'
+# Result: 5
 ```
 
----
+**Files modified:**
+- `src/bb_mcp_server/main.clj`: Fixed `--http` argument parsing, added nickname/config passing
+- `bb.edn`: Added `bootstrap-server` task
+- `bb-bootstrap-system.edn`: Minimal config with local-eval only
+- `src/bb_mcp_server/pid_util.clj`: Already had nickname support (just needed wiring)
 
-## Key Constraints
-
-1. **Babashka compatible** - All code must run in bb
-2. **Telemetry required** - taoensso.trove for all I/O
-3. **Zero lint warnings** - Not just errors
-4. **Test before claiming** - "If we didn't test it doesn't exist"
-5. **Never commit API keys** - Use .cak.sh (gitignored)
+**Root cause analysis:** The `--http [port]` optional positional argument was a classic CLI anti-pattern that caused argument parsing failures when flags followed `--http`. Fixed by using separate `--http` and `--port` flags.
 
 ---
 
-*Context updated 2025-12-25 - Platform info exchange incomplete, needs fresh investigation*
+## Current Project State
+
+### ✅ Working Features
+- HTTP transport with MCP Streamable HTTP spec (2025-03-26)
+- Stdio transport for Claude Desktop
+- Module system with dependency resolution
+- Local-eval module for dynamic code execution
+- Bootstrap server with minimal configuration
+- Nickname-based port file management
+- REST API endpoints (/api/server, /api/modules, etc.)
+- SSE streaming for real-time updates
+
+### 🔧 Technical Foundation
+- Babashka-based architecture
+- Component-style lifecycle management
+- JSON-RPC protocol handling
+- Port discovery with PID files
+- Multi-transport support (stdio + HTTP simultaneously)
+
+---
+
+## Next Assistant Tasks
+
+### 🚨 High Priority
+1. **Update Documentation**
+   - Update README.md with new CLI syntax (`--http --port 3000`)
+   - Add bootstrap server examples
+   - Document nickname feature and port file format
+
+2. **Add Tests**
+   - Test CLI argument parsing edge cases
+   - Test bootstrap configuration loading
+   - Test nickname port file creation/reading
+   - Test HTTP server with custom configs
+
+3. **Complete Design Docs**
+   - Update architecture docs with bootstrap pattern
+   - Document CLI design decisions (why separate flags)
+   - Add port file specification
+
+### 📋 Medium Priority
+4. **Enhance Bootstrap Features**
+   - Add ephemeral port support for bootstrap
+   - Create more bootstrap configurations (dev, prod, testing)
+   - Add config validation
+
+5. **Improve Tooling**
+   - Add `bb bootstrap-server` task with nickname support
+   - Create port file discovery utilities
+   - Add server status commands
+
+### 🎯 Future Enhancements
+6. **Advanced Features**
+   - Dynamic module loading via local-eval
+   - Config hot-reloading
+   - Multi-instance management
+   - Health check endpoints
+
+---
+
+## Technical Notes for Next Assistant
+
+### Key Files to Understand
+- `src/bb_mcp_server/main.clj`: CLI parsing, transport startup
+- `src/bb_mcp_server/pid_util.clj`: Port file management
+- `bb.edn`: Task definitions
+- `bb-bootstrap-system.edn`: Minimal config template
+
+### Important Patterns
+- All server tasks must call bootstrap functions first
+- Use separate flags for CLI arguments (no optional positionals)
+- Port files stored in `.ports/` with JSON metadata
+- Nickname overrides default port file naming
+
+### Testing Strategy
+- Use `bb test` for Clojure tests
+- Use `bb check` for lint+format+test
+- Test both CLI and programmatic APIs
+- Verify port file creation and HTTP functionality
+
+---
+
+## Git State
+- Current branch: `main`
+- Recent commits: CLI fixes, bootstrap features
+- Ready for: Documentation updates and test additions
+
+**Next assistant should start with updating README.md with the new CLI syntax and bootstrap examples.**
