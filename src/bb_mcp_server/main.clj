@@ -28,42 +28,55 @@
 (defn parse-args
   "Parse command line arguments into options map.
 
-   Returns {:stdio bool, :http bool, :port int, :help bool}"
+   Returns {:stdio bool, :http bool, :port int, :help bool, :config string, :nickname string}"
   [args]
   (loop [args args
-         opts {:stdio false :http false :port 3000 :help false}]
+         opts {:stdio false :http false :port 3000 :help false :config nil :nickname nil}]
         (if (empty? args)
       ;; Default to stdio if nothing specified
           (if (and (not (:stdio opts)) (not (:http opts)))
             (assoc opts :stdio true)
             opts)
-          (let [[arg & rest-args] args]
+          (let [arg (first args)
+                rest-args (rest args)]
             (cond
-              (or (= arg "-h") (= arg "--help"))
-              (assoc opts :help true)
-
               (= arg "--stdio")
               (recur rest-args (assoc opts :stdio true))
 
               (= arg "--http")
-          ;; Check if next arg is a port number
-              (let [maybe-port (first rest-args)]
-                (if (and maybe-port (re-matches #"\d+" maybe-port))
-                  (recur (rest rest-args) (assoc opts :http true :port (parse-long maybe-port)))
-                  (recur rest-args (assoc opts :http true))))
+              (let [next-arg (first rest-args)
+                    next-port (if (and next-arg (re-matches #"\d+" next-arg))
+                                (Integer/parseInt next-arg)
+                                3000)]
+                (if next-port
+                  (recur (rest rest-args) (assoc opts :http true :port next-port))
+                  (recur rest-args (assoc opts :http true :port 3000))))
 
               (= arg "--port")
-          ;; Explicit --port flag
-              (let [port-str (first rest-args)]
-                (if (and port-str (re-matches #"\d+" port-str))
-                  (recur (rest rest-args) (assoc opts :port (parse-long port-str)))
-                  (do (println "Error: --port requires a number")
+              (let [port-str (first rest-args)
+                    port (if port-str (Integer/parseInt port-str) 3000)]
+                (recur (rest rest-args) (assoc opts :port port)))
+
+              (or (= arg "-h") (= arg "--help"))
+              (recur rest-args (assoc opts :help true))
+
+              (= arg "--config")
+              (let [config-path (first rest-args)]
+                (if config-path
+                  (recur (rest rest-args) (assoc opts :config config-path))
+                  (do (println "Error: --config requires a value")
                       (assoc opts :help true))))
 
-          ;; Unknown flag
+              (= arg "--nickname")
+              (let [nickname (first rest-args)]
+                (if nickname
+                  (recur (rest rest-args) (assoc opts :nickname nickname))
+                  (do (println "Error: --nickname requires a value")
+                      (assoc opts :help true))))
+
               :else
-              (do (println "Unknown option:" arg)
-                  (assoc opts :help true)))))))
+              (do (println (str "Unknown argument: " arg))
+                  (recur rest-args (assoc opts :help true))))))))
 
 (defn print-help
   "Print usage help."
@@ -78,6 +91,8 @@ OPTIONS:
   --stdio         Run stdio transport (JSON-RPC over stdin/stdout)
   --http [PORT]   Run HTTP transport (default port: 3000)
   --port PORT     Set HTTP port explicitly
+  --config PATH   Set configuration file path
+  --nickname NAME Set nickname for the server
   -h, --help      Show this help
 
 EXAMPLES:
@@ -116,7 +131,7 @@ TRANSPORTS:
   "Initialize the module system and MCP handlers.
 
    Returns true on success, exits on failure."
-  [verbose?]
+  [verbose? & [config]]
   (log/log! {:level :info
              :id    ::system-initializing
              :msg   "Initializing bb-mcp-server"})
@@ -124,7 +139,7 @@ TRANSPORTS:
 
     ;; Load modules from system.edn
     (when verbose? (println "[1/3] Loading modules from system.edn..."))
-    (let [create-result (sys/create-system-from-config)]
+    (let [create-result (sys/create-system-from-config config)]
       (if (:error create-result)
         (do (log/log! {:level :error
                        :id    ::system-create-failed
@@ -168,15 +183,16 @@ TRANSPORTS:
 
 (defn start-http!
   "Start HTTP transport on given port. Returns server instance."
-  [port]
+  [port opts]
   (log/log! {:level :info
              :id    ::http-starting
              :msg   "Starting HTTP transport"
              :data  {:port port}})
   (println (str "\n=== Starting HTTP transport on port " port " ==="))
 
-  ;; Write PID file
-  (pid-util/write-pid-file! port)
+  ;; Write PID file (only if port is known, skip for ephemeral until assigned)
+  (when-not (zero? port)
+    (pid-util/write-pid-file! port))
 
   ;; Create JSON-RPC handler
   (let [handler (fn [ctx request] (router/route-request ctx request))
@@ -249,8 +265,13 @@ TRANSPORTS:
       ;; HTTP only
       (and (:http opts) (not (:stdio opts)))
       (do (println "\n=== BB MCP Server ===")
-          (initialize-system! true)
-          (let [server (start-http! (:port opts))]
+          (initialize-system! true (:config opts)) ; pass custom config
+          (let [server (start-http! (:port opts) opts)
+                actual-port (:local-port (meta server))]
+            ;; If using ephemeral port, now that it's assigned, write PID file
+            (when (zero? (:port opts))
+              (pid-util/write-pid-file! actual-port))
+
             ;; Shutdown hook
             (.addShutdownHook
              (Runtime/getRuntime)
@@ -261,11 +282,10 @@ TRANSPORTS:
                                    :data  {:transport :http}})
                         (println "\nShutting down...")
                         (shttp/stop-server! server)
-                        (pid-util/delete-pid-file! (:port opts))
+                        (pid-util/delete-pid-file! actual-port)
                         (log/log! {:level :info
                                    :id    ::shutdown-complete
-                                   :msg   "Shutdown complete"})
-                        (println "Goodbye!"))))
+                                   :msg   "Shutdown complete"}))))
             (println "\nServer ready. Press Ctrl+C to stop.")
             ;; Keep running
             (deref (promise))))
@@ -276,10 +296,11 @@ TRANSPORTS:
                      :id    ::dual-transport-mode
                      :msg   "Starting dual transport mode"
                      :data  {:http-port (:port opts)}})
-          (initialize-system! true)
+          (initialize-system! true (:config opts)) ; pass custom config
 
           ;; Start HTTP in background
-          (let [server (start-http! (:port opts))]
+          (let [server (start-http! (:port opts) opts)
+                actual-port (:local-port (meta server))]
             (.addShutdownHook
              (Runtime/getRuntime)
              (Thread. (fn []
@@ -288,7 +309,7 @@ TRANSPORTS:
                                    :msg   "Shutdown initiated"
                                    :data  {:transport :dual}})
                         (shttp/stop-server! server)
-                        (pid-util/delete-pid-file! (:port opts))
+                        (pid-util/delete-pid-file! actual-port)
                         (log/log! {:level :info
                                    :id    ::shutdown-complete
                                    :msg   "Shutdown complete"}))))

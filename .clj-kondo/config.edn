@@ -20,7 +20,10 @@
                              :symbols {clojure.core/println {:message "Use taoensso.trove/log! instead. println breaks stdio transport."}
                                        clojure.core/prn {:message "Use taoensso.trove/log! instead. prn breaks stdio transport."}
                                        clojure.core/print {:message "Use taoensso.trove/log! instead. print breaks stdio transport."}}}}
-
+ :lint-as {pid-util/write-pid-file! clojure.core/defn
+              pid-util/delete-pid-file! clojure.core/defn}
+ :linters {:unresolved-symbol {:level :error}
+           :invalid-arity {:level :error}}
  :output {:canonical-paths true}
 
  :skip-comments true}
