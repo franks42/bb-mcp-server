@@ -4,11 +4,62 @@ Command-line interface for remote nREPL operations via MCP server.
 
 ## Overview
 
-The `bb nrepl` CLI provides shell access to nREPL servers through MCP. This enables:
+The `bb nrepl` CLI provides shell access to **external** nREPL servers through MCP. This enables:
 - Connecting to running Clojure/Babashka/ClojureScript REPLs
 - Evaluating code from the command line or scripts
 - Loading files into remote REPLs
 - Managing multiple nREPL connections
+
+## Architecture: nrepl vs mcp-eval
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              nrepl CLI                                      │
+│                   (Evaluate in EXTERNAL Runtimes)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌──────────────┐   HTTP    ┌─────────────┐   TCP    ┌─────────────────┐  │
+│   │              │  JSON-RPC │ MCP Server  │  nREPL   │ External REPL   │  │
+│   │  bb nrepl    │ ────────► │             │ ───────► │                 │  │
+│   │              │           │ nrepl module│ bencode  │  JVM Clojure    │  │
+│   └──────────────┘           └─────────────┘          │  Babashka       │  │
+│                                    │                  │  ClojureScript  │  │
+│                               (proxy only)            │                 │  │
+│                                                       │  YOUR CODE RUNS │  │
+│                                                       │      HERE       │  │
+│                                                       └─────────────────┘  │
+│                                                                             │
+│   Use for: Application debugging, remote eval, multi-runtime workflows     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              mcp-eval                                       │
+│                   (Evaluate INSIDE the MCP Server)                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌──────────────┐         HTTP          ┌──────────────────────────────┐  │
+│   │              │       JSON-RPC        │        MCP Server            │  │
+│   │  bb mcp-eval │ ───────────────────►  │  ┌────────────────────────┐  │  │
+│   │              │                       │  │    local-eval tool     │  │  │
+│   └──────────────┘                       │  │  ┌──────────────────┐  │  │  │
+│                                          │  │  │ Babashka Runtime │  │  │  │
+│                                          │  │  │   (same JVM)     │◄─┼──┼──┤
+│                                          │  │  │                  │  │  │  │
+│                                          │  │  │  YOUR CODE RUNS  │  │  │  │
+│                                          │  │  │      HERE        │  │  │  │
+│                                          │  │  └──────────────────┘  │  │  │
+│                                          │  └────────────────────────┘  │  │
+│                                          └──────────────────────────────┘  │
+│                                                                             │
+│   Use for: Server introspection, module management, tool testing           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Difference:**
+- **nrepl**: Code runs in separate Clojure/Babashka/ClojureScript processes
+- **mcp-eval**: Code runs in the MCP server's own Babashka process
 
 ## Quick Start
 
@@ -233,7 +284,20 @@ bb nrepl eval "(db/query \"SELECT count(*) FROM users\")" --connection backend -
 bb nrepl eval "(count @job-queue)" --connection worker --mcp nrepl-mcp
 ```
 
-## Architecture
+## Comparison: When to Use Each CLI
+
+| Task | Use `nrepl` | Use `mcp-eval` |
+|------|-------------|----------------|
+| Evaluate in JVM Clojure | ✓ | |
+| Connect to running app | ✓ | |
+| Multiple runtime targets | ✓ | |
+| ClojureScript eval | ✓ | |
+| Inspect MCP server state | | ✓ |
+| Load modules dynamically | | ✓ |
+| Test tool implementations | | ✓ |
+| Debug server issues | | ✓ |
+
+## Protocol Flow
 
 ```
 ┌──────────────┐     HTTP/MCP     ┌──────────────┐     TCP/nREPL     ┌──────────────┐
@@ -308,4 +372,4 @@ Port files are created automatically when starting with `--nickname`:
 
 - [README.md](../README.md) - Project overview
 - [nrepl module](../modules/nrepl/README.md) - nREPL module details
-- [mcp-eval CLI](../README.md#mcp-eval-cli-tool) - Local eval CLI
+- [mcp-eval CLI guide](./mcp-eval-cli-user-guide.md) - Local eval CLI (server introspection)
