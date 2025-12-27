@@ -288,3 +288,52 @@
                 (throw (ex-info "No servers running" {}))
                 (throw (ex-info "Multiple servers running, please specify --nickname"
                                 {:servers (map :nickname servers)})))))))
+
+;; =============================================================================
+;; Generic Tool Calling
+;; =============================================================================
+
+(defn build-tool-request
+  "Build a JSON-RPC request for any MCP tool.
+
+   Arguments:
+     tool-name - Fully qualified tool name (e.g., \"nrepl.nrepl-connection\")
+     arguments - Map of arguments to pass to the tool
+
+   Returns a JSON-RPC request map."
+  [tool-name arguments]
+  {:jsonrpc "2.0"
+   :id (random-uuid)
+   :method "tools/call"
+   :params {:name tool-name
+            :arguments arguments}})
+
+(defn call-tool!
+  "Call any MCP tool on a server.
+
+   Arguments:
+     port-or-nickname - Server port number or nickname
+     tool-name        - Fully qualified tool name (e.g., \"nrepl.nrepl-connection\")
+     arguments        - Map of arguments to pass to the tool
+
+   Returns the raw JSON-RPC response from the server."
+  [port-or-nickname tool-name arguments]
+  (let [port (if (number? port-or-nickname)
+               port-or-nickname
+               (or (find-port-by-nickname port-or-nickname)
+                   (throw (ex-info "Server not found" {:nickname port-or-nickname}))))
+        request (build-tool-request tool-name arguments)]
+    (send-request! port request)))
+
+(defn extract-tool-result
+  "Extract the result from a tool call response.
+
+   For nrepl tools, the content is JSON with status/operation/etc fields.
+   Returns the parsed map from the first content item's text."
+  [response]
+  (if-let [error (:error response)]
+          (throw (ex-info "MCP Error" error))
+          (let [content (get-in response [:result :content])
+                text (:text (first content))]
+            (when text
+              (json/parse-string text true)))))

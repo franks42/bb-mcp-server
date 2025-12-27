@@ -1,7 +1,56 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 17 Complete - Bootstrap Testing Suite (v1.3.0)
+**Status:** Phase 18 Complete - nrepl CLI (v1.6.0)
 **Last Updated:** 2025-12-27
+
+---
+
+## Phase 18: nrepl CLI ✅ (v1.6.0)
+
+**Goal:** Command-line interface for nREPL operations via MCP server.
+
+**Completed:**
+- Bootstrap config `bb-nrepl-system.edn` with `["nrepl" "local-eval"]`
+- Generic tool calling in `mcp_client.clj`: `build-tool-request`, `call-tool!`, `extract-tool-result`
+- Full CLI dispatcher `scripts/nrepl_cli.clj` (~370 lines)
+- Task wrapper `scripts/nrepl-task.clj`
+- Task integration in `bb.edn`
+- Comprehensive README documentation
+- CLAUDE.md one-liner reference
+
+**Subcommands:**
+- `connect <target>` - Connect to nREPL server (port, host:port, .nrepl-port)
+- `disconnect [name]` - Disconnect from nREPL server
+- `list` - List all connections
+- `status` - Show active connection status
+- `eval <code>` - Evaluate Clojure code
+- `load-file <path>` - Load and evaluate a Clojure file
+- `help` - Show usage
+
+**Options:**
+- `--mcp NAME` - MCP server nickname (default: bb-nrepl-system-1)
+- `--connection NAME` - nREPL connection nickname
+- `--nickname NAME` - Nickname for new connection (connect)
+- `--output MODE` - Output mode: result, full, pipe
+- `--pprint` - Pretty-print output
+- `--timeout MS` - Timeout in milliseconds
+
+**Files:**
+- `bb-nrepl-system.edn` - Bootstrap config
+- `scripts/nrepl_cli.clj` - CLI dispatcher
+- `scripts/nrepl-task.clj` - Task wrapper
+- `src/bb_mcp_server/mcp_client.clj` - Generic tool calling
+- `bb.edn` - Added nrepl task
+
+**Usage:**
+```bash
+bb server --http --port 3001 --config bb-nrepl-system.edn --nickname nrepl-mcp
+bb nrepl connect 7888 --nickname my-repl --mcp nrepl-mcp
+bb nrepl eval "(+ 1 2 3)" --mcp nrepl-mcp
+bb nrepl load-file src/app/core.clj --mcp nrepl-mcp
+bb nrepl list --mcp nrepl-mcp
+bb nrepl disconnect my-repl --mcp nrepl-mcp
+```
 
 ---
 

@@ -149,6 +149,81 @@ bb mcp-eval "(/ 1 0)" --output pipe  # Prints error to stderr
 ; => {:status :ok, :result 42, :stdout "x\n", :stderr ""}
 ```
 
+## nrepl CLI Tool
+
+The `nrepl` CLI provides command-line access to remote nREPL servers via MCP.
+Connect to any nREPL server (JVM Clojure, Babashka, ClojureScript) and evaluate code.
+
+### Setup
+
+```bash
+# Start MCP server with nrepl module
+bb server --http --port 3001 --config bb-nrepl-system.edn --nickname nrepl-mcp
+
+# Start your nREPL server (or use an existing one)
+bb --nrepl-server 7888 &
+```
+
+### Basic Usage
+
+```bash
+# Connect to nREPL server
+bb nrepl connect 7888 --nickname my-app --mcp nrepl-mcp
+
+# Evaluate code
+bb nrepl eval "(+ 1 2 3)" --mcp nrepl-mcp
+# => 6
+
+# Load a file
+bb nrepl load-file src/my_app/core.clj --mcp nrepl-mcp
+
+# List connections
+bb nrepl list --mcp nrepl-mcp
+
+# Disconnect
+bb nrepl disconnect my-app --mcp nrepl-mcp
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `connect <target>` | Connect to nREPL server (port, host:port, or .nrepl-port) |
+| `disconnect [name]` | Disconnect from nREPL server |
+| `list` | List all connections |
+| `status` | Show active connection status |
+| `eval <code>` | Evaluate Clojure code |
+| `load-file <path>` | Load and evaluate a Clojure file |
+| `help` | Show help |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--mcp NAME` | MCP server nickname (default: `bb-nrepl-system-1`) |
+| `--connection NAME` | nREPL connection nickname (for eval/load-file) |
+| `--nickname NAME` | Nickname for new connection (for connect) |
+| `--output MODE` | Output mode: `result`, `full`, `pipe` |
+| `--pprint` | Pretty-print output |
+| `--timeout MS` | Timeout in milliseconds (default: 30000) |
+
+### Output Modes
+
+```bash
+# result (default): Just the value
+bb nrepl eval "(do (println \"hi\") 42)" --mcp nrepl-mcp
+# => 42
+
+# full: Complete response with stdout/stderr
+bb nrepl eval "(do (println \"hi\") 42)" --mcp nrepl-mcp --output full --pprint
+# => {:status "success", :value "42", :out "hi\n", ...}
+
+# pipe: stdout→stdout, stderr→stderr, value to stdout
+bb nrepl eval "(do (println \"hi\") 42)" --mcp nrepl-mcp --output pipe
+# hi
+# 42
+```
+
 ## Claude Code
 
 ```json

@@ -208,7 +208,10 @@
                       (run 'test:bootstrap))}
 
   mcp-eval {:doc "Evaluate Clojure code on a running MCP server"
-           :task (load-file "scripts/mcp-eval-task.clj")}}
+            :task (load-file "scripts/mcp-eval-task.clj")}
+
+  nrepl {:doc "nREPL CLI - connect, eval, load-file via MCP"
+         :task (load-file "scripts/nrepl-task.clj")}}
 
  :aliases
  {:test {:extra-paths ["test"]

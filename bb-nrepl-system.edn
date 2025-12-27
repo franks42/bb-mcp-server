@@ -1,0 +1,3 @@
+;; Bootstrap configuration for nREPL CLI operations
+;; Start with: bb server --http 0 --config bb-nrepl-system.edn --nickname nrepl-mcp
+{:modules ["nrepl" "local-eval"]}
