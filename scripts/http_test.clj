@@ -41,16 +41,28 @@
    :method method
    :params params})
 
+(defonce session-id (atom nil))
+
 (defn send-rpc
   "Send JSON-RPC request and return parsed response."
   [id method params]
   (let [body (json/generate-string (json-rpc-request id method params))
+        headers {"Content-Type" "application/json"}
+        headers (if @session-id
+                  (assoc headers "Mcp-Session-Id" @session-id)
+                  headers)
         resp (http/post mcp-url
-                        {:headers {"Content-Type" "application/json"}
+                        {:headers headers
                          :body body
                          :throw false})]
-    {:status (:status resp)
-     :body (json/parse-string (:body resp) true)}))
+    (let [result {:status (:status resp)
+                  :body (json/parse-string (:body resp) true)}]
+      ;; Capture session ID from initialize response
+      (when (and (= "initialize" method)
+                 (= 200 (:status resp))
+                 (get-in resp [:headers "mcp-session-id"]))
+        (reset! session-id (get-in resp [:headers "mcp-session-id"])))
+      result)))
 
 ;; -----------------------------------------------------------------------------
 ;; Test Commands

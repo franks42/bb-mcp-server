@@ -205,7 +205,10 @@
 
   test:all {:doc "Run all tests (modules + bootstrap)"
             :task (do (run 'test:modules)
-                      (run 'test:bootstrap))}}
+                      (run 'test:bootstrap))}
+
+  mcp-eval {:doc "Evaluate Clojure code on a running MCP server"
+           :task (load-file "scripts/mcp-eval-task.clj")}}
 
  :aliases
  {:test {:extra-paths ["test"]

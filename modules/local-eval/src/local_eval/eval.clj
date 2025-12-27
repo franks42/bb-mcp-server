@@ -17,6 +17,28 @@
   (.encodeToString (java.util.Base64/getEncoder) (.getBytes text "UTF-8")))
 
 ;; =============================================================================
+;; Stream Capture
+;; =============================================================================
+
+(defn- capture-eval
+  "Evaluate code and capture stdout, stderr, and result."
+  [code]
+  (let [stdout-writer (java.io.StringWriter.)
+        stderr-writer (java.io.StringWriter.)
+        result-atom (atom nil)
+        error-atom (atom nil)]
+    (binding [*out* stdout-writer
+              *err* stderr-writer]
+             (try
+              (reset! result-atom (eval (read-string code)))
+              (catch Exception e
+                     (reset! error-atom e))))
+    {:result @result-atom
+     :error @error-atom
+     :stdout (str stdout-writer)
+     :stderr (str stderr-writer)}))
+
+;; =============================================================================
 ;; Result Serialization
 ;; =============================================================================
 
@@ -63,8 +85,7 @@
 
     ;; Process the code
     :else
-    (let [;; Determine actual code to execute
-          actual-code (if input-base64
+    (let [actual-code (if input-base64
                         (try
                          (decode-base64 code)
                          (catch Exception _e
@@ -84,45 +105,44 @@
                               :error "Decoded code is empty"}
                              {:pretty true})}]
            :isError true}
-          (try
-            ;; Use with-out-str to capture stdout from println statements
-           (let [result-atom (atom nil)
-                 stdout-capture (with-out-str
-                                 (let [result (eval (read-string actual-code))]
-                                   (reset! result-atom result)))
-                 result @result-atom
-                 serializable-result (serialize-result result)
-                  ;; Build base response
-                 base-response {:status "success"
-                                :code actual-code
-                                :result serializable-result
-                                :result-type (.getName (class result))
-                                :stdout stdout-capture
-                                :stderr ""}
-                  ;; Add base64 encoding if requested
-                 final-response (if output-base64
-                                  (cond-> base-response
-                                          serializable-result
-                                          (assoc :result-base64 (encode-base64 (str serializable-result)))
-                                          (not-empty stdout-capture)
-                                          (assoc :stdout-base64 (encode-base64 stdout-capture)))
-                                  base-response)]
-             {:content [{:type "text"
-                         :text (json/generate-string final-response {:pretty true})}]})
-           (catch Exception e
-                  (let [error-response {:status "error"
-                                        :code actual-code
-                                        :error (.getMessage e)
-                                        :stdout ""
-                                        :stderr ""
-                                        :stacktrace (mapv str (.getStackTrace e))}
-                        final-error (if output-base64
-                                      (assoc error-response
-                                             :error-base64 (encode-base64 (.getMessage e)))
-                                      error-response)]
-                    {:content [{:type "text"
-                                :text (json/generate-string final-error {:pretty true})}]
-                     :isError true}))))))))
+          ;; Use capture-eval for proper stdout/stderr capture
+          (let [{:keys [result error stdout stderr]} (capture-eval actual-code)]
+            (if error
+              ;; Error case
+              (let [error-response {:status "error"
+                                    :code actual-code
+                                    :error (.getMessage error)
+                                    :stdout stdout
+                                    :stderr stderr
+                                    :stacktrace (mapv str (.getStackTrace error))}
+                    final-error (if output-base64
+                                  (cond-> error-response
+                                          true (assoc :error-base64 (encode-base64 (.getMessage error)))
+                                          (not-empty stdout) (assoc :stdout-base64 (encode-base64 stdout))
+                                          (not-empty stderr) (assoc :stderr-base64 (encode-base64 stderr)))
+                                  error-response)]
+                {:content [{:type "text"
+                            :text (json/generate-string final-error {:pretty true})}]
+                 :isError true})
+              ;; Success case
+              (let [serializable-result (serialize-result result)
+                    base-response {:status "success"
+                                   :code actual-code
+                                   :result serializable-result
+                                   :result-type (.getName (class result))
+                                   :stdout stdout
+                                   :stderr stderr}
+                    final-response (if output-base64
+                                     (cond-> base-response
+                                             serializable-result
+                                             (assoc :result-base64 (encode-base64 (str serializable-result)))
+                                             (not-empty stdout)
+                                             (assoc :stdout-base64 (encode-base64 stdout))
+                                             (not-empty stderr)
+                                             (assoc :stderr-base64 (encode-base64 stderr)))
+                                     base-response)]
+                {:content [{:type "text"
+                            :text (json/generate-string final-response {:pretty true})}]}))))))))
 
 ;; =============================================================================
 ;; Tool Definition

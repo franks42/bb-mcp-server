@@ -119,13 +119,15 @@
                   (if (:success execution-result)
               ;; Success - return result in content format
                     (let [result (:success execution-result)
-                          result-str (if (string? result)
-                                       result
-                                       (pr-str result))
-                          response (msg/create-response
-                                    request-id
-                                    {:content [{:type "text"
-                                                :text result-str}]})]
+                          ;; If handler returns {:content [...]} use it directly
+                          ;; Otherwise wrap the result in content format
+                          content-result (if (and (map? result) (:content result))
+                                           result
+                                           {:content [{:type "text"
+                                                       :text (if (string? result)
+                                                               result
+                                                               (pr-str result))}]})
+                          response (msg/create-response request-id content-result)]
                       (log/log! {:level :info
                                  :id ::tools-call-success
                                  :msg "tools/call request completed successfully"

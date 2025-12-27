@@ -93,6 +93,7 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 4. **Module system** - Modules in `system.edn`, loaded via `ns_loader.clj`
 5. **Tool notifications** - Registry broadcasts `notifications/tools/list_changed` on changes
 6. **Telemetry required** - Use `taoensso.trove` for all logging (see AI_TELEMETRY_GUIDE.md)
+7. **mcp-eval CLI** - Use `bb mcp-eval "[code]"` to test/debug/inspect running servers (see README)
 
 ---
 
@@ -136,4 +137,4 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2025-11-26*
+*Last Updated: 2025-12-27*
