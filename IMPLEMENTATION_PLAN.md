@@ -52,6 +52,29 @@ bb nrepl list --mcp nrepl-mcp
 bb nrepl disconnect my-repl --mcp nrepl-mcp
 ```
 
+**Deferred: nREPL Session Persistence**
+
+Current behavior: Each `bb nrepl eval` gets a fresh nREPL session. This means `*1/*2/*3` don't persist between calls.
+
+nREPL session semantics:
+- Same session-id → FIFO serialization, state preserved (`*ns*`, `*1/*2/*3`)
+- No session-id → Fresh session per request (current behavior)
+- Session clone → `{:op "clone"}` creates new session, returns session-id
+
+Why current "fresh session" is preferred:
+- **Isolation**: No state leakage between eval calls
+- **Predictable**: Each request starts from known state (`user` ns)
+- **Stateless CLI**: `bb nrepl eval` calls are independent
+- **Safe default**: No session lifecycle management complexity
+
+Future session persistence would require:
+- Clone session on `connect`, store session-id with connection
+- Include `:session session-id` in all subsequent evals
+- Handle session expiration/cleanup
+- Consider multi-client coordination
+
+May revisit for scittle-nrepl where browser context is inherently stateful.
+
 ---
 
 ## Phase 17: Bootstrap Testing Suite ✅ (v1.3.0)
