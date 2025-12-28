@@ -224,6 +224,18 @@ bb nrepl eval "(do (println \"hi\") 42)" --mcp nrepl-mcp --output pipe
 # 42
 ```
 
+## rebel-nrepl-client
+
+Open iTerm2 with rebel-readline connected to an nREPL server:
+
+```bash
+# Start MCP server with nREPL test server
+bb server --http --config bb-nrepl-server-system.edn
+
+# Open iTerm2 with rebel-readline
+bb rebel-nrepl-client 7888
+```
+
 ## Claude Code
 
 ```json

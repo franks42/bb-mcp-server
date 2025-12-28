@@ -95,6 +95,7 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 6. **Telemetry required** - Use `taoensso.trove` for all logging (see AI_TELEMETRY_GUIDE.md)
 7. **mcp-eval CLI** - Use `bb mcp-eval "[code]"` to test/debug/inspect running servers (see README)
 8. **nrepl CLI** - Use `bb nrepl <cmd>` to connect/eval/load-file on remote nREPL servers (see README)
+9. **rebel-nrepl-client** - Use `bb rebel-nrepl-client [port]` to open iTerm2 with rebel-readline connected to nREPL
 
 ---
 
