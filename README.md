@@ -236,6 +236,55 @@ bb server --http --config bb-nrepl-server-system.edn
 bb rebel-nrepl-client 7888
 ```
 
+## Scittle-nREPL (Browser REPL)
+
+Eval ClojureScript in the browser from rebel-readline, shadow-cljs style.
+
+**Architecture:**
+```
+rebel-readline → nrepl-proxy:1667 → sente-browser:8090 → Browser (Scittle)
+```
+
+### Setup
+
+```bash
+# Start scittle-dev server (requires sente-lite bundle)
+bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+
+# Open browser to bootstrap page
+open http://127.0.0.1:8091
+
+# Connect rebel-readline to proxy
+bb rebel-nrepl-client 1667
+```
+
+### Usage (in rebel)
+
+```clojure
+(browser/list)            ; List connected browsers
+(browser/repl :browser-1) ; Switch to browser REPL
+
+;; Now you're in the browser!
+(+ 1 2 3)                 ; => 6
+(js/alert "Hello!")       ; Shows browser alert
+js/navigator.userAgent    ; Access browser APIs
+
+:cljs/quit                ; Return to bb
+```
+
+### Configuration
+
+`bb-scittle-dev-system.edn`:
+```clojure
+{:modules ["local-eval" "nrepl" "nrepl-test-server"
+           "sente-browser" "nrepl-proxy-server"]
+ :config {"sente-browser" {:ws-port 8090
+                           :bootstrap-port 8091
+                           :bundle-path "/path/to/sente-lite-nrepl.cljs"}
+          "nrepl-proxy-server" {:port 1667
+                                :write-port-file? true}}}
+```
+
 ## Claude Code
 
 ```json

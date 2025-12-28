@@ -2,50 +2,55 @@
 
 **Current State: December 27, 2025**
 
-## Just Completed: v1.6.0 - nrepl CLI
+## Just Completed: v1.7.0 - Scittle-nREPL Dev Environment
 
 ### What Was Done
-1. **Bootstrap config** (`bb-nrepl-system.edn`)
-   - Minimal config with `["nrepl" "local-eval"]` modules
+1. **Browser-based ClojureScript REPL** via Scittle + sente-lite
+   - Bootstrap config `bb-scittle-dev-system.edn` with 5 modules
+   - WebSocket browser connections via sente-browser module
+   - nREPL proxy with browser routing
 
-2. **Generic tool calling** (`src/bb_mcp_server/mcp_client.clj`)
-   - Added `build-tool-request` for any MCP tool
-   - Added `call-tool!` for generic tool calls
-   - Added `extract-tool-result` for response parsing
+2. **Shadow-cljs style API**
+   - `(browser/list)` - List connected browsers
+   - `(browser/repl :browser-id)` - Switch to browser REPL
+   - `:cljs/quit` - Return to bb
 
-3. **nrepl CLI dispatcher** (`scripts/nrepl_cli.clj`, `scripts/nrepl-task.clj`)
-   - `bb nrepl <subcommand> [args] [options]` command
-   - Subcommands: connect, disconnect, list, status, eval, load-file, help
-   - `--mcp NAME` for MCP server addressing
-   - `--connection NAME` for nREPL connection selection
-   - `--output result|full|pipe` modes
-   - `--pprint` and `--timeout MS` options
+3. **Architecture**
+   ```
+   rebel-readline → nrepl-proxy:1667 → sente-browser:8090 → Browser (Scittle)
+   ```
 
-4. **Task integration** (`bb.edn`)
-   - Added `nrepl` task
-
-5. **Documentation**
-   - README: Comprehensive nrepl CLI howto section
-   - CLAUDE.md: One-liner reference (item 8)
+4. **Full workflow verified**
+   - Playwright tests: Browser connects, eval works
+   - Manual test: rebel → browser → eval → quit flow confirmed
 
 ### Example Usage
 ```bash
-# Start MCP server with nrepl module
-bb server --http --port 3001 --config bb-nrepl-system.edn --nickname nrepl-mcp
+# Start scittle-dev server
+bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
 
-# Connect to nREPL server
-bb nrepl connect 7888 --nickname my-repl --mcp nrepl-mcp
+# Open browser to bootstrap page
+open http://127.0.0.1:8091
 
-# Evaluate code
-bb nrepl eval "(+ 1 2 3)" --mcp nrepl-mcp
+# Connect rebel-readline to proxy
+bb rebel-nrepl-client 1667
 
-# Load file
-bb nrepl load-file src/my_app/core.clj --mcp nrepl-mcp
-
-# List/disconnect
-bb nrepl list --mcp nrepl-mcp
-bb nrepl disconnect my-repl --mcp nrepl-mcp
+# In rebel:
+(browser/list)           ; List connected browsers
+(browser/repl :browser-1) ; Switch to browser REPL
+(+ 1 2 3)                 ; Eval in browser → 6
+(js/alert "Hello!")       ; Browser JS interop
+:cljs/quit                ; Return to bb
 ```
+
+---
+
+## Previously Completed: v1.6.0 - nrepl CLI
+
+- Bootstrap config (`bb-nrepl-system.edn`)
+- Generic tool calling (`src/bb_mcp_server/mcp_client.clj`)
+- nrepl CLI dispatcher (`scripts/nrepl_cli.clj`)
+- Subcommands: connect, disconnect, list, status, eval, load-file, help
 
 ---
 

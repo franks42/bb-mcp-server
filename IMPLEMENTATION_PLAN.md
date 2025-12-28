@@ -1,7 +1,84 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 18 Complete - nrepl CLI (v1.6.0)
+**Status:** Phase 19 Complete - Scittle-nREPL Dev Environment (v1.7.0)
 **Last Updated:** 2025-12-27
+
+---
+
+## Phase 19: Scittle-nREPL Dev Environment ✅ (v1.7.0)
+
+**Goal:** Browser-based ClojureScript REPL via Scittle + sente-lite, accessible from rebel-readline.
+
+**Architecture:**
+```
+rebel-readline → nrepl-proxy:1667 → sente-browser:8090 → Browser (Scittle)
+                     ↑
+                  WebSocket SSE
+```
+
+**Completed:**
+- Bootstrap config `bb-scittle-dev-system.edn` with 5 modules
+- nrepl-proxy-server integration with sente-browser
+- Shadow-cljs style API: `(browser/list)`, `(browser/repl :browser-id)`, `:cljs/quit`
+- Bootstrap page serving at port 8091
+- Full Playwright test verification with headless browser
+- Eval in browser: `(+ 1 2 3)` returns `6`
+
+**Modules:**
+- `local-eval` - Local Clojure evaluation
+- `nrepl` - nREPL connection tools
+- `nrepl-test-server` - Auto-starting test nREPL (port 7888)
+- `sente-browser` - WebSocket browser connections
+- `nrepl-proxy-server` - TCP nREPL proxy with browser routing
+
+**Configuration (`bb-scittle-dev-system.edn`):**
+```clojure
+{:modules ["local-eval"
+           "nrepl"
+           "nrepl-test-server"
+           "sente-browser"
+           "nrepl-proxy-server"]
+
+ :config {"nrepl-test-server" {:port 7888 :host "localhost"}
+          "sente-browser" {:enabled true
+                           :ws-port 8090
+                           :bootstrap-port 8091
+                           :host "127.0.0.1"
+                           :bundle-path "/path/to/sente-lite/dist/sente-lite-nrepl.cljs"}
+          "nrepl-proxy-server" {:enabled true
+                                :port 1667
+                                :host "127.0.0.1"
+                                :write-port-file? true
+                                :port-file ".nrepl-proxy-port"}}}
+```
+
+**Usage:**
+```bash
+# Start scittle-dev server
+bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+
+# Open browser to bootstrap page
+open http://127.0.0.1:8091
+
+# Connect rebel-readline to proxy
+bb rebel-nrepl-client 1667
+
+# In rebel:
+(browser/list)           ; List connected browsers
+(browser/repl :browser-1) ; Switch to browser REPL
+(+ 1 2 3)                 ; Eval in browser → 6
+(js/alert "Hello!")       ; Browser JS interop
+:cljs/quit                ; Return to bb
+```
+
+**Files:**
+- `bb-scittle-dev-system.edn` - Bootstrap configuration
+- `modules/sente-browser/` - WebSocket browser module
+- `modules/nrepl-proxy-server/` - nREPL proxy module
+
+**Verification:**
+- Playwright tests: Browser connects, eval works, session cleanup works
+- Manual test: Full rebel → browser → eval → quit flow verified
 
 ---
 

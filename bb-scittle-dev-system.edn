@@ -1,0 +1,38 @@
+;; Scittle nREPL Development Environment
+;;
+;; Start with:
+;;   bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+;;
+;; Then:
+;;   1. Open browser: http://localhost:8091 (bootstrap page)
+;;   2. Connect rebel-readline: bb rebel-nrepl-client 1667
+;;   3. Switch to browser: (browser/repl :browser-1)
+;;   4. Eval in browser: (js/alert "Hello from Scittle!")
+;;   5. Return to bb: :cljs/quit
+;;
+;; Architecture:
+;;   rebel-readline ──► nrepl-proxy:1667 ──► sente-browser:8090 ──► Browser (Scittle)
+;;                            │
+;;                            └──► nrepl-test-server:7888 (bb eval)
+
+{:modules ["local-eval"
+           "nrepl"
+           "nrepl-test-server"
+           "sente-browser"
+           "nrepl-proxy-server"]
+
+ :config {"nrepl-test-server" {:port 7888
+                               :host "localhost"}
+
+          "sente-browser" {:enabled true
+                           :ws-port 8090
+                           :bootstrap-port 8091
+                           :host "127.0.0.1"
+                           ;; Hardcoded path to sente-lite bundle
+                           :bundle-path "/Users/franksiebenlist/Development/sente_lite/dist/sente-lite-nrepl.cljs"}
+
+          "nrepl-proxy-server" {:enabled true
+                                :port 1667
+                                :host "127.0.0.1"
+                                :write-port-file? true
+                                :port-file ".nrepl-proxy-port"}}}
