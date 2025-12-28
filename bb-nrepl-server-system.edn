@@ -1,0 +1,11 @@
+;; Configuration for MCP server with embedded nREPL server
+;; Start with: bb server --http --port 0 --config bb-nrepl-server-system.edn --nickname nrepl-server
+;;
+;; Then connect with rebel-readline:
+;;   clojure -T:nrebel :port 7888
+;; Or use:
+;;   bb rebel-nrepl-client 7888
+
+{:modules ["local-eval" "nrepl-test-server"]
+
+ :config {"nrepl-test-server" {:port 7888 :host "localhost"}}}

@@ -211,7 +211,10 @@
             :task (load-file "scripts/mcp-eval-task.clj")}
 
   nrepl {:doc "nREPL CLI - connect, eval, load-file via MCP"
-         :task (load-file "scripts/nrepl-task.clj")}}
+         :task (load-file "scripts/nrepl-task.clj")}
+
+  rebel-nrepl-client {:doc "Open iTerm2 with rebel-readline connected to nREPL [port]"
+                      :task (load-file "scripts/rebel_nrepl_client.clj")}}
 
  :aliases
  {:test {:extra-paths ["test"]
