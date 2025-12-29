@@ -150,41 +150,41 @@ Build the core Clojure API for LSP operations. Test via local-eval.
 
 ---
 
-## Phase 3: CLI (bb clojure-lsp)
+## Phase 3: CLI (bb clojure-lsp) ✅
 
 Build CLI that uses local-eval to interact with running server.
 
-- [ ] Create `scripts/clojure_lsp_cli.clj`
-- [ ] Add tasks to `bb.edn`:
+- [x] Create `scripts/clojure_lsp_cli.clj`
+- [x] Add tasks to `bb.edn`:
   ```clojure
-  clojure-lsp {:doc "Clojure LSP CLI"
+  clojure-lsp {:doc "Clojure LSP CLI - start, stop, definition, references, etc."
                :task (load-file "scripts/clojure_lsp_cli.clj")}
   ```
-- [ ] Implement commands via local-eval calls:
-  - [ ] `bb clojure-lsp start <project-root> [--executable path]`
-  - [ ] `bb clojure-lsp stop`
-  - [ ] `bb clojure-lsp status`
-  - [ ] `bb clojure-lsp definition <file> <line> <col>`
-  - [ ] `bb clojure-lsp references <file> <line> <col>`
-  - [ ] `bb clojure-lsp hover <file> <line> <col>`
-  - [ ] `bb clojure-lsp diagnostics [file]`
-  - [ ] `bb clojure-lsp symbols <file>`
-  - [ ] `bb clojure-lsp completions <file> <line> <col>`
-  - [ ] `bb clojure-lsp rename <file> <line> <col> <new-name>`
-  - [ ] `bb clojure-lsp code-actions <file> <line> <col>`
-- [ ] Lint & format check
-- [ ] Git commit/tag/push
+- [x] Implement commands via local-eval calls:
+  - [x] `bb clojure-lsp start <project-root> [--executable path]`
+  - [x] `bb clojure-lsp stop`
+  - [x] `bb clojure-lsp status`
+  - [x] `bb clojure-lsp definition <file> <line> <col>`
+  - [x] `bb clojure-lsp references <file> <line> <col>`
+  - [x] `bb clojure-lsp hover <file> <line> <col>`
+  - [x] `bb clojure-lsp diagnostics [file]`
+  - [x] `bb clojure-lsp symbols <file>`
+  - [x] `bb clojure-lsp completions <file> <line> <col>`
+  - [x] `bb clojure-lsp rename <file> <line> <col> <new-name>`
+  - [x] `bb clojure-lsp code-actions <file> <line> <col>`
+  - [x] `bb clojure-lsp call-hierarchy <file> <line> <col> [--outgoing]`
+- [x] Lint & format check
+- [x] Git commit/tag/push
 
-**Implementation pattern:**
-```clojure
-(defn cmd-definition [{:keys [file line column server]}]
-  (mcp-client/call-tool
-    server
-    "local-eval"
-    {:code (pr-str
-             `(do
-                (require '[bb-mcp-server.modules.clojure-lsp.tools :as t])
-                (t/definition {:file ~file :line ~line :column ~column})))}))
+**Status:** Complete. CLI implemented with all commands.
+
+**Usage:**
+```bash
+bb clojure-lsp help                    # Show help
+bb clojure-lsp start <project-root>    # Initialize clojure-lsp
+bb clojure-lsp status                  # Check server status
+bb clojure-lsp definition <file> <line> <col>  # Go to definition
+# ... see --help for all commands
 ```
 
 ---
@@ -266,7 +266,7 @@ Wire up MCP tools as thin wrappers around the Clojure API.
 |-------|-------------|--------|
 | 1 | Foundation (jsonrpc, client, server) | ✅ Complete |
 | 2 | Clojure API (tools.clj) | ✅ Complete |
-| 3 | CLI (bb clojure-lsp) | 🔲 Not started |
+| 3 | CLI (bb clojure-lsp) | ✅ Complete |
 | 4 | MCP Tools | 🔲 Not started |
 | 5 | Polish & Docs | 🔲 Not started |
 
