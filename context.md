@@ -8,46 +8,55 @@
 
 ## Previous Session Summary
 
-Fixed clj-kondo lint issues in CLI scripts:
-- Added proper `ns` declarations to 4 scripts in `scripts/`
-- Fixed "redefined var" warnings and arity mismatch errors
-- Root cause: scripts using implicit `user` namespace conflicted when analyzed together
-- Result: 0 errors, 0 warnings, all tests passing
+Implemented clojure-lsp module Phase 3 - CLI (`bb clojure-lsp`):
+- Created `scripts/clojure_lsp_cli.clj` with 12 commands
+- Added `clojure-lsp` task to `bb.edn`
+- Commands: start, stop, status, definition, references, hover, diagnostics, symbols, call-hierarchy, completions, code-actions, rename
+- Uses local-eval to call tools.clj functions on running MCP server
+- Tested: help, status, start commands work correctly
+- Tagged as `clojure-lsp-v0.3.0-phase3`
+
+**Known Issue:** Navigation commands (hover, definition, etc.) fail with NullPointerException when loading tools.clj via local-eval. Start/status work because they use client.clj directly.
 
 ---
 
 ## Current Focus
 
-**No active work** - Project is in stable state at Phase 20 complete.
+**clojure-lsp module** - Phases 1-3 complete, Phase 4 (MCP Tools) pending.
+
+Before Phase 4, should debug why tools.clj fails to load via local-eval.
 
 ---
 
 ## Recent Changes
 
 ```
+a3b8177 feat(clojure-lsp): Implement Phase 3 - CLI (bb clojure-lsp)
+cb2a17e feat(clojure-lsp): Implement Phase 2 - Clojure API (tools.clj)
+44a4591 docs(clojure-lsp): Update implementation strategy - API-first via local-eval
+fdd982a docs: Record CLI lint fixes in IMPLEMENTATION_PLAN and context
 78a07d6 fix: Add namespace declarations to CLI scripts
-d230592 docs: Add AI directive to context.md
-105774c docs: Restructure context.md for session handoffs
-6b7582c docs: Condense IMPLEMENTATION_PLAN.md and mark Phase 20 complete
-cd4dacf docs: Update context.md for fresh session handoff
 ```
 
 ---
 
 ## Pending Work
 
-See IMPLEMENTATION_PLAN.md for details:
+**clojure-lsp module** (see `modules/clojure-lsp/IMPLEMENTATION_PLAN.md`):
+1. **Debug tools.clj loading** - Fix NullPointerException in local-eval
+2. **Phase 4** - Register MCP tools (clj-definition, clj-hover, etc.)
+3. **Phase 5** - Polish & documentation
 
-1. **bb calc CLI** (low priority) - Convenience wrapper for calculate module
+**Other** (see main IMPLEMENTATION_PLAN.md):
+1. **bb calc CLI** (low priority)
 2. **Phase 14C** - Dynamic loading documentation
-3. **Phase 15C** - AI knowledge persistence in Datalevin
-4. **Phase 15D** - Message bus Datalevin migration
+3. **Phase 15C/D** - AI knowledge persistence
 
 ---
 
 ## Open Questions
 
-None currently.
+1. Why does `require '[bb-mcp-server.modules.clojure-lsp.tools]` fail via local-eval?
 
 ---
 
@@ -58,21 +67,24 @@ Things learned that aren't in CLAUDE.md:
 - **Port files** use `.json` extension in `.ports/` directory
 - **E2E tests** require server running with `--nickname e2e-test`
 - **scittle-nrepl** needs sente-lite bundle at configured path
+- **clojure-lsp dev config**: `--config system-clojure-lsp-dev.edn`
+- **CLI scripts** must call `(-main)` or `(apply -main *command-line-args*)` at end for bb tasks
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server for development
-bb server --http 0 --nickname dev
+# Start server for clojure-lsp development
+bb server --http --port 0 --nickname clj-lsp --config system-clojure-lsp-dev.edn
+
+# Test CLI
+bb clojure-lsp help
+bb clojure-lsp status --mcp clj-lsp
+bb clojure-lsp start /path/to/project --mcp clj-lsp
 
 # Verify everything works
 bb test:modules
 bb lint
-
-# Explore available tools
-bb mcp servers
-bb mcp tools --mcp dev
 ```
 
