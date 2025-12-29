@@ -54,9 +54,58 @@ fdd982a docs: Record CLI lint fixes in IMPLEMENTATION_PLAN and context
 
 ---
 
-## Open Questions
+## Active Bug: tools.clj Loading Failure
 
-1. Why does `require '[bb-mcp-server.modules.clojure-lsp.tools]` fail via local-eval?
+**Problem:** CLI navigation commands fail with NullPointerException when trying to load tools.clj via local-eval.
+
+**Reproduction:**
+```bash
+# 1. Start server with clojure-lsp module
+bb server --http --port 0 --nickname clj-lsp --config system-clojure-lsp-dev.edn
+
+# 2. Initialize clojure-lsp (THIS WORKS)
+bb clojure-lsp start /Users/franksiebenlist/Development/bb-mcp-server --mcp clj-lsp
+
+# 3. Try hover command (THIS FAILS)
+bb clojure-lsp hover src/bb_mcp_server/registry.clj 10 5 --mcp clj-lsp
+```
+
+**What Works:**
+- `bb clojure-lsp help` - CLI parsing
+- `bb clojure-lsp status` - Calls `server.clj` functions via local-eval
+- `bb clojure-lsp start` - Calls `client.clj` functions via local-eval
+
+**What Fails:**
+- `bb clojure-lsp hover/definition/references/etc.` - All commands that call `tools.clj`
+
+**Error from server logs:**
+```
+:error bb-mcp-server.handlers.tools-call ::handler-failed Tool handler execution failed
+  data: {:tool "local-eval.local-eval", :duration-ms 4, :error nil, :error-data nil}
+  error: java.lang.NullPointerException
+```
+
+**Key Files:**
+- `scripts/clojure_lsp_cli.clj:164-169` - `ensure-tools-loaded` tries to require tools namespace
+- `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/tools.clj` - The namespace that fails to load
+- `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/client.clj` - Works fine via local-eval
+
+**What CLI sends to local-eval:**
+```clojure
+;; This is sent first to load tools.clj:
+(when-not (find-ns 'bb-mcp-server.modules.clojure-lsp.tools)
+  (require '[bb-mcp-server.modules.clojure-lsp.tools]))
+
+;; Then this is sent to call the function:
+(bb-mcp-server.modules.clojure-lsp.tools/hover {:file "..." :line 10 :column 5})
+```
+
+**Hypothesis:** The tools.clj namespace might have a dependency or initialization issue that causes NPE when loaded in local-eval context. Start/status work because they use client.clj/server.clj which are already loaded by the module system.
+
+**Debug approach:**
+1. Try `(require '[bb-mcp-server.modules.clojure-lsp.tools])` directly via `bb mcp-eval`
+2. Check tools.clj for top-level forms that might fail
+3. Check if tools.clj dependencies (client.clj) are properly loaded
 
 ---
 
