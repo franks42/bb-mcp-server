@@ -8,45 +8,67 @@
 
 ## Previous Session Summary
 
-Completed clojure-lsp module Phase 4 (MCP Tools):
-- Registered 11 MCP tools in `core.clj`: clj-init, clj-status, clj-definition, clj-references, clj-hover, clj-completions, clj-code-actions, clj-rename, clj-diagnostics, clj-document-symbols, clj-call-hierarchy
-- Added clojure-lsp to `system.edn` modules list
-- Created comprehensive CLI examples documentation (`modules/clojure-lsp/docs/cli-examples.md`)
-- Updated design docs with dependency navigation and multi-project findings
+Completed clojure-lsp module Phase 5 (Watch Mode & Extended CLI):
 
-Key insight: Multi-project support already exists at bb-mcp-server level (run multiple instances). clojure-lsp itself doesn't support workspace/workspaceFolders.
+**CLI expanded to 18 commands:**
+- Lifecycle: `start`, `stop`, `status`, `watch`
+- Navigation: `definition`, `references`, `hover`, `implementations`
+- Search: `find-symbol` (workspace-wide by name)
+- Analysis: `diagnostics`, `symbols`, `call-hierarchy`
+- Refactoring: `completions`, `code-actions`, `rename`, `refactor`, `format`
+
+**Key additions:**
+- `bb clojure-lsp watch` - File watcher using pod-babashka-fswatcher v0.0.7
+- `find-symbol` - Symbol-centric search (vs position-dependent definition/references)
+- `format`, `implementations`, `refactor` commands
+- `bb pprint` - EDN pretty-printer utility
+- Default output changed to EDN (use `--json` for JSON)
+
+**New design document:** `docs/design/live-static-state-design-implementation.md`
+- Explores combining static (clojure-lsp) and dynamic (nREPL) views
+- Addresses gap when code is evaluated at REPL without saving to file
 
 ---
 
 ## Current Focus
 
-**clojure-lsp module** - Phase 4 complete. Ready for Phase 5 (Polish & Docs).
+**Static + Live State Integration** - Design phase.
 
-Phase 5 tasks:
-- Error handling: timeouts, process crashes, auto-restart
-- README.md for the module
-- Test coverage gaps
+The core insight: clojure-lsp sees static files, nREPL sees runtime state. When working interactively at the REPL, these can diverge. The design document explores how to provide a unified view.
+
+**clojure-lsp module** - Phase 5 complete. Ready for Phase 6 (Polish & Docs).
 
 ---
 
 ## Recent Changes
 
 ```
+2f8715e feat(clojure-lsp): Add watch mode for incremental index updates
+0a34e21 feat(clojure-lsp): Add find-symbol, format, implementations, refactor commands
+b1006a2 docs: Rename cli-examples.md to clojure-lsp-cli-examples.md
+b034688 feat(clojure-lsp): Change default output to EDN
+76e3fb6 feat: Add bb pprint utility and update CLI examples
+ac2d061 docs: Update context.md for Phase 4 completion
 8e707b9 docs(clojure-lsp): Add CLI examples with real tool responses
-ddb59a2 feat(clojure-lsp): Implement Phase 4 - MCP Tools
-a3b8177 feat(clojure-lsp): Implement Phase 3 - CLI (bb clojure-lsp)
-cb2a17e feat(clojure-lsp): Implement Phase 2 - Clojure API (tools.clj)
-44a4591 docs(clojure-lsp): Update implementation strategy - API-first via local-eval
+ddb59a2 docs: Mark clojure-lsp Phase 4 complete
+63e9868 feat(clojure-lsp): Implement Phase 4 - MCP Tools
 ```
 
 ---
 
 ## Pending Work
 
-**clojure-lsp module** (see `IMPLEMENTATION_PLAN.md`):
-1. **Phase 5** - Error handling (crash detection, auto-restart), README.md
+**clojure-lsp module** (Phase 6):
+1. Error handling (crash detection, auto-restart)
+2. README.md for the module
+3. Test coverage for new commands
 
-**Other** (see main IMPLEMENTATION_PLAN.md):
+**Static + Live State Integration:**
+1. Design document - `docs/design/live-static-state-design-implementation.md`
+2. Evaluate cider-nrepl middleware integration
+3. Unified query API design
+
+**Other** (see IMPLEMENTATION_PLAN.md):
 1. **bb calc CLI** (low priority)
 2. **Phase 14C** - Dynamic loading documentation
 3. **Phase 15C/D** - AI knowledge persistence
@@ -63,6 +85,8 @@ Things learned that aren't in CLAUDE.md:
 - **clojure-lsp dev config**: `--config system-clojure-lsp-dev.edn`
 - **CLI scripts** must call `(-main)` or `(apply -main *command-line-args*)` at end for bb tasks
 - **clojure-lsp startup**: ~700ms for medium projects, can navigate into Maven jar dependencies (read-only)
+- **pod-babashka-fswatcher** v0.0.7 works for recursive file watching
+- **LSP is position-centric** (file/line/col) - `find-symbol` provides name-centric alternative
 
 ---
 
@@ -72,9 +96,14 @@ Things learned that aren't in CLAUDE.md:
 # Start server with clojure-lsp
 bb server --http --config system.edn --nickname my-server
 
-# Test MCP tools
-bb mcp tools --mcp my-server | grep clojure-lsp
-bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
+# Initialize clojure-lsp for a project
+bb clojure-lsp start . --mcp my-server
+
+# Start file watcher (keeps index fresh)
+bb clojure-lsp watch --mcp my-server
+
+# Search symbols by name
+bb clojure-lsp find-symbol register --mcp my-server
 
 # Verify everything works
 bb test:modules
