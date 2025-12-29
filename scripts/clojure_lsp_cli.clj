@@ -364,6 +364,31 @@
         result (eval-on-server port code)]
     (output-value result json)))
 
+(defn cmd-watch
+  "Watch for file changes and update clojure-lsp index."
+  [{:keys [positional] :as opts}]
+  (let [port (resolve-server opts)
+        path (first positional)
+        _ (ensure-tools-loaded port)
+        ;; Load watcher module
+        _ (eval-on-server port "(require '[bb-mcp-server.modules.clojure-lsp.watcher :as watcher])")
+        ;; Get watch path
+        watch-path (or path
+                       (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.client/get-project-root)"))
+        ;; Start watcher (non-blocking on server)
+        _ (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.watcher/start!)")]
+    (println (str "Watching " watch-path " for Clojure file changes..."))
+    (println "File changes will be sent to clojure-lsp to keep index fresh.")
+    (println "Press Ctrl-C to stop.")
+    (println "")
+    ;; Add shutdown hook to stop watcher
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. (fn []
+                                 (println "\nStopping watcher...")
+                                 (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.watcher/stop!)"))))
+    ;; Block until Ctrl-C
+    @(promise)))
+
 ;; =============================================================================
 ;; Help
 ;; =============================================================================
@@ -378,6 +403,7 @@ Lifecycle:
   start <project-root>   Start LSP server for project
   stop                   Stop the LSP server
   status                 Check LSP server status
+  watch [path]           Watch files and update index (Ctrl-C to stop)
 
 Navigation:
   definition <file> <line> <col>   Go to definition
@@ -425,7 +451,10 @@ Examples:
   bb clojure-lsp refactor cycle-privacy src/myns/core.clj 10 5
 
   # Format a file
-  bb clojure-lsp format src/myns/core.clj")
+  bb clojure-lsp format src/myns/core.clj
+
+  # Watch for file changes (keeps index fresh)
+  bb clojure-lsp watch")
 
 (defn cmd-help
   "Show help."
@@ -441,6 +470,7 @@ Examples:
      {"start" cmd-start
       "stop" cmd-stop
       "status" cmd-status
+      "watch" cmd-watch
       "definition" cmd-definition
       "references" cmd-references
       "hover" cmd-hover

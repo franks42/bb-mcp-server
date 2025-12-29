@@ -388,7 +388,31 @@ Common refactoring commands:
 
 ---
 
-## 17. Stop Server
+## 17. Watch for File Changes
+
+Keep the clojure-lsp index fresh by watching for file changes:
+
+```bash
+$ bb clojure-lsp watch --mcp my-server
+```
+
+```
+Watching /path/to/project for Clojure file changes...
+File changes will be sent to clojure-lsp to keep index fresh.
+Press Ctrl-C to stop.
+```
+
+The watcher:
+- Monitors `.clj`, `.cljs`, `.cljc`, `.edn` files recursively
+- Ignores `.git/`, `.clj-kondo/`, `.lsp/`, `target/`, etc.
+- Sends `workspace/didChangeWatchedFiles` notifications to clojure-lsp
+- Logs changes via trove (visible with appropriate log level)
+
+Uses [pod-babashka-fswatcher](https://github.com/babashka/pod-babashka-fswatcher) v0.0.7.
+
+---
+
+## 18. Stop Server
 
 ```bash
 $ bb clojure-lsp stop --mcp my-server
@@ -403,6 +427,7 @@ $ bb clojure-lsp stop --mcp my-server
 | `start <path>` | Initialize for a project | `bb clojure-lsp start .` |
 | `stop` | Stop the server | `bb clojure-lsp stop` |
 | `status` | Check server state | `bb clojure-lsp status` |
+| `watch [path]` | Watch files for changes | `bb clojure-lsp watch` |
 | `hover <f> <l> <c>` | Get documentation | `bb clojure-lsp hover f.clj 10 5` |
 | `definition <f> <l> <c>` | Go to definition | `bb clojure-lsp definition f.clj 10 5` |
 | `references <f> <l> <c>` | Find all usages | `bb clojure-lsp references f.clj 10 5` |

@@ -225,3 +225,27 @@
   "Get cached diagnostics for a file or all files."
   ([] (:diagnostics @state))
   ([path] (get-in @state [:diagnostics (str "file://" path)])))
+
+(defn did-change-watched-files!
+  "Notify clojure-lsp that files have changed on disk.
+
+   Args:
+     changes - Sequence of {:path \"...\" :type :created|:changed|:deleted}
+
+   LSP FileChangeType: 1=created, 2=changed, 3=deleted"
+  [changes]
+  (let [type-map {:created 1 :changed 2 :deleted 3}
+        lsp-changes (mapv (fn [{:keys [path type]}]
+                            {:uri (str "file://" path)
+                             :type (get type-map type 2)})
+                          changes)]
+    (trove/log! {:level :info
+                 :id :clojure-lsp/file-changes
+                 :msg (str "Notifying clojure-lsp of " (count changes) " file change(s)")
+                 :data {:changes (mapv #(select-keys % [:path :type]) changes)}})
+    (notify! "workspace/didChangeWatchedFiles" {:changes lsp-changes})))
+
+(defn get-project-root
+  "Get the current project root path."
+  []
+  (:project-root @state))
