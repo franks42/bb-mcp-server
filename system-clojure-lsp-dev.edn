@@ -1,0 +1,10 @@
+;; Minimal config for clojure-lsp module development
+;; Usage: BB_MCP_SYSTEM_CONFIG=system-clojure-lsp-dev.edn bb server --http
+;;
+;; Modules:
+;; - local-eval: Interactive testing, live reload, CLI implementation
+;; - nrepl: Reference for async patterns (promises, reader loop, pending map)
+;; - clojure-lsp: The module under development
+
+{:modules-dir "modules"
+ :modules ["local-eval" "nrepl" "clojure-lsp"]}

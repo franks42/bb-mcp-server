@@ -105,28 +105,30 @@ The nrepl module's async machinery (`nrepl/state/*.clj`, `nrepl/client/*.clj`) s
 
 ---
 
-## Phase 2: Clojure API (tools.clj)
+## Phase 2: Clojure API (tools.clj) ✅
 
 Build the core Clojure API for LSP operations. Test via local-eval.
 
-- [ ] Create `system-clojure-lsp-dev.edn` config file
-- [ ] Create `tools.clj` namespace
-- [ ] Implement `with-file` helper (did-open → operation → did-close)
-- [ ] Implement navigation functions:
-  - [ ] `(definition {:file f :line l :column c})`
-  - [ ] `(references {:file f :line l :column c})`
-  - [ ] `(hover {:file f :line l :column c})`
-- [ ] Implement completion/refactoring:
-  - [ ] `(completions {:file f :line l :column c})`
-  - [ ] `(code-actions {:file f :line l :column c})`
-  - [ ] `(rename {:file f :line l :column c :new-name n})`
-- [ ] Implement analysis:
-  - [ ] `(document-symbols {:file f})`
-  - [ ] `(diagnostics)` / `(diagnostics {:file f})`
-  - [ ] `(call-hierarchy {:file f :line l :column c :direction :incoming|:outgoing})`
-- [ ] Test all functions via local-eval interactively
-- [ ] Lint & format check
-- [ ] Git commit/tag/push
+- [x] Create `system-clojure-lsp-dev.edn` config file
+- [x] Create `tools.clj` namespace
+- [x] Implement `with-file` helper (did-open → operation → did-close)
+- [x] Implement navigation functions:
+  - [x] `(definition {:file f :line l :column c})`
+  - [x] `(references {:file f :line l :column c})`
+  - [x] `(hover {:file f :line l :column c})`
+- [x] Implement completion/refactoring:
+  - [x] `(completions {:file f :line l :column c})`
+  - [x] `(code-actions {:file f :line l :column c})`
+  - [x] `(rename {:file f :line l :column c :new-name n})`
+- [x] Implement analysis:
+  - [x] `(document-symbols {:file f})`
+  - [x] `(diagnostics)` / `(diagnostics {:file f})`
+  - [x] `(call-hierarchy {:file f :line l :column c :direction :incoming|:outgoing})`
+- [x] Test all functions via local-eval interactively
+- [x] Lint & format check
+- [x] Git commit/tag/push
+
+**Status:** Complete. All tools.clj functions tested via local-eval.
 
 **Testing via local-eval:**
 ```clojure
@@ -263,11 +265,11 @@ Wire up MCP tools as thin wrappers around the Clojure API.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Foundation (jsonrpc, client, server) | ✅ Complete |
-| 2 | Clojure API (tools.clj) | 🔲 Not started |
+| 2 | Clojure API (tools.clj) | ✅ Complete |
 | 3 | CLI (bb clojure-lsp) | 🔲 Not started |
 | 4 | MCP Tools | 🔲 Not started |
 | 5 | Polish & Docs | 🔲 Not started |
 
 ---
 
-*Last Updated: 2025-12-28*
+*Last Updated: 2025-12-29*

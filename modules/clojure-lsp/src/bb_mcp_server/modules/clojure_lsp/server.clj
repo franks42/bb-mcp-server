@@ -20,3 +20,9 @@
                :data {:project-root project-root}})
   (client/start! {:project-root project-root
                   :executable-path (or executable-path "clojure-lsp")}))
+
+(defn status
+  "Get current clojure-lsp server status."
+  []
+  {:running (running?)
+   :initialized (initialized?)})

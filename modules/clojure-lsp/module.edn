@@ -1,15 +1,9 @@
 {:name "clojure-lsp"
  :version "0.1.0"
  :description "Clojure LSP integration via persistent subprocess"
- :requires [] ; To be filled if we have dependencies on other modules
+ :requires []
 
- :tools
- [{:name "clj-init"
-   :description "Initialize clojure-lsp for a project. Call this first. Initial analysis may take 30s-2min for large projects, subsequent calls are fast."
-   :handler "bb-mcp-server.modules.clojure-lsp.server/init!"
-   :input-schema {:type "object"
-                  :properties {:project-root {:type "string"
-                                              :description "Absolute path to project root"}
-                               :executable-path {:type "string"
-                                                 :description "Optional. Absolute path to clojure-lsp executable. Defaults to 'clojure-lsp' on PATH."}}
-                  :required ["project-root"]}}]}
+ ;; Entry point - implements start/stop/status
+ :entry "bb-mcp-server.modules.clojure-lsp.core/module"
+
+ :defaults {}}
