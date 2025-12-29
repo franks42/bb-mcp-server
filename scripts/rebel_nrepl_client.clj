@@ -1,18 +1,17 @@
 #!/usr/bin/env bb
 
-;; Open iTerm2 with rebel-readline connected to an nREPL server
-;;
-;; Usage: bb rebel-nrepl-client [port]
-;;   port - nREPL port (default: 7888)
-;;
-;; Examples:
-;;   bb rebel-nrepl-client          # Connect to nrepl-test-server on port 7888
-;;   bb rebel-nrepl-client 1667     # Connect to nrepl-proxy-server
-;;
-;; First start an nREPL server:
-;;   bb server --http --config bb-nrepl-server-system.edn --nickname nrepl-server
+(ns rebel-nrepl-client
+  "Open iTerm2 with rebel-readline connected to an nREPL server.
 
-(require '[clojure.java.io :as io])
+   Usage: bb rebel-nrepl-client [port]
+     port - nREPL port (default: 7888)
+
+   Examples:
+     bb rebel-nrepl-client          # Connect to nrepl-test-server on port 7888
+     bb rebel-nrepl-client 1667     # Connect to nrepl-proxy-server
+
+   First start an nREPL server:
+     bb server --http --config bb-nrepl-server-system.edn --nickname nrepl-server")
 
 (defn open-iterm-with-command!
   "Open a new iTerm2 window and execute a command."
@@ -32,7 +31,9 @@
       (.delete script-file)
       result)))
 
-(defn -main []
+(defn -main
+  "Entry point for rebel-nrepl-client script."
+  []
   (let [args *command-line-args*
         port (if (seq args)
                (first args)

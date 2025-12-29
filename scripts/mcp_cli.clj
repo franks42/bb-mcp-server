@@ -1,25 +1,25 @@
 #!/usr/bin/env bb
 
-;; MCP CLI - Generic command-line interface for MCP tool operations
-;;
-;; Usage: bb scripts/mcp_cli.clj <subcommand> [args] [options]
-;;
-;; Subcommands:
-;;   init              Show server info (initialize response)
-;;   tools             List all available tools
-;;   tool <name>       Show specific tool schema
-;;   call <name> <json> Call a tool with JSON arguments
-;;   servers           List running servers
-;;   help              Show this help
-;;
-;; Options:
-;;   --mcp NAME        Server nickname (auto-detects if single server)
-;;   --port PORT       Server port number
-;;   --pprint          Pretty-print output
+(ns mcp-cli
+  "MCP CLI - Generic command-line interface for MCP tool operations.
 
-(require '[bb-mcp-server.mcp-client :as client]
-         '[cheshire.core :as json]
-         '[clojure.pprint :as pp])
+   Usage: bb scripts/mcp_cli.clj <subcommand> [args] [options]
+
+   Subcommands:
+     init              Show server info (initialize response)
+     tools             List all available tools
+     tool <name>       Show specific tool schema
+     call <name> <json> Call a tool with JSON arguments
+     servers           List running servers
+     help              Show this help
+
+   Options:
+     --mcp NAME        Server nickname (auto-detects if single server)
+     --port PORT       Server port number
+     --pprint          Pretty-print output"
+  (:require [bb-mcp-server.mcp-client :as client]
+            [cheshire.core :as json]
+            [clojure.pprint :as pp]))
 
 ;; =============================================================================
 ;; Argument Parsing

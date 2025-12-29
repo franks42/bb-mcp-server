@@ -1,19 +1,20 @@
 #!/usr/bin/env bb
-;; HTTP MCP Server test script
-;; Usage: bb scripts/http_test.clj [command] [args...]
-;;
-;; Commands:
-;;   health              - Check server health
-;;   init                - Initialize MCP session
-;;   tools               - List available tools
-;;   call <tool> <json>  - Call a tool with JSON arguments
-;;   hello <name>        - Shortcut for hello tool
-;;   add <a> <b>         - Shortcut for add tool
-;;   concat <strings>... - Shortcut for concat tool
-;;   all                 - Run all tests
 
-(require '[babashka.http-client :as http]
-         '[cheshire.core :as json])
+(ns http-test
+  "HTTP MCP Server test script.
+   Usage: bb scripts/http_test.clj [command] [args...]
+
+   Commands:
+     health              - Check server health
+     init                - Initialize MCP session
+     tools               - List available tools
+     call <tool> <json>  - Call a tool with JSON arguments
+     hello <name>        - Shortcut for hello tool
+     add <a> <b>         - Shortcut for add tool
+     concat <strings>... - Shortcut for concat tool
+     all                 - Run all tests"
+  (:require [babashka.http-client :as http]
+            [cheshire.core :as json]))
 
 (def base-url
      "Base URL for MCP server from MCP_HTTP_URL env or default."
@@ -41,7 +42,7 @@
    :method method
    :params params})
 
-(defonce session-id (atom nil))
+(defonce ^:private session-id (atom nil))
 
 (defn send-rpc
   "Send JSON-RPC request and return parsed response."
@@ -54,15 +55,15 @@
         resp (http/post mcp-url
                         {:headers headers
                          :body body
-                         :throw false})]
-    (let [result {:status (:status resp)
-                  :body (json/parse-string (:body resp) true)}]
-      ;; Capture session ID from initialize response
-      (when (and (= "initialize" method)
-                 (= 200 (:status resp))
-                 (get-in resp [:headers "mcp-session-id"]))
-        (reset! session-id (get-in resp [:headers "mcp-session-id"])))
-      result)))
+                         :throw false})
+        result {:status (:status resp)
+                :body (json/parse-string (:body resp) true)}]
+    ;; Capture session ID from initialize response
+    (when (and (= "initialize" method)
+               (= 200 (:status resp))
+               (get-in resp [:headers "mcp-session-id"]))
+      (reset! session-id (get-in resp [:headers "mcp-session-id"])))
+    result))
 
 ;; -----------------------------------------------------------------------------
 ;; Test Commands

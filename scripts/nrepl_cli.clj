@@ -1,29 +1,29 @@
 #!/usr/bin/env bb
 
-;; nREPL CLI - Command-line interface for nREPL operations via MCP
-;;
-;; Usage: bb scripts/nrepl_cli.clj <subcommand> [args] [options]
-;;
-;; Subcommands:
-;;   connect <target>     Connect to an nREPL server (port, host:port, or .nrepl-port)
-;;   disconnect [name]    Disconnect from nREPL server
-;;   list                 List all connections
-;;   status               Show active connection status
-;;   eval <code>          Evaluate Clojure code
-;;   load-file <path>     Load and evaluate a Clojure file
-;;   help                 Show this help
-;;
-;; Options:
-;;   --mcp NAME           MCP server nickname (default: bb-nrepl-system-1)
-;;   --connection NAME    nREPL connection nickname (for eval/load-file)
-;;   --nickname NAME      Nickname for new connection (for connect)
-;;   --output MODE        Output mode: result (default), full, pipe
-;;   --pprint             Pretty-print output
-;;   --timeout MS         Timeout in milliseconds (default: 30000)
+(ns nrepl-cli
+  "nREPL CLI - Command-line interface for nREPL operations via MCP.
 
-(require '[bb-mcp-server.mcp-client :as client]
-         '[cheshire.core :as json]
-         '[clojure.pprint :as pp])
+   Usage: bb scripts/nrepl_cli.clj <subcommand> [args] [options]
+
+   Subcommands:
+     connect <target>     Connect to an nREPL server (port, host:port, or .nrepl-port)
+     disconnect [name]    Disconnect from nREPL server
+     list                 List all connections
+     status               Show active connection status
+     eval <code>          Evaluate Clojure code
+     load-file <path>     Load and evaluate a Clojure file
+     help                 Show this help
+
+   Options:
+     --mcp NAME           MCP server nickname (default: bb-nrepl-system-1)
+     --connection NAME    nREPL connection nickname (for eval/load-file)
+     --nickname NAME      Nickname for new connection (for connect)
+     --output MODE        Output mode: result (default), full, pipe
+     --pprint             Pretty-print output
+     --timeout MS         Timeout in milliseconds (default: 30000)"
+  (:require [bb-mcp-server.mcp-client :as client]
+            [cheshire.core :as json]
+            [clojure.pprint :as pp]))
 
 ;; =============================================================================
 ;; Argument Parsing
