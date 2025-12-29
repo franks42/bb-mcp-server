@@ -8,42 +8,43 @@
 
 ## Previous Session Summary
 
-Fixed critical NullPointerException bug in local-eval module:
-- **Root cause:** `(class nil)` returns `nil`, then `.getName` on `nil` throws NPE
-- **Location:** `modules/local-eval/src/local_eval/eval.clj:132`
-- **Fix:** `(if (some? result) (.getName (class result)) "nil")`
-- **Impact:** All clojure-lsp CLI navigation commands now work (hover, definition, references, etc.)
+Completed clojure-lsp module Phase 4 (MCP Tools):
+- Registered 11 MCP tools in `core.clj`: clj-init, clj-status, clj-definition, clj-references, clj-hover, clj-completions, clj-code-actions, clj-rename, clj-diagnostics, clj-document-symbols, clj-call-hierarchy
+- Added clojure-lsp to `system.edn` modules list
+- Created comprehensive CLI examples documentation (`modules/clojure-lsp/docs/cli-examples.md`)
+- Updated design docs with dependency navigation and multi-project findings
 
-clojure-lsp module Phases 1-3 complete - all 12 CLI commands functional.
+Key insight: Multi-project support already exists at bb-mcp-server level (run multiple instances). clojure-lsp itself doesn't support workspace/workspaceFolders.
 
 ---
 
 ## Current Focus
 
-**clojure-lsp module** - Phases 1-3 complete. Ready for Phase 4 (MCP Tools).
+**clojure-lsp module** - Phase 4 complete. Ready for Phase 5 (Polish & Docs).
 
-Phase 4 will register proper MCP tools (clj-definition, clj-hover, etc.) instead of relying on local-eval.
+Phase 5 tasks:
+- Error handling: timeouts, process crashes, auto-restart
+- README.md for the module
+- Test coverage gaps
 
 ---
 
 ## Recent Changes
 
 ```
+8e707b9 docs(clojure-lsp): Add CLI examples with real tool responses
+ddb59a2 feat(clojure-lsp): Implement Phase 4 - MCP Tools
 a3b8177 feat(clojure-lsp): Implement Phase 3 - CLI (bb clojure-lsp)
 cb2a17e feat(clojure-lsp): Implement Phase 2 - Clojure API (tools.clj)
 44a4591 docs(clojure-lsp): Update implementation strategy - API-first via local-eval
-fdd982a docs: Record CLI lint fixes in IMPLEMENTATION_PLAN and context
-78a07d6 fix: Add namespace declarations to CLI scripts
 ```
 
 ---
 
 ## Pending Work
 
-**clojure-lsp module** (see `modules/clojure-lsp/IMPLEMENTATION_PLAN.md`):
-1. **Debug tools.clj loading** - Fix NullPointerException in local-eval
-2. **Phase 4** - Register MCP tools (clj-definition, clj-hover, etc.)
-3. **Phase 5** - Polish & documentation
+**clojure-lsp module** (see `IMPLEMENTATION_PLAN.md`):
+1. **Phase 5** - Error handling (crash detection, auto-restart), README.md
 
 **Other** (see main IMPLEMENTATION_PLAN.md):
 1. **bb calc CLI** (low priority)
@@ -61,19 +62,19 @@ Things learned that aren't in CLAUDE.md:
 - **scittle-nrepl** needs sente-lite bundle at configured path
 - **clojure-lsp dev config**: `--config system-clojure-lsp-dev.edn`
 - **CLI scripts** must call `(-main)` or `(apply -main *command-line-args*)` at end for bb tasks
+- **clojure-lsp startup**: ~700ms for medium projects, can navigate into Maven jar dependencies (read-only)
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server for clojure-lsp development
-bb server --http --port 0 --nickname clj-lsp --config system-clojure-lsp-dev.edn
+# Start server with clojure-lsp
+bb server --http --config system.edn --nickname my-server
 
-# Test CLI
-bb clojure-lsp help
-bb clojure-lsp status --mcp clj-lsp
-bb clojure-lsp start /path/to/project --mcp clj-lsp
+# Test MCP tools
+bb mcp tools --mcp my-server | grep clojure-lsp
+bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
 
 # Verify everything works
 bb test:modules
