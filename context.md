@@ -1,47 +1,44 @@
 # bb-mcp-server Project Context
 
-**Current State: December 27, 2025**
+**Current State: December 28, 2025**
+
+## Next Up: Phase 20 - MCP CLI & E2E Testing
+
+### Problem Identified
+Current tests use mock handlers - no automated testing of real tool invocations via MCP protocol. We have:
+- `bb mcp-eval` → `local-eval` (specific)
+- `bb nrepl` → nREPL tools (specific)
+
+But no generic MCP CLI, and no E2E tests using real tools.
+
+### Goal
+1. **Generic MCP CLI** (`bb mcp`)
+   - `bb mcp init` - Show server info
+   - `bb mcp tools` - List all tools
+   - `bb mcp tool <name>` - Show tool schema
+   - `bb mcp call <name> <args>` - Call any tool
+
+2. **E2E Test Suite** using `mcp_client.clj`
+   - Start real server with real modules
+   - Call real tools via MCP protocol
+   - Verify real results
+
+### Testing Gap
+| Layer | Tested? |
+|-------|---------|
+| Handler functions | ✅ Unit tests |
+| HTTP transport | ✅ Mock handlers |
+| **Real tools via MCP** | ❌ Not tested |
+| **Tool registration** | ❌ Not tested |
+| **Module → tool availability** | ❌ Not tested |
+
+---
 
 ## Just Completed: v1.7.0 - Scittle-nREPL Dev Environment
 
-### What Was Done
-1. **Browser-based ClojureScript REPL** via Scittle + sente-lite
-   - Bootstrap config `bb-scittle-dev-system.edn` with 5 modules
-   - WebSocket browser connections via sente-browser module
-   - nREPL proxy with browser routing
-
-2. **Shadow-cljs style API**
-   - `(browser/list)` - List connected browsers
-   - `(browser/repl :browser-id)` - Switch to browser REPL
-   - `:cljs/quit` - Return to bb
-
-3. **Architecture**
-   ```
-   rebel-readline → nrepl-proxy:1667 → sente-browser:8090 → Browser (Scittle)
-   ```
-
-4. **Full workflow verified**
-   - Playwright tests: Browser connects, eval works
-   - Manual test: rebel → browser → eval → quit flow confirmed
-
-### Example Usage
-```bash
-# Start scittle-dev server
-bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
-
-# Open browser to bootstrap page
-open http://127.0.0.1:8091
-
-# Connect rebel-readline to proxy
-bb rebel-nrepl-client 1667
-
-# In rebel:
-(browser/list)           ; List connected browsers
-(browser/repl :browser-1) ; Switch to browser REPL
-(+ 1 2 3)                 ; Eval in browser → 6
-(js/alert "Hello!")       ; Browser JS interop
-:cljs/quit                ; Return to bb
-```
+- Browser-based ClojureScript REPL via Scittle + sente-lite
+- Shadow-cljs style API: `(browser/repl :id)`, `:cljs/quit`
+- Full workflow verified: rebel → nrepl-proxy → browser
 
 ---
 

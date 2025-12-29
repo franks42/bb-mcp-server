@@ -5,6 +5,84 @@
 
 ---
 
+## Phase 20: MCP CLI & E2E Testing (Planned)
+
+**Goal:** Generic MCP CLI tool and end-to-end test suite using real tools.
+
+**Problem Identified:** Current tests use mock handlers - no automated testing of real tool invocations via MCP protocol.
+
+**Testing Gap:**
+| Layer | Tested? | How |
+|-------|---------|-----|
+| Handler functions | ✅ | Unit tests call directly |
+| HTTP transport | ✅ | Integration tests with mock handlers |
+| JSON-RPC routing | ✅ | Mock handlers |
+| **Real tools via MCP** | ❌ | Not tested |
+| **Tool registration** | ❌ | Not tested end-to-end |
+| **Module loading → tool availability** | ❌ | Not tested |
+
+### Phase 20A: Extend mcp_client.clj
+
+| # | Task | Status | Description |
+|---|------|--------|-------------|
+| 20A.1 | Add `list-tools!` function | Planned | Call `tools/list`, return tool list |
+| 20A.2 | Add `get-server-info!` function | Planned | Extract capabilities from initialize |
+| 20A.3 | Add `get-tool-schema` helper | Planned | Find tool by name, return inputSchema |
+
+### Phase 20B: MCP CLI Script
+
+| # | Task | Status | Description |
+|---|------|--------|-------------|
+| 20B.1 | Create `scripts/mcp_cli.clj` | Planned | CLI dispatcher |
+| 20B.2 | Implement `init` subcommand | Planned | Show server info, capabilities |
+| 20B.3 | Implement `tools` subcommand | Planned | List all tools with descriptions |
+| 20B.4 | Implement `tool <name>` subcommand | Planned | Show tool schema |
+| 20B.5 | Implement `call <name> <args>` subcommand | Planned | Call tool with JSON args |
+| 20B.6 | Add `mcp` task to bb.edn | Planned | Task wrapper |
+
+**CLI Usage:**
+```bash
+bb mcp init                              # Show server info
+bb mcp tools                             # List all tools
+bb mcp tool echo.echo                    # Show tool schema
+bb mcp call echo.echo '{"message":"hi"}' # Call tool
+bb mcp call calculate.calculate '{"expr":"(+ 1 2)"}' --pprint
+```
+
+### Phase 20C: E2E Test Suite
+
+| # | Task | Status | Description |
+|---|------|--------|-------------|
+| 20C.1 | Create `test/e2e/` directory | Planned | E2E test namespace |
+| 20C.2 | Create server fixture | Planned | Start real server, run tests, stop |
+| 20C.3 | Test echo module | Planned | `echo.echo` returns input |
+| 20C.4 | Test calculate module | Planned | `(+ 1 2 3)` returns 6 |
+| 20C.5 | Test local-eval module | Planned | Full eval with stdout/stderr |
+| 20C.6 | Test tools/list | Planned | Verify registered tools match |
+| 20C.7 | Add `test:e2e` task to bb.edn | Planned | Run E2E tests |
+
+**Test Pattern:**
+```clojure
+(deftest echo-tool-test
+  (testing "echo.echo returns message"
+    (let [result (mcp/call-tool! test-port "echo.echo" {:message "hello"})]
+      (is (= {:echo "hello"} (mcp/extract-tool-result result))))))
+
+(deftest calculate-tool-test
+  (testing "calculate evaluates expressions"
+    (let [result (mcp/call-tool! test-port "calculate.calculate" {:expr "(+ 1 2 3)"})]
+      (is (= 6 (get-in (mcp/extract-tool-result result) [:result]))))))
+```
+
+**Modules to Test:**
+- `echo` - Simple echo, validates basic tool flow
+- `calculate` - Expression evaluation
+- `local-eval` - Full Clojure eval with I/O capture
+- `strings` - String concat
+- `math` - Basic arithmetic
+
+---
+
 ## Phase 19: Scittle-nREPL Dev Environment ✅ (v1.7.0)
 
 **Goal:** Browser-based ClojureScript REPL via Scittle + sente-lite, accessible from rebel-readline.
