@@ -8,23 +8,26 @@
 
 ## Previous Session Summary
 
-Completed clojure-lsp module Phase 5 (Watch Mode & Extended CLI):
+Completed clojure-lsp module Phase 5.5 (MCP Tools Parity):
 
-**CLI expanded to 18 commands:**
+**MCP tools expanded to 16** (was 11) per Gemini review feedback:
+- `clj-find-symbol` - Workspace symbol search by name
+- `clj-implementations` - Find protocol/interface implementations
+- `clj-format` - Format files via clojure-lsp
+- `clj-execute-command` - Execute refactoring commands
+- `clj-watch` - Control file watcher (start/stop/status)
+
+**Enhanced tools:**
+- `clj-init` now accepts `watch: true` to auto-start file watcher
+
+**CLI has 18 commands** (unchanged):
 - Lifecycle: `start`, `stop`, `status`, `watch`
 - Navigation: `definition`, `references`, `hover`, `implementations`
 - Search: `find-symbol` (workspace-wide by name)
 - Analysis: `diagnostics`, `symbols`, `call-hierarchy`
 - Refactoring: `completions`, `code-actions`, `rename`, `refactor`, `format`
 
-**Key additions:**
-- `bb clojure-lsp watch` - File watcher using pod-babashka-fswatcher v0.0.7
-- `find-symbol` - Symbol-centric search (vs position-dependent definition/references)
-- `format`, `implementations`, `refactor` commands
-- `bb pprint` - EDN pretty-printer utility
-- Default output changed to EDN (use `--json` for JSON)
-
-**New design document:** `docs/design/live-static-state-design-implementation.md`
+**Design document:** `docs/design/live-static-state-design-implementation.md`
 - Explores combining static (clojure-lsp) and dynamic (nREPL) views
 - Addresses gap when code is evaluated at REPL without saving to file
 
@@ -32,26 +35,24 @@ Completed clojure-lsp module Phase 5 (Watch Mode & Extended CLI):
 
 ## Current Focus
 
+**clojure-lsp module** - Phase 5.5 complete. Ready for Phase 6 (Polish & Docs).
+- All `tools.clj` functionality now exposed via MCP tools
+- Full parity between CLI (18 commands) and MCP (16 tools)
+
 **Static + Live State Integration** - Design phase.
-
-The core insight: clojure-lsp sees static files, nREPL sees runtime state. When working interactively at the REPL, these can diverge. The design document explores how to provide a unified view.
-
-**clojure-lsp module** - Phase 5 complete. Ready for Phase 6 (Polish & Docs).
+- Design document at `docs/design/live-static-state-design-implementation.md`
+- Explores combining clojure-lsp (static) with nREPL (runtime) views
 
 ---
 
 ## Recent Changes
 
 ```
+f47642f feat(clojure-lsp): Add 5 missing MCP tools per Gemini review
+c7b0b71 docs: Update plans and add static+live state design
 2f8715e feat(clojure-lsp): Add watch mode for incremental index updates
 0a34e21 feat(clojure-lsp): Add find-symbol, format, implementations, refactor commands
 b1006a2 docs: Rename cli-examples.md to clojure-lsp-cli-examples.md
-b034688 feat(clojure-lsp): Change default output to EDN
-76e3fb6 feat: Add bb pprint utility and update CLI examples
-ac2d061 docs: Update context.md for Phase 4 completion
-8e707b9 docs(clojure-lsp): Add CLI examples with real tool responses
-ddb59a2 docs: Mark clojure-lsp Phase 4 complete
-63e9868 feat(clojure-lsp): Implement Phase 4 - MCP Tools
 ```
 
 ---
