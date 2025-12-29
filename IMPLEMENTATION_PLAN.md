@@ -78,7 +78,11 @@ Clojure LSP integration via persistent subprocess. Phases 1-3 complete.
 - Multi-project support (optional)
 - README.md for the module
 
-**Reference:** `modules/clojure-lsp/clojure-lsp-mcp-integration.md` (design doc)
+**Test Strategy:** Integration tests spawn real `clojure-lsp` subprocess and use the module's own source files as test corpus. This provides realistic testing - the LSP analyzes actual Clojure code.
+
+**References:**
+- `modules/clojure-lsp/docs/design-implementation.md` - How it works
+- `modules/clojure-lsp/docs/design-rationale.md` - Why decisions were made
 
 ---
 
