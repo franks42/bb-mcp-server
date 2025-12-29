@@ -1,5 +1,9 @@
 # Session Context
 
+> **AI Assistant Directive:** This file captures current working state for session handoffs.
+> Keep this structure intact. Update sections as you work. Refresh "Recent Changes" from git log.
+> When ending a session, update "Previous Session Summary" and "Current Focus" for the next assistant.
+
 **Last Updated:** 2025-12-28
 
 ## Previous Session Summary
@@ -71,6 +75,3 @@ bb mcp servers
 bb mcp tools --mcp dev
 ```
 
----
-
-*Update this file when handing off to a new session.*
