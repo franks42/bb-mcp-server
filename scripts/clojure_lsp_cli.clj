@@ -29,7 +29,7 @@
      --port PORT       Server port (auto-detects if single server)
      --mcp NAME        Server nickname
      --executable PATH Path to clojure-lsp binary
-     --pprint          Pretty-print output
+     --json            Output as JSON instead of EDN
      --help            Show this help"
     (:require [bb-mcp-server.mcp-client :as client]
               [cheshire.core :as json]
@@ -48,7 +48,7 @@
                :port nil
                :mcp nil
                :executable nil
-               :pprint false
+               :json false
                :outgoing false}]
         (if (empty? args)
           opts
@@ -64,8 +64,8 @@
               (= arg "--executable")
               (recur (rest rest-args) (assoc opts :executable (first rest-args)))
 
-              (= arg "--pprint")
-              (recur rest-args (assoc opts :pprint true))
+              (= arg "--json")
+              (recur rest-args (assoc opts :json true))
 
               (= arg "--outgoing")
               (recur rest-args (assoc opts :outgoing true))
@@ -84,11 +84,11 @@
 ;; =============================================================================
 
 (defn output-value
-  "Output a value, optionally pretty-printed."
-  [value pprint?]
-  (if pprint?
-    (pp/pprint value)
-    (println (json/generate-string value {:pretty true}))))
+  "Output a value as EDN (default) or JSON."
+  [value json?]
+  (if json?
+    (println (json/generate-string value {:pretty true}))
+    (pp/pprint value)))
 
 (defn resolve-server
   "Resolve server from options: --port > --mcp > auto-detect"
@@ -129,7 +129,7 @@
 
 (defn cmd-start
   "Start clojure-lsp for a project."
-  [{:keys [positional executable pprint] :as opts}]
+  [{:keys [positional executable json] :as opts}]
   (when (empty? positional)
     (println "Usage: bb clojure-lsp start <project-root> [--executable path]")
     (System/exit 1))
@@ -140,22 +140,22 @@
                      (pr-str project-root)
                      (pr-str (or executable "clojure-lsp")))
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-stop
   "Stop clojure-lsp server."
-  [{:keys [pprint] :as opts}]
+  [{:keys [json] :as opts}]
   (let [port (resolve-server opts)
         result (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.client/stop!)")]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-status
   "Get clojure-lsp server status."
-  [{:keys [pprint] :as opts}]
+  [{:keys [json] :as opts}]
   (let [port (resolve-server opts)
         running (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.client/running?)")
         initialized (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.client/initialized?)")]
-    (output-value {:running running :initialized initialized} pprint)))
+    (output-value {:running running :initialized initialized} json)))
 
 ;; =============================================================================
 ;; Navigation Commands
@@ -180,36 +180,36 @@
 
 (defn cmd-definition
   "Go to definition of symbol at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "definition")
         _ (ensure-tools-loaded port)
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/definition {:file %s :line %d :column %d})"
                      (pr-str file) line column)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-references
   "Find all references to symbol at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "references")
         _ (ensure-tools-loaded port)
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/references {:file %s :line %d :column %d})"
                      (pr-str file) line column)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-hover
   "Get hover information for symbol at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "hover")
         _ (ensure-tools-loaded port)
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/hover {:file %s :line %d :column %d})"
                      (pr-str file) line column)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 ;; =============================================================================
 ;; Analysis Commands
@@ -217,7 +217,7 @@
 
 (defn cmd-diagnostics
   "Get diagnostics for a file or all files."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         _ (ensure-tools-loaded port)
         code (if (seq positional)
@@ -225,11 +225,11 @@
                        (pr-str (first positional)))
                "(bb-mcp-server.modules.clojure-lsp.tools/diagnostics)")
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-symbols
   "Get all symbols in a file."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (when (empty? positional)
     (println "Usage: bb clojure-lsp symbols <file>")
     (System/exit 1))
@@ -239,11 +239,11 @@
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/document-symbols {:file %s})"
                      (pr-str file))
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-call-hierarchy
   "Get call hierarchy for function at position."
-  [{:keys [positional outgoing pprint] :as opts}]
+  [{:keys [positional outgoing json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "call-hierarchy")
         direction (if outgoing :outgoing :incoming)
@@ -251,7 +251,7 @@
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/call-hierarchy {:file %s :line %d :column %d :direction %s})"
                      (pr-str file) line column direction)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 ;; =============================================================================
 ;; Refactoring Commands
@@ -259,29 +259,29 @@
 
 (defn cmd-completions
   "Get completion suggestions at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "completions")
         _ (ensure-tools-loaded port)
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/completions {:file %s :line %d :column %d})"
                      (pr-str file) line column)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-code-actions
   "Get available code actions at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (let [port (resolve-server opts)
         {:keys [file line column]} (parse-position-args positional "code-actions")
         _ (ensure-tools-loaded port)
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/code-actions {:file %s :line %d :column %d})"
                      (pr-str file) line column)
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 (defn cmd-rename
   "Rename symbol at position."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional json] :as opts}]
   (when (< (count positional) 4)
     (println "Usage: bb clojure-lsp rename <file> <line> <column> <new-name>")
     (System/exit 1))
@@ -294,7 +294,7 @@
         code (format "(bb-mcp-server.modules.clojure-lsp.tools/rename {:file %s :line %d :column %d :new-name %s})"
                      (pr-str file) line column (pr-str new-name))
         result (eval-on-server port code)]
-    (output-value result pprint)))
+    (output-value result json)))
 
 ;; =============================================================================
 ;; Help
@@ -331,7 +331,7 @@ Options:
   --mcp NAME        Server nickname
   --executable PATH Path to clojure-lsp binary (for start)
   --outgoing        Show outgoing calls (for call-hierarchy)
-  --pprint          Pretty-print output
+  --json            Output as JSON instead of EDN
   --help            Show this help
 
 Examples:

@@ -46,3 +46,4 @@ server.log
 
 # Claude Code local settings
 .claude/
+.ports/

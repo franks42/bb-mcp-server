@@ -22,21 +22,21 @@ bb server --http --config system.edn --nickname my-server
 $ bb clojure-lsp status --mcp my-server
 ```
 
+```clojure
+{:running false, :initialized false}
+```
+
+With `--json` for JSON output:
+
+```bash
+$ bb clojure-lsp status --mcp my-server --json
+```
+
 ```json
 {
   "running" : false,
   "initialized" : false
 }
-```
-
-With `--pprint` for EDN output:
-
-```bash
-$ bb clojure-lsp status --mcp my-server --pprint
-```
-
-```clojure
-{:running false, :initialized false}
 ```
 
 ---
@@ -47,25 +47,18 @@ $ bb clojure-lsp status --mcp my-server --pprint
 $ bb clojure-lsp start /path/to/bb-mcp-server --mcp my-server
 ```
 
-```json
-{
-  "status" : "initialized",
-  "capabilities" : {
-    "workspaceSymbolProvider" : true,
-    "documentFormattingProvider" : true,
-    "referencesProvider" : true,
-    "renameProvider" : {
-      "prepareProvider" : true
-    },
-    "hoverProvider" : true,
-    "definitionProvider" : true,
-    "completionProvider" : {
-      "resolveProvider" : true,
-      "triggerCharacters" : [ ":", "/" ]
-    }
-    // ... many more capabilities
-  }
-}
+```clojure
+{:status "initialized",
+ :capabilities
+ {:workspaceSymbolProvider true,
+  :documentFormattingProvider true,
+  :referencesProvider true,
+  :renameProvider {:prepareProvider true},
+  :hoverProvider true,
+  :definitionProvider true,
+  :completionProvider {:resolveProvider true, :triggerCharacters [":" "/"]}
+  ;; ... many more capabilities
+  }}
 ```
 
 Initial analysis takes ~1-2 seconds for small projects, longer for large codebases.
@@ -78,11 +71,8 @@ Initial analysis takes ~1-2 seconds for small projects, longer for large codebas
 $ bb clojure-lsp status --mcp my-server
 ```
 
-```json
-{
-  "running" : true,
-  "initialized" : true
-}
+```clojure
+{:running true, :initialized true}
 ```
 
 ---
@@ -92,7 +82,7 @@ $ bb clojure-lsp status --mcp my-server
 Get documentation and type info for a symbol. Here we hover over `register!` in registry.clj:
 
 ```bash
-$ bb clojure-lsp hover src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
+$ bb clojure-lsp hover src/bb_mcp_server/registry.clj 191 10 --mcp my-server
 ```
 
 ```clojure
@@ -124,14 +114,10 @@ Find where a symbol is defined:
 $ bb clojure-lsp definition src/bb_mcp_server/module/system.clj 267 15 --mcp my-server
 ```
 
-```json
-{
-  "uri" : "file:///path/to/bb-mcp-server/src/bb_mcp_server/registry.clj",
-  "range" : {
-    "start" : { "line" : 190, "character" : 6 },
-    "end" : { "line" : 190, "character" : 15 }
-  }
-}
+```clojure
+{:uri "file:///path/to/bb-mcp-server/src/bb_mcp_server/registry.clj",
+ :range {:start {:line 190, :character 6},
+         :end {:line 190, :character 15}}}
 ```
 
 ---
@@ -144,17 +130,13 @@ Find all usages of a symbol across the project:
 $ bb clojure-lsp references src/bb_mcp_server/registry.clj 191 10 --mcp my-server
 ```
 
-```json
-[ {
-  "uri" : "file:///path/to/modules/clojure-lsp/src/.../core.clj",
-  "range" : { "start" : { "line" : 266, "character" : 10 }, "end" : { "line" : 266, "character" : 28 } }
-}, {
-  "uri" : "file:///path/to/src/bb_mcp_server/registry.clj",
-  "range" : { "start" : { "line" : 190, "character" : 6 }, "end" : { "line" : 190, "character" : 15 } }
-}, {
-  "uri" : "file:///path/to/src/bb_mcp_server/registry.clj",
-  "range" : { "start" : { "line" : 311, "character" : 10 }, "end" : { "line" : 311, "character" : 19 } }
-} ]
+```clojure
+[{:uri "file:///path/to/modules/clojure-lsp/src/.../core.clj",
+  :range {:start {:line 266, :character 10}, :end {:line 266, :character 28}}}
+ {:uri "file:///path/to/src/bb_mcp_server/registry.clj",
+  :range {:start {:line 190, :character 6}, :end {:line 190, :character 15}}}
+ {:uri "file:///path/to/src/bb_mcp_server/registry.clj",
+  :range {:start {:line 311, :character 10}, :end {:line 311, :character 19}}}]
 ```
 
 ---
@@ -164,7 +146,7 @@ $ bb clojure-lsp references src/bb_mcp_server/registry.clj 191 10 --mcp my-serve
 List all symbols (functions, vars, etc.) in a file:
 
 ```bash
-$ bb clojure-lsp symbols modules/echo/src/echo/core.clj --mcp my-server --pprint
+$ bb clojure-lsp symbols modules/echo/src/echo/core.clj --mcp my-server
 ```
 
 ```clojure
@@ -200,7 +182,7 @@ Symbol kinds: 3=Namespace, 12=Function, 13=Variable
 Get available refactorings at a position:
 
 ```bash
-$ bb clojure-lsp code-actions src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
+$ bb clojure-lsp code-actions src/bb_mcp_server/registry.clj 191 10 --mcp my-server
 ```
 
 ```clojure
@@ -231,7 +213,7 @@ $ bb clojure-lsp code-actions src/bb_mcp_server/registry.clj 191 10 --mcp my-ser
 Find what functions call a given function (incoming calls):
 
 ```bash
-$ bb clojure-lsp call-hierarchy src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
+$ bb clojure-lsp call-hierarchy src/bb_mcp_server/registry.clj 191 10 --mcp my-server
 ```
 
 ```clojure
@@ -265,14 +247,11 @@ Get all warnings and errors in the project:
 $ bb clojure-lsp diagnostics --mcp my-server
 ```
 
-```json
-{
-  "file:///path/to/test/some_test.clj" : [ {
-    "range" : { "start" : { "line" : 6, "character" : 0 } },
-    "message" : "Unused import...",
-    "severity" : 2
-  } ]
-}
+```clojure
+{"file:///path/to/test/some_test.clj"
+ [{:range {:start {:line 6, :character 0}},
+   :message "Unused import...",
+   :severity 2}]}
 ```
 
 For a specific file:
@@ -288,7 +267,7 @@ $ bb clojure-lsp diagnostics src/bb_mcp_server/registry.clj --mcp my-server
 Get completion suggestions at a position:
 
 ```bash
-$ bb clojure-lsp completions src/bb_mcp_server/registry.clj 50 10 --mcp my-server --pprint
+$ bb clojure-lsp completions src/bb_mcp_server/registry.clj 50 10 --mcp my-server
 ```
 
 ```clojure
@@ -346,7 +325,7 @@ $ bb clojure-lsp stop --mcp my-server
 **Options:**
 - `--mcp NAME` - Server nickname (auto-detects if single server)
 - `--port PORT` - Server port directly
-- `--pprint` - Output as pretty-printed EDN instead of JSON
+- `--json` - Output as JSON instead of EDN (default)
 - `--outgoing` - Show outgoing calls (for call-hierarchy)
 - `--executable PATH` - Custom clojure-lsp binary path (for start)
 
