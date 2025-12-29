@@ -284,8 +284,18 @@ clojure-lsp reads `deps.edn`/`bb.edn` and can navigate into external dependencie
 
 ### Single-Project Design (Current)
 
-Each clojure-lsp module instance manages **one LSP subprocess** initialized at **one project root**. This is intentional:
+Each clojure-lsp module instance manages **one LSP subprocess** initialized at **one project root**. This is intentional and aligns with clojure-lsp's capabilities:
 
+**clojure-lsp does not support multi-root workspaces:**
+
+| LSP Capability | Status |
+|----------------|--------|
+| `workspace/workspaceFolders` | ❌ Not implemented |
+| `workspace/didChangeWorkspaceFolders` | ❌ Not implemented |
+
+Source: [clojure-lsp.io/capabilities](https://clojure-lsp.io/capabilities/)
+
+Given this limitation, our single-project design is correct:
 - Simple state management
 - ~700ms startup (acceptable for project switches)
 - Covers 90% of use cases
