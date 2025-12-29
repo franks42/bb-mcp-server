@@ -1,40 +1,49 @@
 # bb-mcp-server Project Context
 
-**Current State: December 28, 2025**
+**Current State: December 29, 2025**
 
-## Next Up: Phase 20 - MCP CLI & E2E Testing
+## Just Completed: Phase 20 - MCP CLI & E2E Testing
 
-### Problem Identified
-Current tests use mock handlers - no automated testing of real tool invocations via MCP protocol. We have:
-- `bb mcp-eval` → `local-eval` (specific)
-- `bb nrepl` → nREPL tools (specific)
+### What Was Built
 
-But no generic MCP CLI, and no E2E tests using real tools.
-
-### Goal
 1. **Generic MCP CLI** (`bb mcp`)
-   - `bb mcp init` - Show server info
-   - `bb mcp tools` - List all tools
-   - `bb mcp tool <name>` - Show tool schema
-   - `bb mcp call <name> <args>` - Call any tool
+   - `bb mcp servers` - List running servers
+   - `bb mcp init` - Get server info and capabilities
+   - `bb mcp tools` - List all available tools
+   - `bb mcp tool <name>` - Show specific tool metadata
+   - `bb mcp call <name> <args>` - Call any tool with JSON args
 
-2. **E2E Test Suite** using `mcp_client.clj`
-   - Start real server with real modules
-   - Call real tools via MCP protocol
-   - Verify real results
+2. **E2E Test Suite** (`bb test:e2e`)
+   - 11 tests, 42 assertions
+   - Tests local-eval, calculate, echo, hello, math, strings
+   - Real tool execution via MCP protocol
 
-### Testing Gap
+3. **Bug Fixes**
+   - Ephemeral port (`--port 0`) now correctly reports actual assigned port
+   - Port files now use `.json` extension
+
+### Testing Coverage Now
 | Layer | Tested? |
 |-------|---------|
 | Handler functions | ✅ Unit tests |
 | HTTP transport | ✅ Mock handlers |
-| **Real tools via MCP** | ❌ Not tested |
-| **Tool registration** | ❌ Not tested |
-| **Module → tool availability** | ❌ Not tested |
+| **Real tools via MCP** | ✅ E2E tests |
+| **Tool registration** | ✅ E2E tests |
+| **Module → tool availability** | ✅ E2E tests |
 
 ---
 
-## Just Completed: v1.7.0 - Scittle-nREPL Dev Environment
+## Future: Convenience CLI Tasks
+
+Create higher-level CLI wrappers for specific tools (like `bb mcp-eval` and `bb nrepl`):
+
+- `bb calc "(+ 1 2 3)"` → calculator without JSON args
+- `bb echo "hello"` → simple echo without JSON
+- etc.
+
+---
+
+## Previously Completed: v1.7.0 - Scittle-nREPL Dev Environment
 
 - Browser-based ClojureScript REPL via Scittle + sente-lite
 - Shadow-cljs style API: `(browser/repl :id)`, `:cljs/quit`
@@ -51,33 +60,18 @@ But no generic MCP CLI, and no E2E tests using real tools.
 
 ---
 
-## Deferred: Session Persistence
-
-**Issue**: Currently each eval gets a new nREPL session, so `*1`/`*2`/`*3` don't persist between evals.
-
-**Fix**: Would require storing session-id per connection and auto-including in subsequent evals.
-
-**Status**: Deferred - basic functionality works, session persistence is a future enhancement.
-
----
-
-## Previously Completed: v1.5.0 - mcp-eval CLI
-
-- Fixed local-eval stderr capture
-- Fixed double-wrapping bug in tools_call.clj
-- MCP Client Library (`src/bb_mcp_server/mcp_client.clj`)
-- mcp-eval CLI (`scripts/mcp_eval_script.clj`)
-
----
-
-## Important Reminders
-- **Verification**: Run `clj-kondo --lint <files>` and `cljfmt check <files>` before commit
-- **Zero warnings required**: Do NOT commit with lint warnings
-- **macOS**: Do NOT use `timeout` command (doesn't exist)
-
 ## Testing Commands
 ```bash
-# mcp-eval
+# MCP CLI (exploration & testing)
+bb mcp servers                           # List running servers
+bb mcp tools --mcp dev                   # List tools
+bb mcp call echo.echo '{"message":"hi"}' # Call any tool
+
+# E2E Tests (requires running server)
+bb server --http 0 --nickname e2e-test --config bb-e2e-test-system.edn &
+bb test:e2e
+
+# mcp-eval (code evaluation)
 bb mcp-eval "(+ 1 2 3)"
 bb mcp-eval "(range 5)" --output full --pprint
 
@@ -85,8 +79,11 @@ bb mcp-eval "(range 5)" --output full --pprint
 bb nrepl help
 bb nrepl list --mcp nrepl-mcp
 bb nrepl eval "(+ 1 2)" --mcp nrepl-mcp
-
-# Server commands
-bb server --http --port 3001 --config bb-nrepl-system.edn --nickname nrepl-mcp
-bb server:stop 3001
 ```
+
+---
+
+## Important Reminders
+- **Verification**: Run `clj-kondo --lint <files>` and `cljfmt check <files>` before commit
+- **Zero warnings required**: Do NOT commit with lint warnings
+- **macOS**: Do NOT use `timeout` command (doesn't exist)

@@ -149,6 +149,19 @@ bb mcp-eval "(/ 1 0)" --output pipe  # Prints error to stderr
 ; => {:status :ok, :result 42, :stdout "x\n", :stderr ""}
 ```
 
+## MCP CLI (Exploration & Testing)
+
+Generic CLI for exploring and testing any MCP tool:
+
+```bash
+bb mcp servers                           # List running servers
+bb mcp tools --mcp dev                   # List available tools
+bb mcp call echo.echo '{"message":"hi"}' # Call any tool with JSON args
+bb mcp init                              # Get server info
+```
+
+Run `bb mcp help` for all subcommands. See also `bb test:e2e` for automated E2E tests.
+
 ## nrepl CLI Tool
 
 The `nrepl` CLI provides command-line access to remote nREPL servers via MCP.
@@ -302,9 +315,10 @@ js/navigator.userAgent    ; Access browser APIs
 ## Development
 
 ```bash
-bb test           # Run all tests (modules + bootstrap)
-bb test:modules  # Run module tests only
-bb test:bootstrap # Run bootstrap configuration and CLI tests
+bb test:all       # Run all tests (modules + bootstrap)
+bb test:modules   # Run module tests only
+bb test:bootstrap # Run bootstrap configuration tests
+bb test:e2e       # Run E2E MCP client tests (requires running server)
 bb lint           # clj-kondo (0 errors, 0 warnings)
 bb format         # cljfmt
 bb server:stop 3000  # Stop HTTP server
@@ -332,7 +346,7 @@ Bootstrap config file (`bb-bootstrap-system.edn`):
 
 ## Status
 
-Phase 5.5 complete. See `docs/design/streamable-http-implementation-plan.md`.
+Phase 20 complete. MCP CLI & E2E testing infrastructure in place.
 
 ## License
 

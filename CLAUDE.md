@@ -96,6 +96,8 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 7. **mcp-eval CLI** - Use `bb mcp-eval "[code]"` to test/debug/inspect running servers (see README)
 8. **nrepl CLI** - Use `bb nrepl <cmd>` to connect/eval/load-file on remote nREPL servers (see README)
 9. **rebel-nrepl-client** - Use `bb rebel-nrepl-client [port]` to open iTerm2 with rebel-readline connected to nREPL
+10. **mcp CLI** - Use `bb mcp <cmd>` to explore/test any MCP tool: `servers`, `tools`, `call`, `init` (see README)
+11. **E2E tests** - Use `bb test:e2e` to run real protocol tests (requires running server with `--nickname e2e-test`)
 
 ---
 
