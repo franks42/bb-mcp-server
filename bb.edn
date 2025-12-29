@@ -222,6 +222,9 @@
   clojure-lsp {:doc "Clojure LSP CLI - start, stop, definition, references, etc."
                :task (load-file "scripts/clojure_lsp_cli.clj")}
 
+  pprint {:doc "Pretty-print EDN from stdin or file"
+          :task (load-file "scripts/pprint.clj")}
+
   rebel-nrepl-client {:doc "Open iTerm2 with rebel-readline connected to nREPL [port]"
                       :task (load-file "scripts/rebel_nrepl_client.clj")}}
 

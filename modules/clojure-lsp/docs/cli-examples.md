@@ -1,6 +1,6 @@
 # clojure-lsp CLI Examples
 
-This document shows a complete CLI session demonstrating all clojure-lsp MCP tools using the bb-mcp-server project as the target codebase.
+This document shows a complete CLI session demonstrating all clojure-lsp commands using the bb-mcp-server project as the target codebase.
 
 ---
 
@@ -11,6 +11,7 @@ This document shows a complete CLI session demonstrating all clojure-lsp MCP too
 bb server --http --config system.edn --nickname my-server
 
 # The examples below use --mcp my-server to connect
+# If only one server is running, --mcp can be omitted
 ```
 
 ---
@@ -18,7 +19,7 @@ bb server --http --config system.edn --nickname my-server
 ## 1. Check Status (Before Initialization)
 
 ```bash
-$ bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
+$ bb clojure-lsp status --mcp my-server
 ```
 
 ```json
@@ -28,51 +29,53 @@ $ bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
 }
 ```
 
----
-
-## 2. Tool Error Before Initialization
-
-Calling any tool before `clj-init` returns a helpful error:
+With `--pprint` for EDN output:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-hover '{"file":"/path/to/file.clj","line":1,"column":1}' --mcp my-server
+$ bb clojure-lsp status --mcp my-server --pprint
+```
+
+```clojure
+{:running false, :initialized false}
+```
+
+---
+
+## 2. Initialize clojure-lsp
+
+```bash
+$ bb clojure-lsp start /path/to/bb-mcp-server --mcp my-server
 ```
 
 ```json
 {
-  "error" : "clojure-lsp not initialized. Call clj-init first."
+  "status" : "initialized",
+  "capabilities" : {
+    "workspaceSymbolProvider" : true,
+    "documentFormattingProvider" : true,
+    "referencesProvider" : true,
+    "renameProvider" : {
+      "prepareProvider" : true
+    },
+    "hoverProvider" : true,
+    "definitionProvider" : true,
+    "completionProvider" : {
+      "resolveProvider" : true,
+      "triggerCharacters" : [ ":", "/" ]
+    }
+    // ... many more capabilities
+  }
 }
-```
-
----
-
-## 3. Initialize clojure-lsp
-
-```bash
-$ bb mcp call clojure-lsp.clj-init '{"project-root":"/path/to/bb-mcp-server"}' --mcp my-server
-```
-
-```clojure
-{:status "initialized",
- :capabilities {:workspaceSymbolProvider true,
-                :documentFormattingProvider true,
-                :referencesProvider true,
-                :renameProvider {:prepareProvider true},
-                :hoverProvider true,
-                :definitionProvider true,
-                :completionProvider {:resolveProvider true},
-                ;; ... many more capabilities
-                }}
 ```
 
 Initial analysis takes ~1-2 seconds for small projects, longer for large codebases.
 
 ---
 
-## 4. Check Status (After Initialization)
+## 3. Check Status (After Initialization)
 
 ```bash
-$ bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
+$ bb clojure-lsp status --mcp my-server
 ```
 
 ```json
@@ -84,35 +87,41 @@ $ bb mcp call clojure-lsp.clj-status '{}' --mcp my-server
 
 ---
 
-## 5. Hover - Get Documentation
+## 4. Hover - Get Documentation
 
 Get documentation and type info for a symbol. Here we hover over `register!` in registry.clj:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-hover '{"file":"/path/to/bb-mcp-server/src/bb_mcp_server/registry.clj","line":191,"column":10}' --mcp my-server
+$ bb clojure-lsp hover src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
 ```
 
-```json
-{
-  "range" : {
-    "start" : { "line" : 190, "character" : 6 },
-    "end" : { "line" : 190, "character" : 15 }
-  },
-  "contents" : {
-    "kind" : "markdown",
-    "value" : "```clojure\nbb-mcp-server.registry/register!\n[tool-record]\n```\n\nRegister a tool in the registry.\n\nArgs:\n  tool-record - Map with :name, :module, :description, :inputSchema, :handler\n                :module is REQUIRED\n\nReturns: The registered tool record (with :name updated to full name)\n\nThrows: ex-info if:\n  - validation fails\n  - :module is missing\n  - module name or tool name contains a dot (reserved separator)\n  - tool with same full name already exists\n\n..."
-  }
-}
+```clojure
+{:range
+ {:start {:line 190, :character 6}, :end {:line 190, :character 15}},
+ :contents
+ {:kind "markdown",
+  :value
+  "```clojure
+bb-mcp-server.registry/register!
+[tool-record]
+```
+
+Register a tool in the registry.
+
+Args:
+  tool-record - Map with :name, :module, :description, :inputSchema, :handler
+                :module is REQUIRED
+..."}}
 ```
 
 ---
 
-## 6. Go to Definition
+## 5. Go to Definition
 
 Find where a symbol is defined:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-definition '{"file":"/path/to/core.clj","line":267,"column":15}' --mcp my-server
+$ bb clojure-lsp definition src/bb_mcp_server/module/system.clj 267 15 --mcp my-server
 ```
 
 ```json
@@ -125,25 +134,20 @@ $ bb mcp call clojure-lsp.clj-definition '{"file":"/path/to/core.clj","line":267
 }
 ```
 
-The response shows the exact file and position where `register!` is defined.
-
 ---
 
-## 7. Find References
+## 6. Find References
 
 Find all usages of a symbol across the project:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-references '{"file":"/path/to/registry.clj","line":191,"column":10}' --mcp my-server
+$ bb clojure-lsp references src/bb_mcp_server/registry.clj 191 10 --mcp my-server
 ```
 
 ```json
 [ {
   "uri" : "file:///path/to/modules/clojure-lsp/src/.../core.clj",
   "range" : { "start" : { "line" : 266, "character" : 10 }, "end" : { "line" : 266, "character" : 28 } }
-}, {
-  "uri" : "file:///path/to/src/bb_mcp_server/tools/hello.clj",
-  "range" : { "start" : { "line" : 73, "character" : 4 }, "end" : { "line" : 73, "character" : 22 } }
 }, {
   "uri" : "file:///path/to/src/bb_mcp_server/registry.clj",
   "range" : { "start" : { "line" : 190, "character" : 6 }, "end" : { "line" : 190, "character" : 15 } }
@@ -153,130 +157,112 @@ $ bb mcp call clojure-lsp.clj-references '{"file":"/path/to/registry.clj","line"
 } ]
 ```
 
-Shows 4 references: the definition itself plus 3 call sites.
-
 ---
 
-## 8. Document Symbols
+## 7. Document Symbols
 
 List all symbols (functions, vars, etc.) in a file:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-document-symbols '{"file":"/path/to/modules/echo/src/echo/core.clj"}' --mcp my-server
+$ bb clojure-lsp symbols modules/echo/src/echo/core.clj --mcp my-server --pprint
 ```
 
-```json
-[ {
-  "name" : "echo.core",
-  "kind" : 3,
-  "range" : { "start" : { "line" : 0 }, "end" : { "line" : 3 } }
-}, {
-  "name" : "echo-handler",
-  "kind" : 12,
-  "range" : { "start" : { "line" : 9 }, "end" : { "line" : 16 } }
-}, {
-  "name" : "echo-tool",
-  "kind" : 13,
-  "range" : { "start" : { "line" : 22 }, "end" : { "line" : 31 } }
-}, {
-  "name" : "start",
-  "kind" : 12,
-  "range" : { "start" : { "line" : 37 }, "end" : { "line" : 48 } }
-}, {
-  "name" : "stop",
-  "kind" : 12,
-  "range" : { "start" : { "line" : 50 }, "end" : { "line" : 57 } }
-}, {
-  "name" : "status",
-  "kind" : 12,
-  "range" : { "start" : { "line" : 59 }, "end" : { "line" : 63 } }
-}, {
-  "name" : "module",
-  "kind" : 13,
-  "range" : { "start" : { "line" : 69 }, "end" : { "line" : 73 } }
-} ]
+```clojure
+[{:name "echo.core",
+  :kind 3,
+  :range {:start {:line 0}, :end {:line 3}}}
+ {:name "echo-handler",
+  :kind 12,
+  :range {:start {:line 9}, :end {:line 16}}}
+ {:name "echo-tool",
+  :kind 13,
+  :range {:start {:line 22}, :end {:line 31}}}
+ {:name "start",
+  :kind 12,
+  :range {:start {:line 37}, :end {:line 48}}}
+ {:name "stop",
+  :kind 12,
+  :range {:start {:line 50}, :end {:line 57}}}
+ {:name "status",
+  :kind 12,
+  :range {:start {:line 59}, :end {:line 63}}}
+ {:name "module",
+  :kind 13,
+  :range {:start {:line 69}, :end {:line 73}}}]
 ```
 
 Symbol kinds: 3=Namespace, 12=Function, 13=Variable
 
 ---
 
-## 9. Code Actions
+## 8. Code Actions
 
 Get available refactorings at a position:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-code-actions '{"file":"/path/to/registry.clj","line":191,"column":10}' --mcp my-server
+$ bb clojure-lsp code-actions src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
 ```
 
-```json
-[ {
-  "title" : "Move to let",
-  "kind" : "refactor.extract",
-  "command" : {
-    "title" : "Move to let",
-    "command" : "move-to-let",
-    "arguments" : [ "file:///...", 190, 9, "new-binding" ]
-  }
-}, {
-  "title" : "Cycle privacy",
-  "kind" : "refactor.rewrite",
-  "command" : { "command" : "cycle-privacy", "arguments" : [ "...", 190, 9 ] }
-}, {
-  "title" : "Extract function",
-  "kind" : "refactor.extract",
-  "command" : { "command" : "extract-function", "arguments" : [ "...", 190, 9, "new-function" ] }
-}, {
-  "title" : "Extract to def",
-  "kind" : "refactor.extract",
-  "command" : { "command" : "extract-to-def", "arguments" : [ "...", 190, 9, null ] }
-}, {
-  "title" : "Introduce let",
-  "kind" : "refactor.extract",
-  "command" : { "command" : "introduce-let", "arguments" : [ "...", 190, 9, "new-binding" ] }
-} ]
+```clojure
+[{:title "Move to let",
+  :kind "refactor.extract",
+  :command
+  {:title "Move to let",
+   :command "move-to-let",
+   :arguments ["file:///..." 190 9 "new-binding"]}}
+ {:title "Cycle privacy",
+  :kind "refactor.rewrite",
+  :command {:command "cycle-privacy", :arguments ["..." 190 9]}}
+ {:title "Extract function",
+  :kind "refactor.extract",
+  :command {:command "extract-function", :arguments ["..." 190 9 "new-function"]}}
+ {:title "Extract to def",
+  :kind "refactor.extract",
+  :command {:command "extract-to-def", :arguments ["..." 190 9 nil]}}
+ {:title "Introduce let",
+  :kind "refactor.extract",
+  :command {:command "introduce-let", :arguments ["..." 190 9 "new-binding"]}}]
 ```
 
 ---
 
-## 10. Call Hierarchy
+## 9. Call Hierarchy
 
 Find what functions call a given function (incoming calls):
 
 ```bash
-$ bb mcp call clojure-lsp.clj-call-hierarchy '{"file":"/path/to/registry.clj","line":191,"column":10,"direction":"incoming"}' --mcp my-server
+$ bb clojure-lsp call-hierarchy src/bb_mcp_server/registry.clj 191 10 --mcp my-server --pprint
 ```
 
-```json
-[ {
-  "from" : {
-    "name" : "start [_deps config]",
-    "kind" : 12,
-    "detail" : "echo.core",
-    "uri" : "file:///path/to/modules/echo/src/echo/core.clj"
-  }
-}, {
-  "from" : {
-    "name" : "start [_deps config]",
-    "kind" : 12,
-    "detail" : "bb-mcp-server.modules.clojure-lsp.core",
-    "uri" : "file:///path/to/modules/clojure-lsp/src/.../core.clj"
-  }
-},
-  // ... more callers
-]
+```clojure
+[{:from
+  {:name "start [_deps config]",
+   :kind 12,
+   :detail "echo.core",
+   :uri "file:///path/to/modules/echo/src/echo/core.clj"}}
+ {:from
+  {:name "start [_deps config]",
+   :kind 12,
+   :detail "bb-mcp-server.modules.clojure-lsp.core",
+   :uri "file:///path/to/modules/clojure-lsp/src/.../core.clj"}}
+ ;; ... more callers
+ ]
 ```
 
-Use `"direction":"outgoing"` to find what a function calls.
+Use `--outgoing` to find what a function calls:
+
+```bash
+$ bb clojure-lsp call-hierarchy src/bb_mcp_server/registry.clj 191 10 --outgoing --mcp my-server
+```
 
 ---
 
-## 11. Diagnostics
+## 10. Diagnostics
 
 Get all warnings and errors in the project:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-diagnostics '{}' --mcp my-server
+$ bb clojure-lsp diagnostics --mcp my-server
 ```
 
 ```json
@@ -285,15 +271,37 @@ $ bb mcp call clojure-lsp.clj-diagnostics '{}' --mcp my-server
     "range" : { "start" : { "line" : 6, "character" : 0 } },
     "message" : "Unused import...",
     "severity" : 2
-  } ],
-  // ... more files with diagnostics
+  } ]
 }
 ```
 
 For a specific file:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-diagnostics '{"file":"/path/to/file.clj"}' --mcp my-server
+$ bb clojure-lsp diagnostics src/bb_mcp_server/registry.clj --mcp my-server
+```
+
+---
+
+## 11. Completions
+
+Get completion suggestions at a position:
+
+```bash
+$ bb clojure-lsp completions src/bb_mcp_server/registry.clj 50 10 --mcp my-server --pprint
+```
+
+```clojure
+{:isIncomplete true,
+ :items
+ [{:label "def",
+   :kind 14,
+   :detail "clojure.core/def"}
+  {:label "defn",
+   :kind 14,
+   :detail "clojure.core/defn"}
+  ;; ... more completions
+  ]}
 ```
 
 ---
@@ -303,28 +311,44 @@ $ bb mcp call clojure-lsp.clj-diagnostics '{"file":"/path/to/file.clj"}' --mcp m
 Preview a rename refactoring:
 
 ```bash
-$ bb mcp call clojure-lsp.clj-rename '{"file":"/path/to/file.clj","line":10,"column":5,"new-name":"better-name"}' --mcp my-server
+$ bb clojure-lsp rename src/bb_mcp_server/registry.clj 10 5 better-name --mcp my-server
 ```
 
 Returns a workspace edit showing all files and changes that would be made.
 
 ---
 
+## 13. Stop Server
+
+```bash
+$ bb clojure-lsp stop --mcp my-server
+```
+
+---
+
 ## Summary
 
-| Tool | Purpose | Key Args |
-|------|---------|----------|
-| `clj-init` | Initialize for a project | `project-root` |
-| `clj-status` | Check server state | - |
-| `clj-hover` | Get documentation | `file`, `line`, `column` |
-| `clj-definition` | Go to definition | `file`, `line`, `column` |
-| `clj-references` | Find all usages | `file`, `line`, `column` |
-| `clj-document-symbols` | List symbols in file | `file` |
-| `clj-code-actions` | Get refactorings | `file`, `line`, `column` |
-| `clj-call-hierarchy` | Callers/callees | `file`, `line`, `column`, `direction` |
-| `clj-diagnostics` | Errors/warnings | `file` (optional) |
-| `clj-completions` | Completion suggestions | `file`, `line`, `column` |
-| `clj-rename` | Rename symbol | `file`, `line`, `column`, `new-name` |
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `start <path>` | Initialize for a project | `bb clojure-lsp start .` |
+| `stop` | Stop the server | `bb clojure-lsp stop` |
+| `status` | Check server state | `bb clojure-lsp status` |
+| `hover <f> <l> <c>` | Get documentation | `bb clojure-lsp hover f.clj 10 5` |
+| `definition <f> <l> <c>` | Go to definition | `bb clojure-lsp definition f.clj 10 5` |
+| `references <f> <l> <c>` | Find all usages | `bb clojure-lsp references f.clj 10 5` |
+| `symbols <file>` | List symbols in file | `bb clojure-lsp symbols f.clj` |
+| `code-actions <f> <l> <c>` | Get refactorings | `bb clojure-lsp code-actions f.clj 10 5` |
+| `call-hierarchy <f> <l> <c>` | Callers/callees | `bb clojure-lsp call-hierarchy f.clj 10 5` |
+| `diagnostics [file]` | Errors/warnings | `bb clojure-lsp diagnostics` |
+| `completions <f> <l> <c>` | Completion suggestions | `bb clojure-lsp completions f.clj 10 5` |
+| `rename <f> <l> <c> <name>` | Rename symbol | `bb clojure-lsp rename f.clj 10 5 new` |
+
+**Options:**
+- `--mcp NAME` - Server nickname (auto-detects if single server)
+- `--port PORT` - Server port directly
+- `--pprint` - Output as pretty-printed EDN instead of JSON
+- `--outgoing` - Show outgoing calls (for call-hierarchy)
+- `--executable PATH` - Custom clojure-lsp binary path (for start)
 
 All positions are **1-indexed** (line 1, column 1 is the first character).
 
