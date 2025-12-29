@@ -8,6 +8,68 @@ This document outlines the recommended approach for integrating clojure-lsp capa
 
 ---
 
+## Development Strategy: API-First via local-eval
+
+**Key Insight:** Build the Clojure API first, test via local-eval, then wrap with CLI and MCP tools.
+
+### Why This Approach?
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Fast iteration** | No MCP protocol overhead - call functions directly |
+| **Live reload** | Edit code, `(require ... :reload)`, test immediately |
+| **Full introspection** | Inspect `@state`, pending promises, diagnostics |
+| **API validation** | Validate design before committing to MCP tool shapes |
+
+### Development Layers
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Layer 4: MCP Tools (clj-definition, clj-hover, ...)   │
+│           → For Claude/AI agents                        │
+├─────────────────────────────────────────────────────────┤
+│  Layer 3: CLI (bb clojure-lsp definition ...)          │
+│           → Uses local-eval to call Layer 2             │
+├─────────────────────────────────────────────────────────┤
+│  Layer 2: Clojure API (tools.clj)                      │
+│           → Pure functions, tested via local-eval       │
+├─────────────────────────────────────────────────────────┤
+│  Layer 1: LSP Client (client.clj, jsonrpc.clj)         │
+│           → Async subprocess communication              │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Workflow
+
+1. **Start server:** `bb server --http`
+2. **Edit code:** Modify `tools.clj` in your editor
+3. **Reload:** `(require '[...tools :as t] :reload)` via local-eval
+4. **Test:** `(t/definition {:file "..." :line 42 :column 10})`
+5. **Iterate:** Back to step 2
+
+### CLI via local-eval
+
+The `bb clojure-lsp` CLI uses local-eval to call the Clojure API on a running server:
+
+```clojure
+;; CLI implementation pattern
+(defn cmd-definition [{:keys [file line column server]}]
+  (mcp-client/call-tool
+    server
+    "local-eval"
+    {:code (pr-str
+             `(do
+                (require '[bb-mcp-server.modules.clojure-lsp.tools :as t])
+                (t/definition {:file ~file :line ~line :column ~column})))}))
+```
+
+This means:
+- Single clojure-lsp process (managed by server)
+- CLI is thin - just sends code to eval
+- State is shared across all interfaces
+
+---
+
 ## Background
 
 ### The Problem
