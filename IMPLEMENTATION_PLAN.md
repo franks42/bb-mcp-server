@@ -65,9 +65,23 @@ Clojure LSP integration via persistent subprocess.
 | 1 | Foundation (jsonrpc, client, server) | ✅ Complete |
 | 2 | Clojure API (tools.clj) | ✅ Complete |
 | 3 | CLI (bb clojure-lsp) | ✅ Complete |
-| 4 | MCP Tools | ✅ Complete |
+| 4 | MCP Tools (11 tools) | ✅ Complete |
 | 5 | Watch Mode & Extended CLI | ✅ Complete |
+| 5.5 | MCP Tools Parity (16 tools) | ✅ Complete |
 | 6 | Polish & Docs | Pending |
+
+**Phase 5.5 Complete (2025-12-29):**
+
+Per Gemini review feedback, added 5 missing MCP tools to achieve full parity with `tools.clj`:
+- `clj-find-symbol` - Workspace-wide symbol search by name
+- `clj-implementations` - Find protocol/interface implementations
+- `clj-format` - Format files via clojure-lsp
+- `clj-execute-command` - Execute refactoring commands (cycle-privacy, extract-function, etc.)
+- `clj-watch` - Control file watcher (start/stop/status)
+
+Enhanced: `clj-init` now accepts `watch: true` to auto-start file watcher.
+
+**MCP tools: 16 total** | **CLI commands: 18 total**
 
 **Phase 5 Complete (2025-12-29):**
 
