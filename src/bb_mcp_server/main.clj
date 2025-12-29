@@ -215,19 +215,21 @@ TRANSPORTS:
     (registry/set-list-changed-callback!
      #(shttp/broadcast-notification! "notifications/tools/list_changed" {}))
 
-    (log/log! {:level :info
-               :id    ::http-started
-               :msg   "HTTP transport started"
-               :data  {:port port
-                       :mcp-path "/mcp"
-                       :rest-path "/api/"
-                       :docs-path "/api/docs"}})
+    ;; Get actual port from server (important for ephemeral port 0)
+    (let [actual-port (:port server)]
+      (log/log! {:level :info
+                 :id    ::http-started
+                 :msg   "HTTP transport started"
+                 :data  {:port actual-port
+                         :mcp-path "/mcp"
+                         :rest-path "/api/"
+                         :docs-path "/api/docs"}})
 
-    (println (str "    MCP:  http://localhost:" port "/mcp"))
-    (println (str "    REST: http://localhost:" port "/api/"))
-    (println (str "    Docs: http://localhost:" port "/api/docs"))
+      (println (str "    MCP:  http://localhost:" actual-port "/mcp"))
+      (println (str "    REST: http://localhost:" actual-port "/api/"))
+      (println (str "    Docs: http://localhost:" actual-port "/api/docs"))
 
-    server))
+      server)))
 
 (defn start-stdio!
   "Start stdio transport. Blocks until stdin closes."
@@ -263,10 +265,10 @@ TRANSPORTS:
       (do (println "\n=== BB MCP Server ===")
           (initialize-system! true (:config opts)) ; pass custom config
           (let [server (start-http! (:port opts) opts)
-                actual-port (:local-port (meta server))]
+                actual-port (:port server)]  ;; Server now contains actual port
             ;; If using ephemeral port, now that it's assigned, write PID file
             (when (zero? (:port opts))
-              (pid-util/write-pid-file! actual-port))
+              (pid-util/write-pid-file! actual-port (:nickname opts) (:config opts)))
 
             ;; Shutdown hook
             (.addShutdownHook
@@ -296,7 +298,7 @@ TRANSPORTS:
 
           ;; Start HTTP in background
           (let [server (start-http! (:port opts) opts)
-                actual-port (:local-port (meta server))]
+                actual-port (:port server)]  ;; Server now contains actual port
             (.addShutdownHook
              (Runtime/getRuntime)
              (Thread. (fn []

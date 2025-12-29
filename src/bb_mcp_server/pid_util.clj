@@ -44,7 +44,7 @@
   ([port nickname config-path]
    (let [pid (.pid (java.lang.ProcessHandle/current))
          actual-nickname (or nickname (derive-default-nickname config-path))
-         file-name (str "." actual-nickname)
+         file-name (str actual-nickname ".json")
          ports-dir (ensure-ports-dir!)
          file-path (io/file ports-dir file-name)
          content (json/generate-string
@@ -69,8 +69,8 @@
   ([port nickname]
    (let [ports-dir ".ports"
          file-name (if nickname
-                     (str "." nickname)
-                     (str ".mcp-server-" port))
+                     (str nickname ".json")
+                     (str "mcp-server-" port ".json"))
          file-path (io/file ports-dir file-name)]
      (when (.exists file-path)
        (log/log! {:level :info

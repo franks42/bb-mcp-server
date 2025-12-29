@@ -113,14 +113,16 @@
                        :session-timeout-ms session-timeout-ms}
                       config)
         handler (create-handler json-rpc-handler config)
-        stop-fn (http/run-server handler {:port port
-                                          :ip host
-                                          :legacy-return-value? false})]
+        http-server (http/run-server handler {:port port
+                                              :ip host
+                                              :legacy-return-value? false})
+        ;; Get actual port (important for ephemeral port 0)
+        actual-port (http/server-port http-server)]
 
     (log/log! {:level :info
                :id    ::server-started
                :msg   "MCP HTTP server started"
-               :data  {:port port
+               :data  {:port actual-port
                        :host host
                        :path path
                        :health-path health-path}})
@@ -149,16 +151,16 @@
                              ;; Destroy all sessions (closes remaining connections)
                              (session/destroy-all-sessions!)
                              ;; Stop http-kit server
-                             @(http/server-stop! stop-fn {:timeout 5000})
+                             @(http/server-stop! http-server {:timeout 5000})
                              (reset! draining-state false)
                              (reset! server-instance nil)
                              (log/log! {:level :info
                                         :id    ::server-stopped
                                         :msg   "Server stopped"}))
-                    :port port
+                    :port actual-port
                     :host host
                     :config config
-                    :http-kit-server stop-fn}]
+                    :http-kit-server http-server}]
       (reset! server-instance instance)
       instance)))
 

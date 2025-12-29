@@ -203,6 +203,9 @@
   test:bootstrap {:doc "Run bootstrap configuration and CLI tests"
                  :task (load-file "test/run_bootstrap_tests.clj")}
 
+  test:e2e {:doc "Run E2E MCP client tests (requires running server)"
+            :task (load-file "test/e2e/run_tests.clj")}
+
   test:all {:doc "Run all tests (modules + bootstrap)"
             :task (do (run 'test:modules)
                       (run 'test:bootstrap))}
@@ -212,6 +215,9 @@
 
   nrepl {:doc "nREPL CLI - connect, eval, load-file via MCP"
          :task (load-file "scripts/nrepl-task.clj")}
+
+  mcp {:doc "MCP CLI - init, tools, call via MCP"
+       :task (load-file "scripts/mcp-task.clj")}
 
   rebel-nrepl-client {:doc "Open iTerm2 with rebel-readline connected to nREPL [port]"
                       :task (load-file "scripts/rebel_nrepl_client.clj")}}

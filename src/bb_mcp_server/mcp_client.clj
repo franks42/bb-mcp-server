@@ -17,7 +17,7 @@
 (defn find-port-by-nickname
   "Find the port number for a server by nickname"
   [nickname]
-  (let [port-file (io/file (ports-dir) (str "." nickname))]
+  (let [port-file (io/file (ports-dir) (str nickname ".json"))]
     (when (.exists port-file)
       (try
        (let [content (slurp port-file)
@@ -33,12 +33,12 @@
     (when (.exists dir)
       (->> (.listFiles dir)
            (filter #(.isFile %))
-           (filter #(str/starts-with? (.getName %) "."))
+           (filter #(str/ends-with? (.getName %) ".json"))
            (mapcat (fn [f]
                      (try
                       (let [content (slurp f)
                             data (json/parse-string content true)
-                            nickname (subs (.getName f) 1)]
+                            nickname (str/replace (.getName f) ".json" "")]
                         [{:nickname nickname :port (:port data) :data data}])
                       (catch Exception _
                              []))))))))
@@ -325,15 +325,112 @@
         request (build-tool-request tool-name arguments)]
     (send-request! port request)))
 
-(defn extract-tool-result
-  "Extract the result from a tool call response.
+(defn extract-text-content
+  "Extract plain text content from a tool call response.
 
-   For nrepl tools, the content is JSON with status/operation/etc fields.
-   Returns the parsed map from the first content item's text."
+   Returns the text from the first content item.
+   Use this for tools that return plain text (echo, hello, etc)."
   [response]
   (if-let [error (:error response)]
           (throw (ex-info "MCP Error" error))
-          (let [content (get-in response [:result :content])
-                text (:text (first content))]
-            (when text
-              (json/parse-string text true)))))
+          (get-in response [:result :content 0 :text])))
+
+(defn extract-json-result
+  "Extract and parse JSON from a tool call response.
+
+   For tools that return JSON (nrepl, calculate, local-eval with maps).
+   Returns the parsed map from the first content item's text."
+  [response]
+  (let [text (extract-text-content response)]
+    (when text
+      (json/parse-string text true))))
+
+(defn extract-tool-result
+  "Extract the result from a tool call response.
+
+   Tries to parse as JSON, falls back to plain text if parsing fails.
+   Returns either parsed JSON (map/vector) or plain text string."
+  [response]
+  (let [text (extract-text-content response)]
+    (when text
+      (try
+       (json/parse-string text true)
+       (catch Exception _
+              text)))))
+
+;; =============================================================================
+;; MCP Protocol Introspection
+;; =============================================================================
+
+(defn- build-list-tools-request
+  "Build a JSON-RPC request for tools/list."
+  []
+  {:jsonrpc "2.0"
+   :id (random-uuid)
+   :method "tools/list"
+   :params {}})
+
+(defn list-tools!
+  "List all available tools on an MCP server.
+
+   Returns a vector of tool definitions, each containing:
+     :name        - Fully qualified tool name (module.tool)
+     :description - Tool description
+     :inputSchema - JSON Schema for arguments
+
+   Example:
+     (list-tools! \"my-server\")
+     (list-tools! 3000)"
+  [port-or-nickname]
+  (let [port (if (number? port-or-nickname)
+               port-or-nickname
+               (or (find-port-by-nickname port-or-nickname)
+                   (throw (ex-info "Server not found" {:nickname port-or-nickname}))))
+        request (build-list-tools-request)
+        response (send-request! port request)]
+    (if-let [error (:error response)]
+            (throw (ex-info "MCP Error" error))
+            (get-in response [:result :tools] []))))
+
+(defn get-tool
+  "Get a specific tool by name from the server.
+
+   Returns the tool definition or nil if not found."
+  [port-or-nickname tool-name]
+  (let [tools (list-tools! port-or-nickname)]
+    (first (filter #(= tool-name (:name %)) tools))))
+
+(defn get-server-info!
+  "Get server information via initialize handshake.
+
+   Returns a map with:
+     :protocolVersion - MCP protocol version
+     :capabilities    - Server capabilities
+     :serverInfo      - Server name and version
+     :session-id      - The session ID (from response header)
+
+   Example:
+     (get-server-info! \"my-server\")
+     (get-server-info! 3000)"
+  [port-or-nickname]
+  (let [port (if (number? port-or-nickname)
+               port-or-nickname
+               (or (find-port-by-nickname port-or-nickname)
+                   (throw (ex-info "Server not found" {:nickname port-or-nickname}))))
+        url (str "http://localhost:" port "/mcp")
+        init-request {:jsonrpc "2.0"
+                      :id 0
+                      :method "initialize"
+                      :params {:protocolVersion "2024-11-05"
+                               :capabilities {:tools {:listChanged true}}
+                               :clientInfo {:name "bb-mcp-client" :version "1.0.0"}}}
+        response (http/post url {:body (json/generate-string init-request)
+                                 :headers {"Content-Type" "application/json"}})]
+    (if (= 200 (:status response))
+      (let [session-id (get-in response [:headers "mcp-session-id"])
+            body (json/parse-string (:body response) true)
+            result (:result body)]
+        (assoc result :session-id session-id))
+      (throw (ex-info "Failed to get server info"
+                      {:status (:status response)
+                       :body (:body response)})))))
