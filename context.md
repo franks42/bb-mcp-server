@@ -4,14 +4,15 @@
 > Keep this structure intact. Update sections as you work. Refresh "Recent Changes" from git log.
 > When ending a session, update "Previous Session Summary" and "Current Focus" for the next assistant.
 
-**Last Updated:** 2025-12-28
+**Last Updated:** 2025-12-29
 
 ## Previous Session Summary
 
-Documentation cleanup and alignment:
-- Condensed IMPLEMENTATION_PLAN.md from ~2200 to 210 lines
-- Marked Phase 20 as complete (was incorrectly showing "Planned")
-- Aligned all docs (README, CLAUDE.md, context.md, IMPLEMENTATION_PLAN.md)
+Fixed clj-kondo lint issues in CLI scripts:
+- Added proper `ns` declarations to 4 scripts in `scripts/`
+- Fixed "redefined var" warnings and arity mismatch errors
+- Root cause: scripts using implicit `user` namespace conflicted when analyzed together
+- Result: 0 errors, 0 warnings, all tests passing
 
 ---
 
@@ -24,11 +25,11 @@ Documentation cleanup and alignment:
 ## Recent Changes
 
 ```
+78a07d6 fix: Add namespace declarations to CLI scripts
+d230592 docs: Add AI directive to context.md
+105774c docs: Restructure context.md for session handoffs
 6b7582c docs: Condense IMPLEMENTATION_PLAN.md and mark Phase 20 complete
 cd4dacf docs: Update context.md for fresh session handoff
-67734e3 docs: Update README, CLAUDE.md, and context.md for Phase 20
-0399428 feat: Phase 20 - MCP CLI & E2E Testing
-5482cf6 feat(scittle-nrepl): Browser REPL via Scittle + sente-lite (v1.7.0)
 ```
 
 ---

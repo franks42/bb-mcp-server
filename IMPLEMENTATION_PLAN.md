@@ -17,6 +17,27 @@ Production-ready MCP server with:
 
 ---
 
+## Maintenance Log
+
+### 2025-12-29: CLI Script Lint Fixes
+
+Fixed clj-kondo errors and warnings in CLI scripts caused by implicit `user` namespace usage.
+
+**Issues:**
+- Scripts in `scripts/` used implicit `user` namespace
+- When analyzed together, clj-kondo reported "redefined var" warnings
+- Function arity conflicts between `http_test.clj` and `mcp_cli.clj` (both defined `cmd-init`, `cmd-tools`, `cmd-call` with different signatures)
+
+**Fix:** Added proper `ns` declarations to each script:
+- `http_test.clj` → `(ns http-test ...)`
+- `mcp_cli.clj` → `(ns mcp-cli ...)`
+- `nrepl_cli.clj` → `(ns nrepl-cli ...)`
+- `rebel_nrepl_client.clj` → `(ns rebel-nrepl-client ...)`
+
+**Result:** Lint passes with 0 errors, 0 warnings.
+
+---
+
 ## Pending Work
 
 ### bb calc CLI (Low Priority)
@@ -207,4 +228,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2025-12-28*
+*Last Updated: 2025-12-29*
