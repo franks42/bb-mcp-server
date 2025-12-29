@@ -75,8 +75,9 @@ Clojure LSP integration via persistent subprocess. Phases 1-3 complete.
 
 **Phase 5 Tasks:**
 - Error handling: timeouts, process crashes, auto-restart
-- Multi-project support (optional)
 - README.md for the module
+
+**Note:** Multi-project support is already available at the bb-mcp-server level (run multiple server instances). No module-level multi-project needed.
 
 **Test Strategy:** Integration tests spawn real `clojure-lsp` subprocess and use the module's own source files as test corpus. This provides realistic testing - the LSP analyzes actual Clojure code.
 

@@ -259,7 +259,87 @@ bb clojure-lsp definition <file> <line> <col>
 
 **Phase 4** will register proper MCP tools (`clj-definition`, `clj-hover`, etc.) as thin wrappers around `tools.clj`.
 
-**Phase 5** will add error handling (timeouts, auto-restart), optional multi-project support, and documentation.
+**Phase 5** will add error handling (timeouts, auto-restart) and documentation.
+
+---
+
+## Dependency Navigation
+
+clojure-lsp reads `deps.edn`/`bb.edn` and can navigate into external dependencies:
+
+```clojure
+;; "Go to definition" on json/generate-string navigates to:
+"zipfile:///~/.m2/repository/cheshire/cheshire/6.1.0/cheshire-6.1.0.jar::cheshire/core.clj"
+```
+
+| Dependency Type | Navigation | Editable |
+|-----------------|------------|----------|
+| Maven jar (`.m2/`) | ✓ Read-only | ✗ |
+| Git dep (`.gitlibs/`) | ✓ Read-only | ✗ |
+| `:local/root` | ✓ | ✓ (but limited LSP support) |
+
+---
+
+## Multi-Project Considerations
+
+### Single-Project Design (Current)
+
+Each clojure-lsp module instance manages **one LSP subprocess** initialized at **one project root**. This is intentional:
+
+- Simple state management
+- ~700ms startup (acceptable for project switches)
+- Covers 90% of use cases
+
+### Monorepo Pattern (Recommended)
+
+For projects with submodules (like bb-mcp-server), initialize at the **root**:
+
+```
+Project root: /path/to/bb-mcp-server
+                    │
+    ┌───────────────┼───────────────┐
+    ▼               ▼               ▼
+src/bb_mcp_server/  modules/clojure-lsp/  modules/nrepl/
+    registry.clj        core.clj              ...
+         ▲                  │
+         └──────────────────┘
+              cross-module refs work ✓
+```
+
+All modules visible, all internal references resolve.
+
+### Multi-Project via Multiple Servers
+
+**Key insight:** Multi-project support already exists at the bb-mcp-server level.
+
+```
+┌─────────────────────┐     ┌─────────────────────┐
+│  bb-mcp-server      │     │  bb-mcp-server      │
+│  port 3001          │     │  port 3002          │
+│  ┌───────────────┐  │     │  ┌───────────────┐  │
+│  │ clojure-lsp   │  │     │  │ clojure-lsp   │  │
+│  │ project-A     │  │     │  │ project-B     │  │
+│  └───────────────┘  │     └───────────────────┘  │
+└─────────────────────┘     └─────────────────────┘
+```
+
+Each server instance has its own clojure-lsp subprocess. To work on multiple independent projects:
+
+1. Start `bb server --http 3001` for project-A
+2. Start `bb server --http 3002` for project-B
+3. Point tools at the appropriate server
+
+This provides full LSP features for each project without module-level complexity.
+
+### Limitations
+
+**Cross-project references don't work.** Each LSP instance only knows its own project:
+
+- "Find references" in project-A won't show callers from project-B
+- Rename in project-A won't update project-B
+- No "workspace" concept spanning multiple roots
+
+**Workaround:** Use monorepo structure when cross-project intelligence is needed.
 
 ---
 
