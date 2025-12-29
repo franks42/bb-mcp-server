@@ -33,7 +33,7 @@
      (pp/pprint data))
    (catch Exception e
           (binding [*out* *err*]
-            (println (format "Error: %s" (.getMessage e))))
+                   (println (format "Error: %s" (.getMessage e))))
           (System/exit 1))))
 
 (apply -main *command-line-args*)

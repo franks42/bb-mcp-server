@@ -297,7 +297,98 @@ Returns a workspace edit showing all files and changes that would be made.
 
 ---
 
-## 13. Stop Server
+## 13. Find Symbol (Workspace Search)
+
+Search for symbols by name across the entire workspace:
+
+```bash
+$ bb clojure-lsp find-symbol register --mcp my-server
+```
+
+```clojure
+[{:name "register!",
+  :kind 12,
+  :location
+  {:uri "file:///path/to/src/bb_mcp_server/registry.clj",
+   :range {:start {:line 190, :character 6}, :end {:line 190, :character 15}}}}
+ {:name "register-module!",
+  :kind 12,
+  :location
+  {:uri "file:///path/to/src/bb_mcp_server/module/system.clj",
+   :range {:start {:line 42, :character 6}, :end {:line 42, :character 22}}}}
+ ;; ... more matches
+ ]
+```
+
+This searches by symbol name (not position), making it easier to find things when you don't know which file they're in.
+
+---
+
+## 14. Format File
+
+Format a file using clojure-lsp's built-in formatter:
+
+```bash
+$ bb clojure-lsp format src/myns/core.clj --mcp my-server
+```
+
+```clojure
+[{:range {:start {:line 5, :character 0}, :end {:line 5, :character 10}},
+  :newText "  (let [x 1]"}
+ ;; ... list of text edits to apply
+ ]
+```
+
+Returns a list of text edits. Empty list `[]` means file is already formatted.
+
+---
+
+## 15. Find Implementations
+
+Find implementations of a protocol or interface:
+
+```bash
+$ bb clojure-lsp implementations src/myns/protocols.clj 10 5 --mcp my-server
+```
+
+```clojure
+[{:uri "file:///path/to/src/myns/impl_a.clj",
+  :range {:start {:line 15, :character 0}, :end {:line 15, :character 20}}}
+ {:uri "file:///path/to/src/myns/impl_b.clj",
+  :range {:start {:line 8, :character 0}, :end {:line 8, :character 18}}}]
+```
+
+---
+
+## 16. Execute Refactoring
+
+Execute a specific refactoring command at a position:
+
+```bash
+# Cycle function privacy (defn <-> defn-)
+$ bb clojure-lsp refactor cycle-privacy src/myns/core.clj 10 5 --mcp my-server
+
+# Extract to def
+$ bb clojure-lsp refactor extract-to-def src/myns/core.clj 10 5 new-var-name --mcp my-server
+
+# Thread-first
+$ bb clojure-lsp refactor thread-first src/myns/core.clj 15 3 --mcp my-server
+```
+
+Common refactoring commands:
+- `cycle-privacy` - Toggle defn/defn-
+- `extract-function` - Extract selection to function
+- `extract-to-def` - Extract to def
+- `introduce-let` - Wrap in let binding
+- `move-to-let` - Move to existing let
+- `thread-first` - Convert to ->
+- `thread-last` - Convert to ->>
+- `unwind-thread` - Flatten threading macro
+- `clean-ns` - Clean namespace requires
+
+---
+
+## 17. Stop Server
 
 ```bash
 $ bb clojure-lsp stop --mcp my-server
@@ -315,12 +406,16 @@ $ bb clojure-lsp stop --mcp my-server
 | `hover <f> <l> <c>` | Get documentation | `bb clojure-lsp hover f.clj 10 5` |
 | `definition <f> <l> <c>` | Go to definition | `bb clojure-lsp definition f.clj 10 5` |
 | `references <f> <l> <c>` | Find all usages | `bb clojure-lsp references f.clj 10 5` |
+| `implementations <f> <l> <c>` | Find implementations | `bb clojure-lsp implementations f.clj 10 5` |
+| `find-symbol <query>` | Search symbols by name | `bb clojure-lsp find-symbol register` |
 | `symbols <file>` | List symbols in file | `bb clojure-lsp symbols f.clj` |
 | `code-actions <f> <l> <c>` | Get refactorings | `bb clojure-lsp code-actions f.clj 10 5` |
 | `call-hierarchy <f> <l> <c>` | Callers/callees | `bb clojure-lsp call-hierarchy f.clj 10 5` |
 | `diagnostics [file]` | Errors/warnings | `bb clojure-lsp diagnostics` |
 | `completions <f> <l> <c>` | Completion suggestions | `bb clojure-lsp completions f.clj 10 5` |
 | `rename <f> <l> <c> <name>` | Rename symbol | `bb clojure-lsp rename f.clj 10 5 new` |
+| `refactor <cmd> <f> <l> <c>` | Execute refactoring | `bb clojure-lsp refactor cycle-privacy f.clj 10 5` |
+| `format <file>` | Format file | `bb clojure-lsp format f.clj` |
 
 **Options:**
 - `--mcp NAME` - Server nickname (auto-detects if single server)

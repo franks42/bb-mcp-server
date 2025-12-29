@@ -253,3 +253,85 @@
                                   "callHierarchy/incomingCalls"
                                   "callHierarchy/outgoingCalls")]
                      (client/request! method {:item (first items)})))))))
+
+;; -----------------------------------------------------------------------------
+;; Workspace Functions
+;; -----------------------------------------------------------------------------
+
+(defn find-symbol
+  "Search for symbols by name across the workspace.
+
+   Args:
+     {:query - Symbol name or pattern to search for}
+
+   Returns:
+     List of matching symbols with their locations."
+  [{:keys [query]}]
+  (log/log! {:level :info
+             :id ::find-symbol
+             :msg "Finding symbols"
+             :data {:query query}})
+  (client/request! "workspace/symbol" {:query query}))
+
+(defn format-file
+  "Format a file using clojure-lsp formatting.
+
+   Args:
+     {:file - Absolute file path}
+
+   Returns:
+     List of text edits to apply."
+  [{:keys [file]}]
+  (log/log! {:level :info
+             :id ::format-file
+             :msg "Formatting file"
+             :data {:file file}})
+  (with-file file
+             (fn []
+               (client/request! "textDocument/formatting"
+                                {:textDocument {:uri (uri file)}
+                                 :options {:tabSize 2
+                                           :insertSpaces true}}))))
+
+(defn implementations
+  "Find implementations of a protocol or interface at position.
+
+   Args:
+     {:file   - Absolute file path
+      :line   - 1-indexed line number
+      :column - 1-indexed column number}
+
+   Returns:
+     List of locations where protocol/interface is implemented."
+  [{:keys [file line column]}]
+  (log/log! {:level :info
+             :id ::implementations
+             :msg "Finding implementations"
+             :data {:file file :line line :column column}})
+  (with-file file
+             (fn []
+               (client/request! "textDocument/implementation"
+                                {:textDocument {:uri (uri file)}
+                                 :position (pos line column)}))))
+
+(defn execute-command
+  "Execute a refactoring command.
+
+   Args:
+     {:command   - Command name (e.g., 'cycle-privacy', 'extract-function')
+      :arguments - Command arguments (typically [uri line column ...])}
+
+   Available commands include:
+     cycle-privacy, extract-function, extract-to-def, introduce-let,
+     move-to-let, thread-first, thread-last, unwind-thread, etc.
+
+   Returns:
+     Result of command execution (often a workspace edit)."
+  [{:keys [command arguments]}]
+  (log/log! {:level :info
+             :id ::execute-command
+             :msg "Executing command"
+             :data {:command command :arguments arguments}})
+  (client/request! "workspace/executeCommand"
+                   {:command command
+                    :arguments arguments}))

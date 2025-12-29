@@ -297,6 +297,74 @@
     (output-value result json)))
 
 ;; =============================================================================
+;; Workspace Commands
+;; =============================================================================
+
+(defn cmd-find-symbol
+  "Search for symbols by name across the workspace."
+  [{:keys [positional json] :as opts}]
+  (when (empty? positional)
+    (println "Usage: bb clojure-lsp find-symbol <query>")
+    (System/exit 1))
+  (let [port (resolve-server opts)
+        query (first positional)
+        _ (ensure-tools-loaded port)
+        code (format "(bb-mcp-server.modules.clojure-lsp.tools/find-symbol {:query %s})"
+                     (pr-str query))
+        result (eval-on-server port code)]
+    (output-value result json)))
+
+(defn cmd-format
+  "Format a file."
+  [{:keys [positional json] :as opts}]
+  (when (empty? positional)
+    (println "Usage: bb clojure-lsp format <file>")
+    (System/exit 1))
+  (let [port (resolve-server opts)
+        file (first positional)
+        _ (ensure-tools-loaded port)
+        code (format "(bb-mcp-server.modules.clojure-lsp.tools/format-file {:file %s})"
+                     (pr-str file))
+        result (eval-on-server port code)]
+    (output-value result json)))
+
+(defn cmd-implementations
+  "Find implementations of protocol/interface at position."
+  [{:keys [positional json] :as opts}]
+  (let [port (resolve-server opts)
+        {:keys [file line column]} (parse-position-args positional "implementations")
+        _ (ensure-tools-loaded port)
+        code (format "(bb-mcp-server.modules.clojure-lsp.tools/implementations {:file %s :line %d :column %d})"
+                     (pr-str file) line column)
+        result (eval-on-server port code)]
+    (output-value result json)))
+
+(defn cmd-refactor
+  "Execute a refactoring command."
+  [{:keys [positional json] :as opts}]
+  (when (< (count positional) 4)
+    (println "Usage: bb clojure-lsp refactor <command> <file> <line> <col> [extra-arg]")
+    (println "")
+    (println "Commands: cycle-privacy, extract-function, introduce-let, move-to-let,")
+    (println "          thread-first, thread-last, unwind-thread, clean-ns, etc.")
+    (System/exit 1))
+  (let [port (resolve-server opts)
+        command (first positional)
+        file (second positional)
+        line (Integer/parseInt (nth positional 2))
+        column (Integer/parseInt (nth positional 3))
+        extra-arg (when (> (count positional) 4) (nth positional 4))
+        _ (ensure-tools-loaded port)
+        ;; Build arguments array: [uri line column optional-arg]
+        args-code (if extra-arg
+                    (format "[\"%s\" %d %d %s]" (str "file://" file) (dec line) (dec column) (pr-str extra-arg))
+                    (format "[\"%s\" %d %d]" (str "file://" file) (dec line) (dec column)))
+        code (format "(bb-mcp-server.modules.clojure-lsp.tools/execute-command {:command %s :arguments %s})"
+                     (pr-str command) args-code)
+        result (eval-on-server port code)]
+    (output-value result json)))
+
+;; =============================================================================
 ;; Help
 ;; =============================================================================
 
@@ -315,6 +383,10 @@ Navigation:
   definition <file> <line> <col>   Go to definition
   references <file> <line> <col>   Find all references
   hover <file> <line> <col>        Get hover info
+  implementations <file> <line> <col>  Find protocol implementations
+
+Search:
+  find-symbol <query>    Search symbols by name across workspace
 
 Analysis:
   diagnostics [file]               Get diagnostics (all or for file)
@@ -325,6 +397,11 @@ Refactoring:
   completions <file> <line> <col>  Get completions
   code-actions <file> <line> <col> List available refactorings
   rename <file> <line> <col> <new-name>  Rename symbol
+  refactor <cmd> <file> <line> <col> [arg]  Execute refactoring
+  format <file>          Format a file
+
+Refactor commands: cycle-privacy, extract-function, introduce-let,
+                   move-to-let, thread-first, thread-last, clean-ns, etc.
 
 Options:
   --port PORT       Server port (auto-detects if single server)
@@ -338,14 +415,17 @@ Examples:
   # Start clojure-lsp for current project
   bb clojure-lsp start .
 
+  # Find all symbols named 'register'
+  bb clojure-lsp find-symbol register
+
   # Get definition at line 10, column 5
   bb clojure-lsp definition src/myns/core.clj 10 5
 
-  # Get all diagnostics
-  bb clojure-lsp diagnostics
+  # Cycle privacy of a function
+  bb clojure-lsp refactor cycle-privacy src/myns/core.clj 10 5
 
-  # Rename symbol
-  bb clojure-lsp rename src/myns/core.clj 10 5 new-name")
+  # Format a file
+  bb clojure-lsp format src/myns/core.clj")
 
 (defn cmd-help
   "Show help."
@@ -364,12 +444,16 @@ Examples:
       "definition" cmd-definition
       "references" cmd-references
       "hover" cmd-hover
+      "implementations" cmd-implementations
+      "find-symbol" cmd-find-symbol
       "diagnostics" cmd-diagnostics
       "symbols" cmd-symbols
       "call-hierarchy" cmd-call-hierarchy
       "completions" cmd-completions
       "code-actions" cmd-code-actions
       "rename" cmd-rename
+      "refactor" cmd-refactor
+      "format" cmd-format
       "help" cmd-help})
 
 (defn -main
