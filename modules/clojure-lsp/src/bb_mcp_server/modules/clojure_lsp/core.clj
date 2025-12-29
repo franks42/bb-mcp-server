@@ -5,6 +5,7 @@
     (:require [bb-mcp-server.registry :as registry]
               [bb-mcp-server.modules.clojure-lsp.server :as server]
               [bb-mcp-server.modules.clojure-lsp.tools :as tools]
+              [bb-mcp-server.modules.clojure-lsp.watcher :as watcher]
               [cheshire.core :as json]
               [taoensso.trove :as log]))
 
@@ -39,14 +40,28 @@
      "MCP tool definition for initializing clojure-lsp."
      {:name "clj-init"
       :module "clojure-lsp"
-      :description "Initialize clojure-lsp for a project. Call this first. Initial analysis may take 30s-2min for large projects, subsequent calls are fast."
-      :handler (fn [args]
-                 (server/init! args))
+      :description "Initialize clojure-lsp for a project. Call this first. Initial analysis may take 30s-2min for large projects, subsequent calls are fast. Set watch:true to auto-start file watcher."
+      :handler (fn [{:keys [watch] :as args}]
+                 (let [result (server/init! (dissoc args :watch))]
+                   (when (and watch (not (:error result)))
+                     (try
+                      (watcher/start!)
+                      (log/log! {:level :info
+                                 :id ::watcher-auto-started
+                                 :msg "File watcher auto-started"})
+                      (catch Exception e
+                             (log/log! {:level :warn
+                                        :id ::watcher-auto-start-failed
+                                        :msg "Failed to auto-start watcher"
+                                        :data {:error (ex-message e)}}))))
+                   result))
       :inputSchema {:type "object"
                     :properties {:project-root {:type "string"
                                                 :description "Absolute path to project root"}
                                  :executable-path {:type "string"
-                                                   :description "Optional. Absolute path to clojure-lsp executable. Defaults to 'clojure-lsp' on PATH."}}
+                                                   :description "Optional. Absolute path to clojure-lsp executable. Defaults to 'clojure-lsp' on PATH."}
+                                 :watch {:type "boolean"
+                                         :description "Optional. Auto-start file watcher to keep index fresh (default: false)"}}
                     :required ["project-root"]}})
 
 (def clj-definition-tool
@@ -221,13 +236,97 @@
                                              :description "Direction: 'incoming' or 'outgoing' (default: incoming)"}}
                     :required ["file" "line" "column"]}})
 
+(def clj-find-symbol-tool
+     "MCP tool for workspace symbol search."
+     {:name "clj-find-symbol"
+      :module "clojure-lsp"
+      :description "Search for symbols by name across the workspace. Unlike definition/references which need file:line:col, this searches by symbol name."
+      :handler (fn [{:keys [query]}]
+                 (or (require-initialized)
+                     (json-response (tools/find-symbol {:query query}))))
+      :inputSchema {:type "object"
+                    :properties {:query {:type "string"
+                                         :description "Symbol name or pattern to search for"}}
+                    :required ["query"]}})
+
+(def clj-implementations-tool
+     "MCP tool for finding implementations."
+     {:name "clj-implementations"
+      :module "clojure-lsp"
+      :description "Find implementations of a protocol or interface at position."
+      :handler (fn [{:keys [file line column]}]
+                 (or (require-initialized)
+                     (json-response (tools/implementations {:file file
+                                                            :line line
+                                                            :column column}))))
+      :inputSchema {:type "object"
+                    :properties {:file {:type "string"
+                                        :description "Absolute file path"}
+                                 :line {:type "integer"
+                                        :description "Line number (1-indexed)"}
+                                 :column {:type "integer"
+                                          :description "Column number (1-indexed)"}}
+                    :required ["file" "line" "column"]}})
+
+(def clj-format-tool
+     "MCP tool for formatting files."
+     {:name "clj-format"
+      :module "clojure-lsp"
+      :description "Format a file using clojure-lsp formatting. Returns list of text edits to apply."
+      :handler (fn [{:keys [file]}]
+                 (or (require-initialized)
+                     (json-response (tools/format-file {:file file}))))
+      :inputSchema {:type "object"
+                    :properties {:file {:type "string"
+                                        :description "Absolute file path"}}
+                    :required ["file"]}})
+
+(def clj-execute-command-tool
+     "MCP tool for executing refactoring commands."
+     {:name "clj-execute-command"
+      :module "clojure-lsp"
+      :description "Execute a refactoring command. Use clj-code-actions to discover available commands. Common commands: cycle-privacy, extract-function, introduce-let, move-to-let, thread-first, thread-last, clean-ns."
+      :handler (fn [{:keys [command arguments]}]
+                 (or (require-initialized)
+                     (json-response (tools/execute-command {:command command
+                                                            :arguments arguments}))))
+      :inputSchema {:type "object"
+                    :properties {:command {:type "string"
+                                           :description "Command name (e.g., 'cycle-privacy', 'extract-function')"}
+                                 :arguments {:type "array"
+                                             :description "Command arguments (typically [uri, line, column, ...]))"}}
+                    :required ["command"]}})
+
+(def clj-watch-tool
+     "MCP tool for file watching."
+     {:name "clj-watch"
+      :module "clojure-lsp"
+      :description "Control file watcher for keeping clojure-lsp index fresh. Actions: start, stop, status."
+      :handler (fn [{:keys [action]}]
+                 (case action
+                   "start" (try
+                            (json-response (watcher/start!))
+                            (catch Exception e
+                                   (error-response (ex-message e))))
+                   "stop" (json-response (or (watcher/stop!)
+                                             {:status "not-running"}))
+                   "status" (json-response {:watching (watcher/watching?)
+                                            :stats (watcher/stats)})
+                   (error-response (str "Unknown action: " action ". Use start, stop, or status."))))
+      :inputSchema {:type "object"
+                    :properties {:action {:type "string"
+                                          :description "Action: 'start', 'stop', or 'status'"}}
+                    :required ["action"]}})
+
 (def clj-status-tool
      "MCP tool for checking clojure-lsp status."
      {:name "clj-status"
       :module "clojure-lsp"
       :description "Get clojure-lsp server status and project info."
       :handler (fn [_args]
-                 (json-response (server/status)))
+                 (json-response (assoc (server/status)
+                                       :watcher {:watching (watcher/watching?)
+                                                 :stats (watcher/stats)})))
       :inputSchema {:type "object"
                     :properties {}
                     :required []}})
@@ -245,6 +344,11 @@
       clj-diagnostics-tool
       clj-document-symbols-tool
       clj-call-hierarchy-tool
+      clj-find-symbol-tool
+      clj-implementations-tool
+      clj-format-tool
+      clj-execute-command-tool
+      clj-watch-tool
       clj-status-tool])
 
 ;; =============================================================================
