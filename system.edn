@@ -14,7 +14,8 @@
            "datalevin-pod" "datalevin-mcp"
            "ai-orchestrator" "anthropic-http-provider" "openai-http-provider"
            "claude-subprocess-provider" "ai-orchestrator-tools"
-           "sente-browser" "nrepl-proxy-server"]
+           "sente-browser" "nrepl-proxy-server"
+           "clojure-lsp"]
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
