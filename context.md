@@ -1,66 +1,76 @@
-# bb-mcp-server Project Context
+# Session Context
 
-**Current State: December 29, 2025**
+**Last Updated:** 2025-12-28
 
-## Status: Phase 20 Complete
+## Previous Session Summary
 
-All major infrastructure is in place. The server is production-ready with comprehensive testing.
-
-### What's Available
-
-**CLI Tools:**
-- `bb server` - Unified server entry (stdio/http/both)
-- `bb mcp` - Generic MCP exploration & testing (servers, tools, call, init)
-- `bb mcp-eval` - Code evaluation via local-eval
-- `bb nrepl` - Remote nREPL operations
-- `bb rebel-nrepl-client` - iTerm2 + rebel-readline
-
-**Testing:**
-- `bb test:modules` - Unit tests for all modules
-- `bb test:e2e` - Real MCP protocol tests (11 tests, 42 assertions)
-- `bb test:bootstrap` - Configuration tests
+Documentation cleanup and alignment:
+- Condensed IMPLEMENTATION_PLAN.md from ~2200 to 210 lines
+- Marked Phase 20 as complete (was incorrectly showing "Planned")
+- Aligned all docs (README, CLAUDE.md, context.md, IMPLEMENTATION_PLAN.md)
 
 ---
 
-## Pending TODO
+## Current Focus
 
-**`bb calc` convenience CLI** - Higher-level wrapper for calculate module:
-```bash
-# Instead of:
-bb mcp call calculate.calculate '{"expr":"(percent-change 100 125)"}'
+**No active work** - Project is in stable state at Phase 20 complete.
 
-# Would be:
-bb calc "(percent-change 100 125)"
-bb calc --help  # Show 100+ available functions
+---
+
+## Recent Changes
+
+```
+6b7582c docs: Condense IMPLEMENTATION_PLAN.md and mark Phase 20 complete
+cd4dacf docs: Update context.md for fresh session handoff
+67734e3 docs: Update README, CLAUDE.md, and context.md for Phase 20
+0399428 feat: Phase 20 - MCP CLI & E2E Testing
+5482cf6 feat(scittle-nrepl): Browser REPL via Scittle + sente-lite (v1.7.0)
 ```
 
-Low priority - calculate works fine via `bb mcp call`, this is just ergonomics.
+---
+
+## Pending Work
+
+See IMPLEMENTATION_PLAN.md for details:
+
+1. **bb calc CLI** (low priority) - Convenience wrapper for calculate module
+2. **Phase 14C** - Dynamic loading documentation
+3. **Phase 15C** - AI knowledge persistence in Datalevin
+4. **Phase 15D** - Message bus Datalevin migration
 
 ---
 
-## Quick Reference
+## Open Questions
+
+None currently.
+
+---
+
+## Session Notes
+
+Things learned that aren't in CLAUDE.md:
+
+- **Port files** use `.json` extension in `.ports/` directory
+- **E2E tests** require server running with `--nickname e2e-test`
+- **scittle-nrepl** needs sente-lite bundle at configured path
+
+---
+
+## Quick Resume
 
 ```bash
-# Start server
+# Start server for development
 bb server --http 0 --nickname dev
 
-# Explore tools
+# Verify everything works
+bb test:modules
+bb lint
+
+# Explore available tools
 bb mcp servers
 bb mcp tools --mcp dev
-bb mcp call echo.echo '{"message":"test"}' --mcp dev
-
-# Evaluate code
-bb mcp-eval "(+ 1 2 3)"
-
-# Run tests
-bb test:modules
-bb test:e2e  # requires running server with --nickname e2e-test
 ```
 
 ---
 
-## Important Reminders
-- **Verification**: Run `clj-kondo --lint <files>` and `cljfmt check <files>` before commit
-- **Zero warnings required**: Do NOT commit with lint warnings
-- **macOS**: Do NOT use `timeout` command (doesn't exist)
-- **Port files**: Now use `.json` extension in `.ports/` directory
+*Update this file when handing off to a new session.*

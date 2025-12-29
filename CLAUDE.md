@@ -53,6 +53,8 @@ bb server --stdio --http        # Run both transports
 bb server --help                # Show usage
 bb server:stop [port]           # Stop server on port
 bb test:modules                 # Run all module tests
+bb test:e2e                     # E2E tests (needs running server)
+bb test:bootstrap               # Bootstrap config tests
 bb lint                         # Lint with clj-kondo
 bb format                       # Format with cljfmt
 ```
@@ -79,9 +81,10 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 **MUST read at start of every new session:**
 
 1. **CLAUDE.md** (this file) - Project instructions and workflow
-2. **docs/CLOJURE_EXPERT_CONTEXT.md** - Clojure development standards, honesty requirements, verification workflow
-3. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
-4. **IMPLEMENTATION_PLAN.md** - Current phase, tasks, and progress (single source of truth for planning)
+2. **context.md** - Current session state, recent changes, active work
+3. **docs/CLOJURE_EXPERT_CONTEXT.md** - Clojure development standards, honesty requirements, verification workflow
+4. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
+5. **IMPLEMENTATION_PLAN.md** - Task tracking and pending work
 
 ---
 
@@ -141,4 +144,4 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2025-12-27*
+*Last Updated: 2025-12-28*
