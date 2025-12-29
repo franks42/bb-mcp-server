@@ -129,7 +129,9 @@
                     base-response {:status "success"
                                    :code actual-code
                                    :result serializable-result
-                                   :result-type (.getName (class result))
+                                   :result-type (if (some? result)
+                                                  (.getName (class result))
+                                                  "nil")
                                    :stdout stdout
                                    :stderr stderr}
                     final-response (if output-base64

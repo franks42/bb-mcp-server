@@ -2,7 +2,7 @@
 
 **Status:** Phase 20 Complete
 **Version:** v1.7.0+
-**Last Updated:** 2025-12-28
+**Last Updated:** 2025-12-29
 
 ---
 
@@ -53,6 +53,32 @@ bb calc --help  # Show 100+ available functions
 ```
 
 Low priority - calculate works fine via `bb mcp call`.
+
+---
+
+### clojure-lsp Module
+
+Clojure LSP integration via persistent subprocess. Phases 1-3 complete.
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Foundation (jsonrpc, client, server) | ✅ Complete |
+| 2 | Clojure API (tools.clj) | ✅ Complete |
+| 3 | CLI (bb clojure-lsp) | ✅ Complete |
+| 4 | MCP Tools | Pending |
+| 5 | Polish & Docs | Pending |
+
+**Phase 4 Tasks:**
+- Register MCP tools: `clj-definition`, `clj-references`, `clj-hover`, `clj-completions`, `clj-code-actions`, `clj-rename`, `clj-diagnostics`, `clj-document-symbols`, `clj-call-hierarchy`
+- Create handlers that delegate to `tools.clj`
+- Add module to `system.edn`
+
+**Phase 5 Tasks:**
+- Error handling: timeouts, process crashes, auto-restart
+- Multi-project support (optional)
+- README.md for the module
+
+**Reference:** `modules/clojure-lsp/clojure-lsp-mcp-integration.md` (design doc)
 
 ---
 
