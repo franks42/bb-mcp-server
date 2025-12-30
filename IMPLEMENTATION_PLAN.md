@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 20 Complete
-**Version:** v1.7.0+
-**Last Updated:** 2025-12-29
+**Status:** Phase 0 (Introspection) Complete
+**Version:** v1.8.0+
+**Last Updated:** 2025-12-30
 
 ---
 
@@ -144,7 +144,7 @@ Unified view combining clojure-lsp static analysis with nREPL runtime introspect
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | nREPL Introspection Tools | Planned |
+| 0 | nREPL Introspection Tools | ✅ Complete |
 | 0.5 | REPL Source Capture | Planned |
 | 1 | Namespace-Focused Query | Planned |
 | 2 | State Monitor Module | Planned |
@@ -152,20 +152,27 @@ Unified view combining clojure-lsp static analysis with nREPL runtime introspect
 
 ---
 
-#### Phase 0: nREPL Introspection Tools (Immediate Wins)
+#### Phase 0: nREPL Introspection Tools ✅ (Complete 2025-12-30)
 
 Add basic introspection tools to `nrepl` module. No unification logic needed - provides immediate value for AI agents to verify assumptions.
 
-**New MCP Tools:**
+**Implemented MCP Tools:**
 
 | Tool | Purpose | Implementation |
 |------|---------|----------------|
+| `nrepl-loaded-namespaces` | List all loaded namespaces | `(all-ns)` with optional prefix filter |
 | `nrepl-introspect-ns` | List loaded vars in a namespace | `(ns-publics 'ns)` + `(ns-interns 'ns)` |
-| `nrepl-get-value` | Get EDN value of a var | `@(resolve 'ns/var)` with pr-str |
 | `nrepl-var-meta` | Get var metadata (arglists, doc, etc.) | `(meta #'ns/var)` |
-| `nrepl-loaded-namespaces` | List all loaded namespaces | `(all-ns)` |
+| `nrepl-get-value` | Get EDN value of a var | `@(resolve 'ns/var)` with truncation |
 
-**Key insight:** These work with vanilla `clojure.core` - no cider-nrepl required.
+**Key features:**
+- Works with vanilla `clojure.core` - no cider-nrepl required
+- Prefix filtering for `nrepl-loaded-namespaces`
+- Optional metadata inclusion for `nrepl-introspect-ns`
+- Large collection truncation for `nrepl-get-value`
+- Functions return signature info instead of function objects
+
+**Tests:** 8 new tests, 33 assertions (nrepl module now 42 tests, 164 assertions)
 
 **Example usage:**
 ```clojure

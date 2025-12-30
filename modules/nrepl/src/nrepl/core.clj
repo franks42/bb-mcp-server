@@ -7,6 +7,7 @@
    - Loading files (nrepl-load-file, nrepl-eval-local-file)
    - Low-level messaging (nrepl-send-message, async variants)
    - Local nREPL server management (local-nrepl-server)
+   - Runtime introspection (nrepl-loaded-namespaces, nrepl-introspect-ns, nrepl-var-meta, nrepl-get-value)
    - Documentation (must-read-mcp-nrepl-context)"
     (:require [bb-mcp-server.registry :as registry]
               [nrepl.tools.nrepl-connection :as conn-tool]
@@ -18,6 +19,11 @@
               [nrepl.tools.nrepl-eval-local-file :as eval-local-tool]
               [nrepl.tools.local-nrepl-server :as local-server-tool]
               [nrepl.tools.must-read-mcp-nrepl-context :as context-tool]
+              ;; Phase 0: Runtime introspection tools
+              [nrepl.tools.nrepl-loaded-namespaces :as loaded-ns-tool]
+              [nrepl.tools.nrepl-introspect-ns :as introspect-ns-tool]
+              [nrepl.tools.nrepl-var-meta :as var-meta-tool]
+              [nrepl.tools.nrepl-get-value :as get-value-tool]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -52,7 +58,20 @@
        :handler local-server-tool/handle}
       {:name context-tool/tool-name
        :definition context-tool/metadata
-       :handler context-tool/handle}])
+       :handler context-tool/handle}
+      ;; Phase 0: Runtime introspection tools
+      {:name loaded-ns-tool/tool-name
+       :definition loaded-ns-tool/metadata
+       :handler loaded-ns-tool/handle}
+      {:name introspect-ns-tool/tool-name
+       :definition introspect-ns-tool/metadata
+       :handler introspect-ns-tool/handle}
+      {:name var-meta-tool/tool-name
+       :definition var-meta-tool/metadata
+       :handler var-meta-tool/handle}
+      {:name get-value-tool/tool-name
+       :definition get-value-tool/metadata
+       :handler get-value-tool/handle}])
 
 ;; =============================================================================
 ;; Module Lifecycle

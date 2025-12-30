@@ -11,9 +11,11 @@
        nrepl.state.connection-test
        nrepl.state.messages-test
        nrepl.state.results-test
-    ;; Client tests (pure functions)
+       ;; Client tests (pure functions)
        nrepl.client.connection-test
-       nrepl.client.messaging-test])
+       nrepl.client.messaging-test
+       ;; Phase 0: Introspection tools tests
+       nrepl.tools.introspection-test])
 
 (println "=" (apply str (repeat 60 "=")))
 (println "Running nREPL Module Tests")
