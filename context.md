@@ -35,39 +35,41 @@ Completed clojure-lsp module Phase 5.5 (MCP Tools Parity):
 
 ## Current Focus
 
-**clojure-lsp module** - Phase 5.5 complete. Ready for Phase 6 (Polish & Docs).
-- All `tools.clj` functionality now exposed via MCP tools
-- Full parity between CLI (18 commands) and MCP (16 tools)
+**clojure-lsp module** - v1.8.0 released. Phase 5.5 complete.
+- 16 MCP tools, 18 CLI commands
+- Ready for Phase 6 (Polish & Docs)
 
-**Static + Live State Integration** - Design phase.
-- Design document at `docs/design/live-static-state-design-implementation.md`
-- Explores combining clojure-lsp (static) with nREPL (runtime) views
+**Static + Live State Integration** - Design complete, ready for Phase 0.
+- Design reviewed by Gemini
+- Phase 0 (nREPL introspection tools) is next implementation step
+- 10 tools specified across 4 phases
 
 ---
 
 ## Recent Changes
 
 ```
+e239dd5 docs: Expand live-static-state design with tool specs and Gemini review
+1c7a157 docs: Detail Static + Live State Integration phases per Gemini review
+76afabd docs: Add Phase 5.5 (MCP Tools Parity) to implementation plan
+284c488 docs: Update context.md for Phase 5.5 completion
 f47642f feat(clojure-lsp): Add 5 missing MCP tools per Gemini review
 c7b0b71 docs: Update plans and add static+live state design
-2f8715e feat(clojure-lsp): Add watch mode for incremental index updates
-0a34e21 feat(clojure-lsp): Add find-symbol, format, implementations, refactor commands
-b1006a2 docs: Rename cli-examples.md to clojure-lsp-cli-examples.md
 ```
 
 ---
 
 ## Pending Work
 
+**Static + Live State Integration** (next priority):
+- Phase 0: Add 4 nREPL introspection tools to nrepl module
+  - `nrepl-loaded-namespaces`, `nrepl-introspect-ns`, `nrepl-var-meta`, `nrepl-get-value`
+- Phase 1-3: See `IMPLEMENTATION_PLAN.md`
+
 **clojure-lsp module** (Phase 6):
 1. Error handling (crash detection, auto-restart)
 2. README.md for the module
 3. Test coverage for new commands
-
-**Static + Live State Integration:**
-1. Design document - `docs/design/live-static-state-design-implementation.md`
-2. Evaluate cider-nrepl middleware integration
-3. Unified query API design
 
 **Other** (see IMPLEMENTATION_PLAN.md):
 1. **bb calc CLI** (low priority)
