@@ -202,6 +202,7 @@ Runtime state can be queried directly:
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | nREPL Introspection Tools | Planned |
+| 0.5 | REPL Source Capture | Planned |
 | 1 | Namespace-Focused Query | Planned |
 | 2 | State Monitor Module | Planned |
 | 3 | Full Unification & CLI | Planned |
@@ -300,6 +301,134 @@ Tool returns:  {:port 8080, :host "0.0.0.0"}  ; actual loaded values
 ```
 
 **Implementation:** `@(resolve 'ns/var)` with `pr-str`
+
+---
+
+## Phase 0.5: REPL Source Capture
+
+**Problem:** When code is evaluated at the REPL (not loaded from file), the source is lost:
+
+```clojure
+;; REPL eval:
+(defn my-helper [x] (* x 2))
+
+;; Var metadata shows:
+(meta #'my-helper)
+;; => {:file "NO_SOURCE_FILE", :line 1, ...}
+
+;; clojure.repl/source fails:
+(source my-helper)
+;; => Source not found
+```
+
+**What's preserved:** name, namespace, arglists, doc
+**What's lost:** the actual source code
+
+### Solution: Capture at Eval Time
+
+Since we control the `nrepl-eval` entry point, intercept and store source:
+
+```clojure
+;; Agent calls:
+(nrepl-eval {:code "(defn my-helper [x] (* x 2))"})
+
+;; We intercept and store:
+{:eval/id #uuid "..."
+ :eval/code "(defn my-helper [x] (* x 2))"
+ :eval/vars ["user/my-helper"]
+ :eval/ns "user"
+ :eval/timestamp #inst "2025-12-29T..."}
+```
+
+### Storage Strategy (Hybrid)
+
+1. **Datalevin** (persistent) - Query eval history across sessions
+2. **Var metadata** (ephemeral) - Attach `:source` to var itself as backup
+
+```clojure
+;; When eval defines a var, also do:
+(alter-meta! (resolve 'my-helper) assoc
+             :source "(defn my-helper [x] (* x 2))"
+             :eval-timestamp #inst "...")
+```
+
+### Tool: `nrepl-var-source`
+
+**Purpose:** Retrieve source code for a var, whether from file or REPL eval.
+
+**Input:** `{:symbol "user/my-helper"}`
+
+**Output:**
+```clojure
+{:symbol "user/my-helper"
+ :source "(defn my-helper [x] (* x 2))"
+ :origin :repl-eval    ; or :file
+ :file nil             ; nil for REPL, path for file
+ :timestamp #inst "2025-12-29T..."
+ :persisted true}      ; true if in Datalevin
+```
+
+**Lookup order:**
+1. Check var metadata for `:source`
+2. Query Datalevin for eval history
+3. Try `clojure.repl/source-fn` (file-based)
+4. Return `{:source nil :reason "not-found"}`
+
+### Tool: `nrepl-eval-history`
+
+**Purpose:** List recent REPL evaluations with their effects.
+
+**Input:** `{:ns "user" :limit 10}` (optional filters)
+
+**Output:**
+```clojure
+{:history
+ [{:id #uuid "..."
+   :code "(defn my-helper [x] (* x 2))"
+   :vars ["user/my-helper"]
+   :ns "user"
+   :timestamp #inst "2025-12-29T23:00:00"}
+  {:id #uuid "..."
+   :code "(def config {:port 8080})"
+   :vars ["user/config"]
+   :ns "user"
+   :timestamp #inst "2025-12-29T22:55:00"}
+  ...]}
+```
+
+**Use case:** Agent asks "What did I eval in this session?" before ending work.
+
+### Implementation Notes
+
+**Parsing def forms:**
+```clojure
+(defn extract-defined-vars [code-str]
+  "Parse code and extract vars that would be defined."
+  (let [form (read-string code-str)]
+    (when (and (list? form)
+               (#{'def 'defn 'defn- 'defmacro 'defonce 'defmulti 'defmethod}
+                (first form)))
+      [(str *ns* "/" (second form))])))
+```
+
+**Datalevin schema:**
+```clojure
+{:eval/id {:db/unique :db.unique/identity}
+ :eval/code {:db/valueType :db.type/string}
+ :eval/vars {:db/valueType :db.type/tuple
+             :db/tupleType :db.type/string}
+ :eval/ns {:db/valueType :db.type/string}
+ :eval/timestamp {:db/valueType :db.type/instant}
+ :eval/session {:db/valueType :db.type/string}}
+```
+
+### Open Questions
+
+1. **Scope:** Track all evals or just def forms?
+2. **Overwrites:** When var redefined, keep history or just latest?
+3. **Cleanup:** Prune old history? Per-session vs global retention?
+4. **load-file:** Store file content when loading via nREPL?
+5. **Multi-form:** Handle `(do (defn a ...) (defn b ...))` ?
 
 ---
 

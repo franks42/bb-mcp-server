@@ -145,6 +145,7 @@ Unified view combining clojure-lsp static analysis with nREPL runtime introspect
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | nREPL Introspection Tools | Planned |
+| 0.5 | REPL Source Capture | Planned |
 | 1 | Namespace-Focused Query | Planned |
 | 2 | State Monitor Module | Planned |
 | 3 | Full Unification & CLI | Planned |
@@ -176,6 +177,25 @@ Add basic introspection tools to `nrepl` module. No unification logic needed - p
 (nrepl-get-value {:symbol "my.app.config/settings"})
 ;; => {:port 8080, :host "localhost"}
 ```
+
+---
+
+#### Phase 0.5: REPL Source Capture
+
+**Problem:** REPL-evaluated code loses its source (`:file "NO_SOURCE_FILE"`).
+
+**Solution:** Intercept `nrepl-eval`, capture source, store in Datalevin + var metadata.
+
+**New MCP Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `nrepl-var-source` | Get source for a var (file or REPL-captured) |
+| `nrepl-eval-history` | List recent evals with defined vars |
+
+**Storage:** Hybrid - Datalevin (persistent) + var metadata (ephemeral backup)
+
+**See:** `docs/design/live-static-state-design-implementation.md` for full spec.
 
 ---
 
