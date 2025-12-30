@@ -8,53 +8,47 @@
 
 ## Previous Session Summary
 
-Completed clojure-lsp module Phase 5.5 (MCP Tools Parity):
+Completed **Static + Live State Integration** design documentation:
 
-**MCP tools expanded to 16** (was 11) per Gemini review feedback:
-- `clj-find-symbol` - Workspace symbol search by name
-- `clj-implementations` - Find protocol/interface implementations
-- `clj-format` - Format files via clojure-lsp
-- `clj-execute-command` - Execute refactoring commands
-- `clj-watch` - Control file watcher (start/stop/status)
+**Design expanded** (`docs/design/live-static-state-design-implementation.md`):
+- Phase 0: 4 nREPL introspection tools (immediate wins)
+- Phase 0.5: REPL source capture with Datalevin + var metadata
+- Phase 0.6: Top-level non-def forms visibility (NEW)
+- Phase 1-3: Namespace-focused query, state-monitor module, CLI
 
-**Enhanced tools:**
-- `clj-init` now accepts `watch: true` to auto-start file watcher
+**Key problems addressed:**
+- REPL-evaluated code loses source (`:file "NO_SOURCE_FILE"`)
+- Top-level non-def forms (e.g., `(println ...)`) invisible to introspection
+- Gap between static (files on disk) and live (JVM runtime) state
 
-**CLI has 18 commands** (unchanged):
-- Lifecycle: `start`, `stop`, `status`, `watch`
-- Navigation: `definition`, `references`, `hover`, `implementations`
-- Search: `find-symbol` (workspace-wide by name)
-- Analysis: `diagnostics`, `symbols`, `call-hierarchy`
-- Refactoring: `completions`, `code-actions`, `rename`, `refactor`, `format`
-
-**Design document:** `docs/design/live-static-state-design-implementation.md`
-- Explores combining static (clojure-lsp) and dynamic (nREPL) views
-- Addresses gap when code is evaluated at REPL without saving to file
+**Gemini reviews added:**
+- `docs/design/live-static-state-design-implementation-review.md`
+- `gemini-review-20251229.md` (clojure-lsp feature complete)
 
 ---
 
 ## Current Focus
 
-**clojure-lsp module** - v1.8.0 released. Phase 5.5 complete.
-- 16 MCP tools, 18 CLI commands
-- Ready for Phase 6 (Polish & Docs)
+**Static + Live State Integration** - Design complete, ready for implementation.
+- Design reviewed by Gemini, all phases documented
+- Phase 0 (nREPL introspection tools) is first implementation step
+- 6 phases specified: 0, 0.5, 0.6, 1, 2, 3
 
-**Static + Live State Integration** - Design complete, ready for Phase 0.
-- Design reviewed by Gemini
-- Phase 0 (nREPL introspection tools) is next implementation step
-- 10 tools specified across 4 phases
+**clojure-lsp module** - v1.8.0 released. Feature complete.
+- 16 MCP tools, 18 CLI commands
+- Phase 6 pending (error handling, README, tests)
 
 ---
 
 ## Recent Changes
 
 ```
+5a5205a docs: Expand live-static-state design with tool specs and Gemini review
+389a820 docs: Add Phase 0.5 - REPL Source Capture
+501139e docs: Update context.md - design complete, ready for Phase 0
 e239dd5 docs: Expand live-static-state design with tool specs and Gemini review
 1c7a157 docs: Detail Static + Live State Integration phases per Gemini review
 76afabd docs: Add Phase 5.5 (MCP Tools Parity) to implementation plan
-284c488 docs: Update context.md for Phase 5.5 completion
-f47642f feat(clojure-lsp): Add 5 missing MCP tools per Gemini review
-c7b0b71 docs: Update plans and add static+live state design
 ```
 
 ---
@@ -64,6 +58,10 @@ c7b0b71 docs: Update plans and add static+live state design
 **Static + Live State Integration** (next priority):
 - Phase 0: Add 4 nREPL introspection tools to nrepl module
   - `nrepl-loaded-namespaces`, `nrepl-introspect-ns`, `nrepl-var-meta`, `nrepl-get-value`
+- Phase 0.5: REPL source capture (Datalevin + var metadata)
+  - `nrepl-var-source`, `nrepl-eval-history`
+- Phase 0.6: Top-level non-def forms visibility
+  - `clj-ns-top-level-forms`
 - Phase 1-3: See `IMPLEMENTATION_PLAN.md`
 
 **clojure-lsp module** (Phase 6):
