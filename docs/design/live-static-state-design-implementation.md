@@ -432,6 +432,95 @@ Since we control the `nrepl-eval` entry point, intercept and store source:
 
 ---
 
+## Phase 0.6: Top-Level Non-Def Forms
+
+**Problem:** Top-level forms that execute on `require` but create no var are invisible:
+
+```clojure
+(ns my.app)
+
+(println "Loading my.app...")           ; side effect only
+(connect-to-database!)                  ; side effect only
+((fn [] (init-stuff!)))                 ; IIFE - still invisible
+(swap! global-registry assoc :key val) ; mutates state, no var
+```
+
+### What Each Tool Sees
+
+| Tool | Sees It? | Notes |
+|------|----------|-------|
+| clojure-lsp | ✅ Partial | In AST, but not queryable as "symbol" |
+| ns-publics/interns | ❌ No | No var created |
+| Phase 0.5 capture | ❌ No | Only captures def forms |
+| nrepl-eval-history | ❌ No | Only if explicitly REPL-eval'd |
+
+**Key insight:** Wrapping in anonymous fn doesn't help:
+```clojure
+;; All equally invisible - no var created:
+(some-stateful-stuff)
+((fn [] (some-stateful-stuff)))
+(do (some-stateful-stuff))
+(let [] (some-stateful-stuff))
+```
+
+The fn exists momentarily, executes, returns, garbage collected. No trace.
+
+### Solution 1: Capture ALL REPL Evals
+
+Extend Phase 0.5 to capture every form, not just defs:
+
+```clojure
+;; REPL session:
+user=> (println "debug")
+user=> (+ 1 2)
+user=> (defn foo [x] x)
+
+;; eval-history captures ALL:
+[{:code "(println \"debug\")" :result "nil" :vars [] :type :expr}
+ {:code "(+ 1 2)" :result "3" :vars [] :type :expr}
+ {:code "(defn foo [x] x)" :result "#'user/foo" :vars ["user/foo"] :type :def}]
+```
+
+### Solution 2: Tool `clj-ns-top-level-forms`
+
+Query clojure-lsp for ALL top-level forms in a namespace file:
+
+**Input:** `{:ns "my.app"}` or `{:file "src/my/app.clj"}`
+
+**Output:**
+```clojure
+{:file "src/my/app.clj"
+ :forms
+ [{:line 1 :type :ns :text "(ns my.app)"}
+  {:line 3 :type :expr :text "(println \"Loading...\")"}
+  {:line 4 :type :expr :text "(connect-to-database!)"}
+  {:line 5 :type :expr :text "((fn [] (init-stuff!)))"}
+  {:line 7 :type :defn :name "handler" :text "(defn handler ...)"}]}
+```
+
+**Implementation:** Use clojure-lsp's AST or tree-sitter to enumerate top-level forms.
+
+### Solution 3: Track Namespace Load Events
+
+When `require` or `load-file` happens, log:
+
+```clojure
+{:event :ns-loaded
+ :ns "my.app"
+ :file "src/my/app.clj"
+ :timestamp #inst "..."
+ :top-level-count 7      ; how many forms executed
+ :vars-defined ["my.app/handler" "my.app/config"]}
+```
+
+### Remaining Gap
+
+Forms that ran via file `require` (not REPL eval) and created no var remain invisible to live introspection. Only static analysis (LSP) can see them.
+
+**Mitigation:** Use `clj-ns-top-level-forms` to see what WOULD run, then correlate with ns load timestamps.
+
+---
+
 ## Phase 1: Namespace-Focused Query
 
 **Recommendation from Gemini:** Prioritize focused queries over global diff.
