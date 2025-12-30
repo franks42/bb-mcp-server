@@ -1,8 +1,9 @@
 # Static + Live State Integration Design
 
-**Status:** Design Phase
+**Status:** Design Phase (Reviewed)
 **Created:** 2025-12-29
 **Author:** Claude Code Session
+**Reviewed:** Gemini (Cascade) - see `live-static-state-design-implementation-review.md`
 
 ---
 
@@ -166,65 +167,313 @@ Runtime state can be queried directly:
 
 ---
 
+## Architecture (per Gemini Review)
+
+**Key recommendation:** Create a dedicated `state-monitor` module rather than putting unification logic in `clojure-lsp` or `nrepl`.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    state-monitor module                      │
+│                                                              │
+│   Unified Query API, Normalization, CLI                     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌─────────────────────────┐   ┌─────────────────────────┐
+│    clojure-lsp module    │   │    nrepl module          │
+│                          │   │                          │
+│  • Static analysis       │   │  • Runtime introspection │
+│  • File-based index      │   │  • JVM state             │
+│  • References/calls      │   │  • Current values        │
+└─────────────────────────┘   └─────────────────────────┘
+```
+
+**Why separate module?**
+- `clojure-lsp` shouldn't depend on `nrepl`
+- `nrepl` shouldn't depend on `clojure-lsp`
+- `state-monitor` depends on both → clean dependency graph
+- Unification logic can evolve independently
+
+---
+
 ## Implementation Phases
 
-### Phase 1: nREPL Introspection Tools
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | nREPL Introspection Tools | Planned |
+| 1 | Namespace-Focused Query | Planned |
+| 2 | State Monitor Module | Planned |
+| 3 | Full Unification & CLI | Planned |
 
-Expose runtime introspection via MCP tools:
+---
 
+## Phase 0: nREPL Introspection Tools (Immediate Wins)
+
+Add basic introspection tools to existing `nrepl` module. No unification logic needed - provides immediate value for AI agents to verify assumptions.
+
+**Key insight:** These work with vanilla `clojure.core` - no cider-nrepl required.
+
+### Tool: `nrepl-loaded-namespaces`
+
+**Purpose:** List all namespaces currently loaded in the JVM.
+
+**Input:** None (or optional filter pattern)
+
+**Output:**
 ```clojure
-;; New tools for nrepl module
-(defn introspect-ns
-  "Get all vars and their metadata in a namespace."
-  [{:keys [ns]}]
-  ...)
-
-(defn introspect-var
-  "Get complete runtime info about a var."
-  [{:keys [symbol]}]
-  ...)
-
-(defn list-loaded-namespaces
-  "List all currently loaded namespaces."
-  []
-  ...)
-
-(defn compare-to-file
-  "Compare runtime state of ns to its source file."
-  [{:keys [ns]}]
-  ...)
+{:namespaces ["clojure.core" "clojure.string" "my.app.core" "my.app.handlers" ...]
+ :count 47}
 ```
 
-### Phase 2: State Comparison
+**Use case:** Agent asks "What's actually loaded right now?" before assuming a namespace exists.
 
-Combine clojure-lsp and nREPL results:
+**Implementation:** `(all-ns)`
 
+---
+
+### Tool: `nrepl-introspect-ns`
+
+**Purpose:** List all vars defined in a specific namespace.
+
+**Input:** `{:ns "my.app.core"}`
+
+**Output:**
 ```clojure
-(defn unified-query
-  "Query both static and live state for a symbol."
-  [{:keys [symbol]}]
-  (let [static (clojure-lsp/find-symbol {:query symbol})
-        live (nrepl/introspect-var {:symbol symbol})]
-    (merge-views static live)))
+{:ns "my.app.core"
+ :publics [:start! :stop! :handler :config]
+ :interns [:start! :stop! :handler :config :helper-fn]
+ :aliases {:str "clojure.string", :log "taoensso.trove"}
+ :refers {:keys "clojure.core", :vals "clojure.core"}}
 ```
 
-### Phase 3: State Sync Helpers
+**Use case:** Agent verifies "Does `my.app.core/process` exist at runtime?" - especially after REPL eval that wasn't saved to file.
 
-Utility to bring live state in sync with files:
+**Implementation:** `(ns-publics 'ns)` + `(ns-interns 'ns)` + `(ns-aliases 'ns)`
 
+---
+
+### Tool: `nrepl-var-meta`
+
+**Purpose:** Get metadata for a specific var (arglists, docstring, file, line, etc.)
+
+**Input:** `{:symbol "my.app.core/handler"}`
+
+**Output:**
 ```clojure
-(defn sync-namespace
-  "Reload namespace from file to sync runtime with disk."
-  [{:keys [ns]}]
-  (nrepl/eval! (format "(require '%s :reload)" ns)))
-
-(defn sync-all-stale
-  "Reload all namespaces where file is newer than load time."
-  []
-  ...)
+{:name handler
+ :ns my.app.core
+ :arglists ([request])
+ :doc "Handle incoming HTTP request"
+ :file "src/my/app/core.clj"
+ :line 42
+ :added "1.0"
+ :private false}
 ```
 
-### Phase 4: Change Tracking
+**Use case:** Agent needs function signature or doc without reading the file. Works for REPL-defined functions too (`:file` will be nil).
+
+**Implementation:** `(meta #'ns/var)`
+
+---
+
+### Tool: `nrepl-get-value`
+
+**Purpose:** Get the current runtime value of a var (dereferenced).
+
+**Input:** `{:symbol "my.app.config/settings"}`
+
+**Output:**
+```clojure
+{:symbol "my.app.config/settings"
+ :value {:port 8080 :host "localhost" :debug true}
+ :type "clojure.lang.PersistentArrayMap"}
+```
+
+**Use case:** The **killer feature** per Gemini review. Agent can see actual config values, atom contents, cached state. Static analysis can never show this.
+
+**Example scenario:**
+```
+File says:     (def settings (load-config "config.edn"))
+Agent asks:    "What IS settings right now?"
+Tool returns:  {:port 8080, :host "0.0.0.0"}  ; actual loaded values
+```
+
+**Implementation:** `@(resolve 'ns/var)` with `pr-str`
+
+---
+
+## Phase 1: Namespace-Focused Query
+
+**Recommendation from Gemini:** Prioritize focused queries over global diff.
+
+**Why focused > global:**
+- Global diff is slow (network round-trips to nREPL)
+- Global diff is noisy (many libraries differ slightly in runtime vs source)
+- Agent works primarily in one file/namespace at a time
+
+### Tool: `query-namespace`
+
+**Purpose:** Compare what's in the file vs what's in the JVM for a single namespace.
+
+**Input:** `{:ns "my.app.core"}`
+
+**Output:**
+```clojure
+{:ns "my.app.core"
+ :file "src/my/app/core.clj"
+
+ ;; In file but NOT loaded (file changed, not reloaded)
+ :static-only [:new-feature :updated-handler]
+
+ ;; Loaded but NOT in file (REPL-defined)
+ :live-only [:debug-fn :temp-helper]
+
+ ;; In both
+ :both [:start! :stop! :handler :config]
+
+ ;; In both but signatures differ
+ :diverged [{:name :handler
+             :static-arglists ([req])
+             :live-arglists ([req opts])}]}
+```
+
+**Use case:** Agent asks "Is what I'm seeing in the file actually what's running?" Single most useful query for interactive development.
+
+---
+
+### Tool: `inspect-value`
+
+**Purpose:** Two-step verification: (1) LSP confirms symbol exists in code, (2) nREPL fetches runtime value.
+
+**Input:** `{:symbol "my.app.core/config"}`
+
+**Output:**
+```clojure
+{:symbol "my.app.core/config"
+ :static {:file "src/my/app/core.clj"
+          :line 15
+          :defined true}
+ :live {:loaded true
+        :value {:env :production :port 3000}
+        :type "clojure.lang.PersistentHashMap"}
+ :in-sync true}
+```
+
+**Use case:** Agent wants to debug a value but first confirms it's a real symbol (not a typo). Combines code navigation with runtime inspection.
+
+---
+
+## Phase 2: State Monitor Module
+
+Create new `modules/state-monitor/` as orchestrator that consumes both modules.
+
+### Module Structure
+
+```
+state-monitor/
+├── module.edn           # declares deps: [clojure-lsp, nrepl]
+└── src/state_monitor/
+    ├── core.clj         # MCP tool registration, lifecycle
+    ├── query.clj        # Unified query logic
+    └── normalize.clj    # Static↔Live data normalization
+```
+
+### Normalization Challenges
+
+Static analysis sees **text**, runtime introspection sees **data**. Must normalize for comparison:
+
+| Static (text) | Live (data) | Normalized |
+|---------------|-------------|------------|
+| `(defn foo [x y] ...)` | `{:arglists '([x y])}` | `{:arity 2, :args [x y]}` |
+| `my.app.core/handler` | `#'my.app.core/handler` | `"my.app.core/handler"` |
+| line 42, col 3 | nil | (ignore for comparison) |
+
+**Strategy:**
+- Ignore metadata differences that don't affect behavior (line numbers)
+- Normalize fully qualified symbols vs aliases
+- Handle macro expansions which might obscure original definition
+
+---
+
+## Phase 3: Full Unification & CLI
+
+### Tool: `state-query-symbol`
+
+**Purpose:** Everything about a symbol - static analysis + runtime state.
+
+**Input:** `{:symbol "my.app.core/handler"}`
+
+**Output:**
+```clojure
+{:symbol "my.app.core/handler"
+ :static {:file "src/my/app/core.clj"
+          :line 42
+          :arglists ([request])
+          :doc "Handle HTTP request"
+          :references [{:file "src/my/app/routes.clj" :line 15}
+                       {:file "src/my/app/middleware.clj" :line 8}]
+          :callers [:my.app.routes/app :my.app.middleware/wrap-handler]}
+ :live {:defined true
+        :arglists ([request])
+        :value #function[my.app.core/handler]}
+ :diverged false}
+```
+
+**Use case:** Complete picture. Agent gets LSP navigation (references, callers) plus runtime confirmation.
+
+---
+
+### Tool: `state-diff-namespace`
+
+**Purpose:** Full divergence report for a namespace.
+
+**Input:** `{:ns "my.app.core"}`
+
+**Output:**
+```clojure
+{:ns "my.app.core"
+ :summary {:total-vars 12
+           :in-sync 9
+           :static-only 1
+           :live-only 1
+           :diverged 1}
+ :details {:static-only [{:name :new-feature
+                          :reason "File changed, not reloaded"}]
+           :live-only [{:name :debug-fn
+                        :reason "REPL-defined, not in file"}]
+           :diverged [{:name :handler
+                       :static {:arglists ([req])}
+                       :live {:arglists ([req opts])}
+                       :reason "Signature mismatch"}]}}
+```
+
+**Use case:** Before committing or ending session, agent checks "Did I forget to save anything? Is there stale code?"
+
+---
+
+### Tool: `state-sync-namespace`
+
+**Purpose:** Reload namespace from file to bring runtime in sync with disk.
+
+**Input:** `{:ns "my.app.core"}`
+
+**Action:** Evaluates `(require 'my.app.core :reload)` via nREPL
+
+**Output:**
+```clojure
+{:ns "my.app.core"
+ :action :reloaded
+ :before {:static-only 1 :live-only 1 :diverged 1}
+ :after {:static-only 0 :live-only 0 :diverged 0}
+ :warning "REPL-defined vars lost: [:debug-fn]"}
+```
+
+**Use case:** Agent fixes divergence automatically. Warning about losing REPL-only definitions.
+
+---
+
+### Change Tracking (Future)
 
 Track state changes over time:
 
@@ -349,6 +598,55 @@ Developer evaluates code at REPL without saving:
 - Support multiple nREPL connections (e.g., CLJ + CLJS)
 - Per-runtime state tracking
 - Cross-runtime symbol resolution
+
+---
+
+## Gemini Review Recommendations
+
+From `live-static-state-design-implementation-review.md`:
+
+### Architecture
+- ✅ **Dedicated module** - Create `state-monitor` rather than putting logic in clojure-lsp or nrepl
+- ✅ **Dependency direction** - state-monitor consumes both lower modules
+
+### Implementation Priorities
+1. **Phase 0 first** - Ship basic nREPL introspection tools immediately (provides value without full merger)
+2. **Focused > Global** - Prioritize `query-namespace` over global `state-diff` (global is slow/noisy)
+3. **Value inspection is killer feature** - Elevate `nrepl-get-value` as first-class use case
+
+### Fallback Strategy
+
+**Critical:** Core introspection must work with vanilla `clojure.core`:
+```clojure
+;; These work everywhere - no middleware needed
+(all-ns)              ; list namespaces
+(ns-publics 'my.ns)   ; public vars
+(ns-interns 'my.ns)   ; all vars including private
+(meta #'my.ns/foo)    ; var metadata
+(resolve 'my.ns/foo)  ; check if exists
+@#'my.ns/foo          ; get value
+```
+
+Enhanced ops when `cider-nrepl` available:
+- `info` - richer metadata
+- `eldoc` - function signatures
+- `ns-path` - file locations
+
+### Divergence Detection Caveats
+
+Be cautious with signature comparisons:
+- Static sees literal text: `(defn foo [x] ...)`
+- Runtime sees evaluated data: `{:arglists '([x])}`
+- Need normalization layer that:
+  - Ignores line numbers and other irrelevant metadata
+  - Normalizes fully qualified symbols vs aliases
+  - Handles macro expansions
+
+### Testing Recommendations
+
+1. **E2E refactoring flow** - Test `clj-code-actions` → `clj-execute-command` chain
+2. **Watcher robustness** - Verify recovery if fswatcher pod terminates unexpectedly
+3. **Troubleshooting docs** - Add common issues section (project root not found, binary not in PATH)
 
 ---
 
