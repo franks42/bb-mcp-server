@@ -133,14 +133,119 @@ Unified view combining clojure-lsp static analysis with nREPL runtime introspect
 - **Static** (clojure-lsp): AST, references, call hierarchy, refactoring
 - **Dynamic** (nREPL): Runtime values, dynamically defined vars, loaded namespaces
 
-**Design document:** `docs/design/live-static-state-design-implementation.md`
+**Design documents:**
+- `docs/design/live-static-state-design-implementation.md` - Original design
+- `docs/design/live-static-state-design-implementation-review.md` - Gemini review
 
-| Task | Status |
-|------|--------|
-| Design document | ✅ Complete |
-| nREPL introspection tools | Existing (via nrepl module) |
-| Unified query API | Planned |
-| State diff visualization | Planned |
+**Architecture (per Gemini review):**
+- Create dedicated `state-monitor` module (not in clojure-lsp or nrepl)
+- Dependency: `state-monitor` → `clojure-lsp` + `nrepl`
+- Ensures lower-level modules stay focused on their domains
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | nREPL Introspection Tools | Planned |
+| 1 | Namespace-Focused Query | Planned |
+| 2 | State Monitor Module | Planned |
+| 3 | Full Unification & CLI | Planned |
+
+---
+
+#### Phase 0: nREPL Introspection Tools (Immediate Wins)
+
+Add basic introspection tools to `nrepl` module. No unification logic needed - provides immediate value for AI agents to verify assumptions.
+
+**New MCP Tools:**
+
+| Tool | Purpose | Implementation |
+|------|---------|----------------|
+| `nrepl-introspect-ns` | List loaded vars in a namespace | `(ns-publics 'ns)` + `(ns-interns 'ns)` |
+| `nrepl-get-value` | Get EDN value of a var | `@(resolve 'ns/var)` with pr-str |
+| `nrepl-var-meta` | Get var metadata (arglists, doc, etc.) | `(meta #'ns/var)` |
+| `nrepl-loaded-namespaces` | List all loaded namespaces | `(all-ns)` |
+
+**Key insight:** These work with vanilla `clojure.core` - no cider-nrepl required.
+
+**Example usage:**
+```clojure
+;; Agent verifies a var is loaded
+(nrepl-introspect-ns {:ns "my.app.core"})
+;; => {:publics [foo bar baz], :interns [foo bar baz helper-]}
+
+;; Agent checks actual runtime value
+(nrepl-get-value {:symbol "my.app.config/settings"})
+;; => {:port 8080, :host "localhost"}
+```
+
+---
+
+#### Phase 1: Namespace-Focused Query
+
+**Recommendation from Gemini:** Prioritize focused queries over global diff.
+
+| Tool | Purpose |
+|------|---------|
+| `query-namespace` | Compare static vs live for ONE namespace |
+| `inspect-value` | LSP-verify symbol exists, then fetch via nREPL |
+
+**Why focused > global:**
+- Global diff is slow (network round-trips)
+- Global diff is noisy (libraries differ slightly)
+- Agent works in one file/namespace at a time
+
+---
+
+#### Phase 2: State Monitor Module
+
+Create `modules/state-monitor/` as orchestrator:
+
+```
+state-monitor/
+├── src/state_monitor/
+│   ├── core.clj        # Module lifecycle, MCP tools
+│   ├── query.clj       # Unified query logic
+│   └── normalize.clj   # Static↔Live normalization
+└── module.edn
+```
+
+**Dependencies:**
+- `clojure-lsp` module (static analysis)
+- `nrepl` module (runtime introspection)
+
+**Normalization challenges:**
+- Static sees text: `(defn foo [x] ...)`
+- Runtime sees data: `{:arglists '([x])}`
+- Must normalize for comparison (ignore line numbers, handle aliases, macro expansions)
+
+---
+
+#### Phase 3: Full Unification & CLI
+
+**CLI:** `bb state ...` commands:
+```bash
+bb state query my.ns/some-fn    # Static + live info
+bb state diff my.ns             # What's different?
+bb state sync my.ns             # Reload from disk
+bb state watch                  # Alert on divergence
+```
+
+**MCP Tools:**
+- `state-query-symbol` - Full picture of a symbol
+- `state-diff-namespace` - Divergence report
+- `state-sync-namespace` - Reload to sync
+
+---
+
+#### Implementation Notes
+
+**Fallback strategy:** Core introspection must work with vanilla `clojure.core`:
+- `ns-publics`, `ns-interns`, `all-ns`
+- `meta`, `resolve`, `source`
+
+Enhanced features when `cider-nrepl` available:
+- `info` op for richer metadata
+- `eldoc` for signatures
+- `ns-path` for file locations
 
 ---
 
