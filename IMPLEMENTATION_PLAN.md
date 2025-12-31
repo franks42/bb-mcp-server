@@ -40,6 +40,229 @@ Fixed clj-kondo errors and warnings in CLI scripts caused by implicit `user` nam
 
 ## Pending Work
 
+### Scittle Browser Session Stability (Investigation)
+
+**Problem:** Scittle browsers keep disconnecting and reconnecting on new sente-lite channels (browser-1, browser-2, browser-3...) instead of reusing existing channels. This causes confusion during testing as connection names keep changing.
+
+**Priority:** HIGH - Makes Scittle browser nREPL tedious and error-prone.
+
+---
+
+#### Root Cause Analysis
+
+Based on code review, here's what happens:
+
+```
+1. Browser connects → sente-lite assigns sente-conn-id (e.g., "abc123")
+2. server.clj sync-task detects new sente-conn-id → calls handle-browser-connect!
+3. connection.clj creates browser-{counter}-{uuid} (e.g., "browser-1-xyz")
+4. ** DISCONNECT ** (tab throttle, network blip, timeout, etc.)
+5. sente-lite assigns NEW sente-conn-id (e.g., "def456")
+6. sync-task sees "abc123" gone → handle-browser-disconnect! (browser-1 marked closed)
+7. sync-task sees "def456" new → handle-browser-connect! creates "browser-2-xyz"
+8. User now has to use "browser-2" instead of "browser-1" 😤
+```
+
+**The fundamental issue:** sente-lite has no built-in session persistence across reconnects. Each WebSocket connection gets a fresh UUID.
+
+---
+
+#### Investigation Tasks
+
+**Phase A: Understand Current Behavior (Observation)**
+
+| # | Task | Method |
+|---|------|--------|
+| A1 | Reproduce disconnection reliably | Tab switch, network throttle, idle timeout |
+| A2 | Measure time-to-disconnect | Log timestamps, identify trigger |
+| A3 | Check sente-lite reconnect behavior | Does it auto-reconnect? With same ID? |
+| A4 | Check browser console for errors | WebSocket close codes, sente-lite logs |
+| A5 | Check server logs pattern | Which disconnect happens first? |
+
+**Phase A Results (2025-12-31):**
+
+| # | Finding |
+|---|---------|
+| A1 | **Reproduced**: Safari disconnects reliably when tab unfocused. Playwright headless stays connected indefinitely. |
+| A2 | **Timing**: 90s pattern confirmed (30s heartbeat + 60s timeout). Some disconnects faster (~15s) when rapidly switching tabs. |
+| A3 | **sente-lite behavior**: Each reconnect gets NEW conn-id (`conn-{timestamp}-{random}`). No session persistence. |
+| A4 | **Not tested**: Would require manual browser dev tools inspection. |
+| A5 | **Server logs**: `sente-lite.heartbeat/timeout` logged when pong not received. Safari throttles JS preventing pong. |
+
+**Root Cause Confirmed:**
+```
+Safari background → JS throttled → pong not sent → sente-lite 60s timeout → close connection
+Browser reconnects → sente-lite new conn-id → server creates browser-N+1 → name changes
+```
+
+**Stable Connection Evidence:**
+- Playwright headless browser (browser-304) stayed connected 1+ hours
+- Safari browser cycled through browser-335 → 346 → 347 → ... within minutes
+
+**Recommendation:**
+- **B4 (visibilitychange)** addresses the root cause (Safari throttling)
+- **B1 (localStorage)** provides stability regardless of cause
+- Combination: B4 to reduce disconnects + B1 for when they do happen
+
+**Phase B: Evaluate Solutions**
+
+| # | Solution | Pros | Cons | Effort |
+|---|----------|------|------|--------|
+| B1 | **Browser-stable-id via localStorage** | Stable names, survives refresh | Need mapping layer, stale cleanup | Medium |
+| B2 | **Grace period before disconnect** | Simple, no client changes | Delay in detecting real disconnect | Low |
+| B3 | **Increase heartbeat interval** | May reduce false disconnects | Longer detection of real issues | Low |
+| B4 | **visibilitychange event handling** | Prevents tab-throttle disconnects | Client-side change needed | Medium |
+| B5 | **sente-lite session persistence** | Cleanest if sente-lite supports it | May need fork/PR to sente-lite | High |
+| B6 | **nickname reuse on reconnect** | User picks stable name | Manual step required | Low |
+
+**Phase C: Implementation - B1 (Session-ID Handshake)**
+
+**Selected Approach:** Simplified B1 using `defonce` instead of localStorage.
+
+**Key Insight:** Safari background throttling pauses JS but does NOT reset the runtime. When WebSocket reconnects, the Scittle CLJS state is still there. We only need localStorage for page refresh scenarios (a separate, harder problem).
+
+**Solution:**
+1. Client generates stable session-id via `defonce` (persists across WebSocket reconnects)
+2. Client sends `:nrepl/session-hello {:session-id X}` immediately on connect/reconnect
+3. Server maintains `!session-registry` mapping session-id → mcp-conn-id
+4. On reconnect, server looks up existing mcp-conn-id from registry
+5. Browser keeps same nickname (browser-1 stays browser-1)
+
+```
+FIRST CONNECT:
+Browser → WS connect → new sente-conn-id "abc123"
+Browser → [:nrepl/session-hello {:session-id "session-XYZ"}]
+Server: No registry entry → create mcp-conn-id "browser-1-uuid"
+        Store: session-XYZ → browser-1-uuid
+Browser sees: "Connected as browser-1"
+
+RECONNECT (Safari tab unfocused, then refocused):
+Browser → WS connect → new sente-conn-id "def456" (different!)
+Browser → [:nrepl/session-hello {:session-id "session-XYZ"}] (same session-id!)
+Server: Registry lookup → session-XYZ maps to browser-1-uuid
+        Reuse mcp-conn-id, update sente-conn-id mapping
+Browser sees: "Connected as browser-1" (stable!)
+```
+
+**Implementation Tasks:**
+
+| # | Task | File | Status |
+|---|------|------|--------|
+| C1 | Add `defonce !browser-session-id` and `get-or-create-session-id` | bootstrap.clj | ✅ Complete |
+| C2 | Send `:nrepl/session-hello` in `:on-open` callback | bootstrap.clj | ✅ Complete |
+| C3 | Send `:nrepl/session-hello` in `:on-reconnect` callback | bootstrap.clj | ✅ Complete |
+| C4 | Add `!session-registry` atom | server.clj | ✅ Complete |
+| C5 | Handle `:nrepl/session-hello` event in `on-browser-message` | server.clj | ✅ Complete |
+| C6 | Modify `promote-to-validated!` to check session registry | server.clj | ✅ Complete |
+| C7 | Update `handle-browser-disconnect!` to NOT delete registry entry | server.clj | ✅ Complete |
+| C8 | Add registry cleanup for truly stale sessions (e.g., 1 hour) | server.clj | ✅ Complete |
+
+Also added to connection.clj:
+- `reactivate-browser-connection!` - Reactivates closed browser connection with new sente-conn-id
+
+---
+
+#### Detailed Solution Designs
+
+**B1: Browser-stable-id via localStorage**
+```
+Client-side:
+  - On page load: read `bb-mcp-browser-id` from localStorage
+  - If not present: generate UUID, store in localStorage
+  - Send browser-id in initial WebSocket handshake
+
+Server-side:
+  - New: !browser-identity atom maps browser-id → current sente-conn-id
+  - On connect: check if browser-id exists in !browser-identity
+    - If yes: reuse existing mcp-conn-id, update sente-conn-id mapping
+    - If no: create new mcp-conn-id as today
+  - On disconnect: DON'T mark closed immediately, set "awaiting-reconnect" status
+  - On reconnect within grace period: restore to :connected
+  - After grace period: actually mark closed, clean up
+```
+
+**B2: Grace period before disconnect**
+```
+Server-side only:
+  - handle-browser-disconnect! doesn't immediately mark closed
+  - Sets status to :disconnecting with timestamp
+  - New periodic task: after 60s in :disconnecting, mark closed
+  - If same sente-conn-id reappears (sente-lite internal reconnect): cancel
+  - Doesn't help if sente-lite generates new conn-id
+```
+
+**B3: Increase heartbeat interval**
+```
+Current:
+  heartbeat-interval-ms 10000  ; Send every 10s
+  heartbeat-timeout-ms  30000  ; Stale after 30s
+
+Try:
+  heartbeat-interval-ms 30000  ; Send every 30s
+  heartbeat-timeout-ms  90000  ; Stale after 90s
+
+Won't help tab throttling, but reduces false positives from transient issues.
+```
+
+**B4: visibilitychange event handling**
+```
+Client-side (sente-lite bundle or bootstrap.cljs):
+  - On visibilitychange hidden: pause heartbeat responses, don't disconnect
+  - On visibilitychange visible: resume, send immediate ping
+  - Prevents Chrome tab throttling from triggering timeout
+
+Server-side:
+  - Accept "dormant" status during hidden period
+  - Longer grace for dormant connections
+```
+
+**B6: nickname reuse on reconnect**
+```
+Allow user to specify nickname:
+  bb nrepl connect --mcp scittle-dev --nickname my-browser
+
+If browser reconnects:
+  - Old browser-2 closed
+  - New browser-3 created
+  - User can: bb nrepl nickname browser-3 my-browser
+
+Doesn't solve the problem but gives escape hatch.
+```
+
+---
+
+#### Files to Examine/Modify
+
+| File | Role |
+|------|------|
+| `modules/sente-browser/src/sente_browser/server.clj` | Sync task, connect/disconnect handlers |
+| `modules/nrepl/src/nrepl/state/connection.clj` | register-browser-connection! |
+| `sente-lite/dist/sente-lite-nrepl.cljs` | Client reconnect behavior |
+| `modules/sente-browser/src/sente_browser/bootstrap.clj` | Bootstrap HTML generation |
+
+---
+
+#### Decision Criteria
+
+Choose B1 (browser-stable-id) if:
+- Disconnects are frequent and unavoidable
+- We need truly stable names across page refreshes
+
+Choose B2+B3 (grace period + longer timeout) if:
+- Disconnects are rare/transient
+- Simpler fix is preferred
+
+Choose B4 (visibilitychange) if:
+- Tab throttling is the main cause
+- We can modify sente-lite bundle
+
+---
+
+**Status:** Phase C Complete ✅
+**Next Step:** Test with real Safari browser to verify reconnection keeps same identity
+
+---
+
 ### bb calc CLI (Low Priority)
 
 Higher-level wrapper for calculate module:

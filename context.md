@@ -4,45 +4,51 @@
 > Keep this structure intact. Update sections as you work. Refresh "Recent Changes" from git log.
 > When ending a session, update "Previous Session Summary" and "Current Focus" for the next assistant.
 
-**Last Updated:** 2025-12-30
+**Last Updated:** 2025-12-31
 
 ## Previous Session Summary
 
-**Scittle/SCI Compatibility Testing: ✅ COMPLETE**
+**Browser Session Stability: Phase C Implementation Complete**
 
-All 4 Phase 0 introspection tools verified working with Scittle browser via nrepl-proxy.
+Implemented session-id handshake to maintain stable browser identity across WebSocket reconnects.
 
-**What works with Scittle:**
-- `all-ns` - returns 21 namespaces
-- `ns-publics`, `ns-interns` - returns var lists
-- `resolve` - works (returns function directly, not var)
-- `meta` on vars - returns `nil` (SCI limitation, not a bug)
-- `var?` - returns `false` for SCI "vars" (they're functions)
+**Solution Implemented:**
+1. Browser generates session-id via `defonce` (persists across WS reconnects)
+2. Browser sends `:nrepl/session-hello {:session-id X}` on connect/reconnect
+3. Server maintains `!session-registry` mapping session-id → mcp-conn-id
+4. On reconnect, server looks up existing mcp-conn-id from registry
+5. Browser keeps same nickname (browser-1 stays browser-1)
 
-**All 4 MCP introspection tools tested:**
-1. `nrepl.nrepl-loaded-namespaces` - ✅ returns 21 namespaces
-2. `nrepl.nrepl-introspect-ns` - ✅ returns publics/interns for clojure.string
-3. `nrepl.nrepl-var-meta` - ✅ works (returns null metadata - expected SCI behavior)
-4. `nrepl.nrepl-get-value` - ✅ works (after fix for SCI compatibility)
+**Files Modified:**
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Client-side session-id + hello events
+- `modules/sente-browser/src/sente_browser/server.clj` - Session registry + hello handler
+- `modules/nrepl/src/nrepl/state/connection.clj` - Added `reactivate-browser-connection!`
 
-**Bug Fix Applied:**
-- `nrepl_get_value.clj` - Fixed to handle SCI where `resolve` returns functions directly instead of vars
-- Changed `@v` to `(if (var? v) @v v)` for SCI compatibility
-- Also handle metadata extraction with `(when (var? v) (meta v))`
+**Key Insight:** Safari tab throttling pauses JS but does NOT reset the runtime. `defonce` persists the session-id, so on reconnect the same ID is sent to the server.
+
+See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full details.
 
 ---
 
 ## Current Focus
 
-**Scittle testing complete. Next priorities:**
+**Next priorities:**
 
-1. **Add introspection commands to `bb nrepl` CLI** - convenience wrappers (see Pending Work)
-2. **Phase 0.5: REPL source capture** - Datalevin + var metadata
+1. **Test browser session stability** - Verify Safari reconnects keep same identity
+2. **Add introspection commands to `bb nrepl` CLI** - convenience wrappers
+3. **Phase 0.5: REPL source capture** - Datalevin + var metadata
 
-**To start Scittle dev server for testing:**
+**To test browser session stability:**
 ```bash
+# Start Scittle dev server
 bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
-bb nrepl list --mcp scittle-dev  # Shows browser connections
+
+# Open Safari at http://localhost:8091 - note the browser-N name
+# Switch to another tab for 2+ minutes
+# Switch back - should still be browser-N (not browser-N+1)
+
+# Check session registry
+bb mcp call local-eval.local-eval '{"code":"(sente-browser.server/get-session-registry)"}' --mcp scittle-dev
 ```
 
 ---
@@ -109,6 +115,9 @@ Things learned that aren't in CLAUDE.md:
 - **`doc` in Scittle** - Exists in `clojure.repl`, works for user-defined vars, use `with-out-str` to capture
 - **clojure-lsp static analysis** - Parses source directly, uses clojuredocs.org for built-in docs
 - **Playwright for browser testing** - Use `node scripts/scittle_browser.mjs --headless` to avoid tab throttling
+- **Safari background throttling** - Safari tabs throttle JS when unfocused, breaking WebSocket heartbeats
+- **sente-lite heartbeat config** - 30s ping interval, 60s pong timeout = 90s before disconnect
+- **Monitor browser health** - Use `sente-browser.server/get-connection-health` via local-eval
 
 ---
 

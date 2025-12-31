@@ -345,6 +345,36 @@
                       :sente-conn-id sente-conn-id}})
     conn-id))
 
+(defn reactivate-browser-connection!
+  "Reactivate an existing browser connection with a new sente-conn-id.
+   Used when browser reconnects after Safari tab throttling - same mcp-conn-id,
+   different sente WebSocket connection.
+
+   Returns the connection-id if successful, nil if connection not found."
+  [mcp-conn-id new-sente-conn-id]
+  (if (get-in @connection-state [:connections mcp-conn-id])
+    (do
+     (swap! connection-state
+            (fn [state]
+              (-> state
+                  (assoc-in [:connections mcp-conn-id :sente-conn-id] new-sente-conn-id)
+                  (assoc-in [:connections mcp-conn-id :status] :connected)
+                  (assoc-in [:connections mcp-conn-id :error] nil)
+                  (assoc-in [:connections mcp-conn-id :closed-at] nil)
+                  (assoc-in [:connections mcp-conn-id :reconnected-at] (System/currentTimeMillis)))))
+     (log/log! {:level :info
+                :id ::browser-connection-reactivated
+                :msg "Reactivated browser connection with new WebSocket"
+                :data {:connection-id mcp-conn-id
+                       :new-sente-conn-id new-sente-conn-id}})
+     mcp-conn-id)
+    (do
+     (log/log! {:level :warn
+                :id ::browser-reactivation-failed
+                :msg "Cannot reactivate - connection not found"
+                :data {:connection-id mcp-conn-id}})
+     nil)))
+
 (defn is-browser-connection?
   "Check if connection is a browser (sente) connection vs socket connection."
   [connection-id]

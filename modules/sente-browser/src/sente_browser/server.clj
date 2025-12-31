@@ -1,18 +1,19 @@
 (ns sente-browser.server
     "Embed sente-lite WebSocket server for browser nREPL connections.
 
-   When a browser connects via WebSocket:
-   1. sente-lite handles the WebSocket lifecycle
-   2. We send :describe probe to verify nREPL capability
-   3. On valid response, register as validated nREPL connection
-   4. Claude can then use nrepl-eval with that connection
+   Protocol flow:
+   1. Browser connects via WebSocket
+   2. Browser sends :client/ready {:session-id ...} when handlers ready
+   3. Server registers connection, sends :describe probe
+   4. Browser responds to describe
+   5. Server validates, sends :server/ready {:nickname ...}
+   6. Both sides now ready for normal communication
 
    Key difference from socket connections:
    - Browsers connect TO us (vs Claude connecting to nREPL servers)
    - Claude discovers browsers via `op=list`, then selects one to eval in
    - Only validated browsers (responded to :describe) are listed"
-    (:require [clojure.set :as set]
-              [clojure.string :as str]
+    (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.messages :as msg-state]
@@ -29,12 +30,13 @@
 ;; =============================================================================
 
 ;; Map of sente-conn-id -> {:mcp-conn-id string, :last-heartbeat epoch-ms,
-;;                          :status :pending-validation | :validated,
-;;                          :probe-id string, :capabilities {...}}
+;;                          :status :pending-client-ready | :pending-validation | :validated,
+;;                          :probe-id string, :capabilities {...}, :session-id string}
 (defonce ^:private !browser-connections (atom {}))
 
-;; Connection sync task control
-(defonce ^:private !sync-task-running (atom false))
+;; Session registry: session-id -> mcp-conn-id
+;; Persists across WebSocket reconnects so browser keeps same identity
+(defonce ^:private !session-registry (atom {}))
 
 ;; Heartbeat task control
 (defonce ^:private !heartbeat-task-running (atom false))
@@ -42,7 +44,9 @@
 ;; Heartbeat configuration (in ms)
 (def ^:private heartbeat-interval-ms 10000)  ; Send heartbeat every 10s
 (def ^:private heartbeat-timeout-ms 30000)   ; Consider stale after 30s
-;; NOTE: validation-timeout-ms not yet used - pending validation cleanup runs via heartbeat
+
+;; Session registry cleanup (truly stale sessions that won't reconnect)
+(def ^:private session-stale-threshold-ms (* 60 60 1000))  ; 1 hour
 
 ;; =============================================================================
 ;; Browser Connection Management
@@ -59,31 +63,34 @@
    sente-conn-id
    [:nrepl/request {:op :describe :id probe-id}]))
 
-(defn handle-browser-connect!
-  "Called when a browser connects via WebSocket.
-   Starts in pending-validation status and sends :describe probe.
-   Connection is promoted to validated after successful :describe response.
-   Called by connection sync task when new sente connections are detected."
-  [sente-conn-id]
+(defn- handle-client-ready!
+  "Handle :client/ready from browser - this is the handshake initiation.
+   Browser is signaling that its handlers are ready for communication."
+  [sente-conn-id {:keys [session-id]}]
   (let [probe-id (str "probe-" (uuid/uuid-v7-string))
         now (System/currentTimeMillis)]
-    ;; Track as pending validation (not yet registered with conn-state)
+    ;; Register connection with session-id immediately
     (swap! !browser-connections assoc sente-conn-id
            {:status :pending-validation
+            :session-id session-id
             :probe-id probe-id
             :connected-at now
             :last-heartbeat now})
     (log/log! {:level :info
-               :id ::browser-connected-pending
-               :msg "Browser connected, pending nREPL validation"
-               :data {:sente-conn-id sente-conn-id :probe-id probe-id}})
+               :id ::client-ready-received
+               :msg "Browser client-ready received, starting validation"
+               :data {:sente-conn-id sente-conn-id
+                      :session-id session-id
+                      :has-registry-entry (boolean (get @!session-registry session-id))}})
     ;; Send describe probe to validate nREPL capability
-    (send-describe-probe! sente-conn-id probe-id)
-    probe-id))
+    (send-describe-probe! sente-conn-id probe-id)))
 
 (defn handle-browser-disconnect!
   "Called when a browser disconnects.
-   Called by connection sync task when sente connections disappear."
+
+   Note: Does NOT remove session-id from !session-registry so browser
+   can reconnect with same identity. Registry cleanup happens separately
+   for truly stale sessions."
   [sente-conn-id]
   (when-let [conn-info (get @!browser-connections sente-conn-id)]
     ;; Only close in conn-state if it was validated (has mcp-conn-id)
@@ -92,9 +99,10 @@
             (swap! !browser-connections dissoc sente-conn-id)
             (log/log! {:level :info
                        :id ::browser-disconnected
-                       :msg "Browser disconnected"
+                       :msg "Browser disconnected (session registry preserved for reconnect)"
                        :data {:sente-conn-id sente-conn-id
                               :status (:status conn-info)
+                              :session-id (:session-id conn-info)
                               :mcp-conn-id (:mcp-conn-id conn-info)}})))
 
 (defn- update-heartbeat!
@@ -106,19 +114,35 @@
 (defn- promote-to-validated!
   "Promote a pending connection to validated after successful :describe response.
    Registers with conn-state and stores capabilities.
-   Sends :nrepl/registered event to browser with connection nickname."
+   Sends :server/ready event to browser with connection nickname.
+
+   If browser sent session-id with a known registry entry, reuses existing
+   mcp-conn-id for stable identity across WebSocket reconnects."
   [sente-conn-id describe-response]
   (let [ops (get describe-response :ops {})
         versions (get describe-response :versions {})]
     (if (get ops "eval")
       ;; Valid nREPL - has eval capability
-      (let [mcp-conn-id (conn-state/register-browser-connection! sente-conn-id)
+      (let [session-id (get-in @!browser-connections [sente-conn-id :session-id])
+            ;; Check if this session-id has existing mcp-conn-id
+            existing-mcp-conn-id (when session-id (get @!session-registry session-id))
+            ;; Reuse existing or create new
+            mcp-conn-id (if existing-mcp-conn-id
+                          (do
+                            ;; Reactivate existing connection with new sente-conn-id
+                           (conn-state/reactivate-browser-connection! existing-mcp-conn-id sente-conn-id)
+                           existing-mcp-conn-id)
+                          (conn-state/register-browser-connection! sente-conn-id))
             ;; Extract nickname from mcp-conn-id (e.g., "browser-2-uuid" -> "browser-2")
             nickname (when mcp-conn-id
                        (let [parts (str/split mcp-conn-id #"-")]
                          (str (first parts) "-" (second parts))))
             capabilities {:ops (keys ops)
-                          :nrepl-version (get versions "sci-nrepl")}]
+                          :nrepl-version (get versions "sci-nrepl")}
+            is-reconnect (boolean existing-mcp-conn-id)]
+        ;; Update session registry with session-id -> mcp-conn-id mapping
+        (when session-id
+          (swap! !session-registry assoc session-id mcp-conn-id))
         ;; Update connection state with capabilities
         (conn-state/update-browser-capabilities! mcp-conn-id capabilities)
         ;; Update our tracking
@@ -127,15 +151,20 @@
                 :mcp-conn-id mcp-conn-id
                 :nickname nickname
                 :capabilities capabilities})
-        ;; Send registration confirmation to browser with nickname
-        (send-to-browser! sente-conn-id [:nrepl/registered {:nickname nickname
-                                                            :connection-id mcp-conn-id}])
+        ;; Send server/ready to complete handshake - browser is now fully connected
+        (send-to-browser! sente-conn-id [:server/ready {:nickname nickname
+                                                        :connection-id mcp-conn-id
+                                                        :reconnect is-reconnect}])
         (log/log! {:level :info
                    :id ::browser-validated
-                   :msg "Browser nREPL validated"
+                   :msg (if is-reconnect
+                          "Browser nREPL reconnected with same identity"
+                          "Browser nREPL validated (new)")
                    :data {:sente-conn-id sente-conn-id
                           :mcp-conn-id mcp-conn-id
                           :nickname nickname
+                          :session-id session-id
+                          :reconnect is-reconnect
                           :ops (keys ops)
                           :nrepl-version (get versions "sci-nrepl")}})
         mcp-conn-id)
@@ -166,7 +195,7 @@
       (promote-to-validated! sente-conn-id response))))
 
 (defn- on-browser-message
-  "Handle message from browser - route nREPL responses and heartbeats."
+  "Handle message from browser - route based on handshake state and event type."
   [sente-conn-id event-id data]
   (log/log! {:level :debug
              :id ::browser-message
@@ -176,6 +205,10 @@
                     :data-keys (keys data)}})
 
   (case event-id
+    ;; Client ready - handshake initiation from browser
+    :client/ready
+    (handle-client-ready! sente-conn-id data)
+
     ;; Heartbeat pong - update timestamp
     :heartbeat/pong
     (do
@@ -278,49 +311,45 @@
                                    :last-seen-ms-ago ms-ago}]))
                @!browser-connections))))
 
-;; =============================================================================
-;; Connection Sync Task
-;; =============================================================================
-
-(defn- sync-connections!
-  "Sync our browser registry with sente-lite's connection state.
-   Detects new connections and disconnections."
+(defn get-session-registry
+  "Get the session registry (session-id -> mcp-conn-id mappings).
+   For debugging and monitoring."
   []
-  (let [sente-conns (set (map :conn-id (sente-server/get-connections)))
-        our-conns (set (keys @!browser-connections))
-        new-conns (set/difference sente-conns our-conns)
-        gone-conns (set/difference our-conns sente-conns)]
+  @!session-registry)
 
-    ;; Register new connections
-    (doseq [conn-id new-conns]
-           (handle-browser-connect! conn-id))
+(defn cleanup-stale-sessions!
+  "Remove session registry entries for connections that have been closed
+   for longer than session-stale-threshold-ms.
 
-    ;; Handle disconnections
-    (doseq [conn-id gone-conns]
-           (handle-browser-disconnect! conn-id))))
-
-(defn- start-sync-task!
-  "Start background task to sync connections every 500ms."
+   This allows truly abandoned sessions to be cleaned up while preserving
+   sessions for browsers that might reconnect."
   []
-  (reset! !sync-task-running true)
-  (future
-   (while @!sync-task-running
-          (try
-           (sync-connections!)
-           (catch Exception e
-                  (log/log! {:level :error
-                             :id ::sync-error
-                             :msg "Connection sync error"
-                             :data {:error (.getMessage e)}})))
-          (Thread/sleep 500))))
-
-(defn- stop-sync-task!
-  "Stop the connection sync background task."
-  []
-  (reset! !sync-task-running false))
+  (let [now (System/currentTimeMillis)
+        ;; Get all mcp-conn-ids that are closed and stale
+        stale-mcp-conn-ids (->> (conn-state/get-browser-connections)
+                                (filter (fn [[_ conn]]
+                                          (and (= :closed (:status conn))
+                                               (some? (:closed-at conn))
+                                               (> (- now (:closed-at conn))
+                                                  session-stale-threshold-ms))))
+                                (map first)
+                                set)
+        ;; Find session-ids that map to stale mcp-conn-ids
+        stale-sessions (->> @!session-registry
+                            (filter (fn [[_ mcp-conn-id]]
+                                      (contains? stale-mcp-conn-ids mcp-conn-id)))
+                            (map first))]
+    (when (seq stale-sessions)
+      (log/log! {:level :info
+                 :id ::cleaning-stale-sessions
+                 :msg "Cleaning up stale session registry entries"
+                 :data {:count (count stale-sessions)
+                        :session-ids stale-sessions}})
+      (doseq [session-id stale-sessions]
+             (swap! !session-registry dissoc session-id)))))
 
 ;; =============================================================================
-;; Heartbeat Task
+;; Heartbeat Task (also handles disconnect detection)
 ;; =============================================================================
 
 (defn- send-heartbeat-ping!
@@ -340,7 +369,8 @@
   (let [now (System/currentTimeMillis)
         stale-conns (->> @!browser-connections
                          (filter (fn [[_ {:keys [last-heartbeat]}]]
-                                   (> (- now last-heartbeat) heartbeat-timeout-ms)))
+                                   (and last-heartbeat
+                                        (> (- now last-heartbeat) heartbeat-timeout-ms))))
                          (map first))]
     (when (seq stale-conns)
       (log/log! {:level :info
@@ -357,7 +387,9 @@
   (doseq [conn-id (keys @!browser-connections)]
          (send-heartbeat-ping! conn-id))
   ;; Check for stale connections
-  (check-stale-connections!))
+  (check-stale-connections!)
+  ;; Periodically clean up truly stale sessions from registry
+  (cleanup-stale-sessions!))
 
 (defn- start-heartbeat-task!
   "Start background heartbeat task."
@@ -408,9 +440,6 @@
     ;; Start global message queue watcher
     (watchers/start-all-watchers!)
 
-    ;; Start background task to sync browser connections
-    (start-sync-task!)
-
     ;; Start heartbeat task for connection health monitoring
     (start-heartbeat-task!)
 
@@ -429,11 +458,8 @@
              :msg "Stopping sente WebSocket server"
              :data {:browser-count (browser-count)}})
 
-  ;; Stop heartbeat task first
+  ;; Stop heartbeat task
   (stop-heartbeat-task!)
-
-  ;; Stop sync task
-  (stop-sync-task!)
 
   ;; Stop global message queue watcher
   (watchers/stop-all-watchers!)
@@ -443,7 +469,8 @@
 
   ;; Mark all browser connections as closed
   (doseq [[_sente-conn-id {:keys [mcp-conn-id]}] @!browser-connections]
-         (conn-state/mark-connection-closed! mcp-conn-id :server-shutdown "Server stopping"))
+         (when mcp-conn-id
+           (conn-state/mark-connection-closed! mcp-conn-id :server-shutdown "Server stopping")))
 
   ;; Clear our tracking
   (reset! !browser-connections {})

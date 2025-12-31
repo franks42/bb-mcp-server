@@ -133,6 +133,19 @@
     ;; Guard against double evaluation (scittle.nrepl.js may auto-eval)
     (defonce !initialized (atom false))
 
+    ;; Persistent session-id survives WebSocket reconnects (Safari tab throttling)
+    ;; defonce ensures same ID is reused when WS reconnects after background pause
+    (defonce !browser-session-id (atom nil))
+
+    (defn get-or-create-session-id
+      \"Get existing session-id or create a new one.
+       Uses defonce atom so ID persists across WebSocket reconnects.\"
+      []
+      (or @!browser-session-id
+          (let [new-id (str \"session-\" (random-uuid))]
+            (reset! !browser-session-id new-id)
+            new-id)))
+
     (defn log-el [] (js/document.getElementById \"log\"))
     (defn status-el [] (js/document.getElementById \"status\"))
 
@@ -159,8 +172,13 @@
             (client/make-client!
               {:url ws-url
                :on-open (fn [uid]
-                          (set-status! \"connected\" (str \"Connected (uid: \" uid \")\"))
+                          (set-status! \"connecting\" (str \"Handshaking (uid: \" uid \")\"))
                           (log! \"info\" (str \"WebSocket connected, uid: \" uid))
+                          ;; Send client/ready to initiate handshake with session-id
+                          (let [session-id (get-or-create-session-id)]
+                            (log! \"info\" (str \"Session ID: \" session-id))
+                            (client/send! client-id [:client/ready {:session-id session-id}]))
+                          ;; Connect nREPL adapter (handles describe probe)
                           (adapter/connect! {:client client-id
                                              :on-connect #(log! \"info\" \"nREPL adapter connected\")}))
                :on-close (fn [event]
@@ -168,17 +186,22 @@
                            (log! \"info\" \"WebSocket disconnected\")
                            (adapter/disconnect!))
                :on-reconnect (fn []
-                               (set-status! \"connected\" \"Reconnected\")
+                               (set-status! \"connecting\" \"Reconnecting...\")
                                (log! \"info\" \"WebSocket reconnected\")
+                               ;; Re-send client/ready with same session-id for stable identity
+                               (let [session-id (get-or-create-session-id)]
+                                 (log! \"info\" (str \"Re-sending session ID: \" session-id))
+                                 (client/send! client-id [:client/ready {:session-id session-id}]))
                                (adapter/connect! {:client client-id}))
                :on-message (fn [event-id data]
                              (case event-id
                                :heartbeat/ping
                                (client/send! client-id [:heartbeat/pong {}])
-                               :nrepl/registered
-                               (let [{:keys [nickname connection-id]} data]
+                               :server/ready
+                               (let [{:keys [nickname connection-id reconnect]} data]
                                  (set-status! \"connected\" (str \"Connected as \" nickname))
-                                 (log! \"info\" (str \"Registered as \" nickname \" (\" connection-id \")\")))
+                                 (log! \"info\" (str (if reconnect \"Reconnected\" \"Registered\")
+                                                    \" as \" nickname \" (\" connection-id \")\")))
                                :nrepl/request
                                (log! \"eval\" (str \"Request: \" (pr-str data)))
                                nil))}))
