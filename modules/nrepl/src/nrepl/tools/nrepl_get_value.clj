@@ -62,20 +62,23 @@
     :else
     (let [;; Code to get var value with type info and truncation
           ;; Handles functions specially (returns metadata, not the fn object)
+          ;; SCI-compatible: uses (var? v) check before deref since SCI resolve returns fns directly
           code (format "
 (when-let [v (resolve '%s)]
-  (let [val @v
+  (let [val (if (var? v) @v v)  ; SCI returns fn directly, not var
         t (type val)
-        type-name (if t (pr-str t) \"nil\")]
+        type-name (if t (pr-str t) \"nil\")
+        ;; For metadata, SCI vars may not have meta, fallback to nil
+        var-meta (when (var? v) (meta v))]
     (cond
       ;; Functions - return signature info instead of object
       (fn? val)
       {:type type-name
        :value-str \"<function>\"
        :value {:fn true
-               :arglists (mapv str (:arglists (meta v)))
-               :name (str (:name (meta v)))
-               :ns (str (:ns (meta v)))}}
+               :arglists (mapv str (:arglists var-meta))
+               :name (str (:name var-meta))
+               :ns (str (:ns var-meta))}}
 
       ;; Large sequences - truncate
       (and (sequential? val) (> (count val) %d))
