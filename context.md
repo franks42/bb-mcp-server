@@ -47,8 +47,12 @@ See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full de
 
 **Next priorities:**
 
-1. **Phase 0.5: REPL source capture** - Datalevin + var metadata
-2. **Phase 0.6: Top-level non-def forms visibility**
+1. **Scittle Code Browser** - Design complete, implementation next
+   - Bidirectional atom sync infrastructure
+   - LSP-first (clojure-lsp as data source)
+   - See: `docs/design/bb-scittle-code-browser-design.md`
+2. **Phase 0.5: REPL source capture** - Datalevin + var metadata
+3. **Phase 0.6: Top-level non-def forms visibility**
 
 **Quick verification of browser stability:**
 ```bash
