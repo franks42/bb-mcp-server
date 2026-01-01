@@ -57,22 +57,33 @@ bb-server                          Browser (Scittle)
 
 ## UI Layout
 
+Inspired by [clj-ns-browser](https://github.com/franks42/clj-ns-browser) (Smalltalk-style browser).
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  [Filter: ________] [Static ▼] [Refresh]                            │
-├──────────────────┬──────────────────┬───────────────────────────────┤
-│ Namespaces       │ Vars             │ Source                        │
-│ ──────────────── │ ──────────────── │ ─────────────────────────────│
-│ [filter_______]  │ [filter_______]  │                               │
-│                  │                  │ (defn my-function             │
-│ ☐ app.core      │ app.core/start   │   "Docstring here"            │
-│ ☑ app.db        │ app.core/stop    │   [arg1 arg2]                 │
-│ ☐ app.handlers  │ ▶app.db/connect  │   (let [x (foo arg1)]         │
-│ ☑ app.routes    │ app.db/query     │     (bar x arg2)))            │
-│                  │ app.routes/home  │                               │
-│                  │                  │                               │
-└──────────────────┴──────────────────┴───────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  [Static/Runtime ▼]  [Refresh]                              [Settings ⚙]   │
+├───────────────────┬───────────────────┬─────────────────────────────────────┤
+│ Namespaces        │ Vars/Classes      │ Documentation                       │
+│ ─────────────────│ ─────────────────│ ───────────────────────────────────│
+│ [loaded ▼]        │ [Vars-public ▼]   │ [Doc][Source][Examples][Value][Meta]│
+│ [filter_______]   │ [filter_______]   │                                     │
+│                   │                   │ clj-info.doc2md/format-source-info  │
+│ ☑ clj-info       │ format-arglists   │ ─────────────────────────────────── │
+│ ☑ clj-info.doc2md│ format-code-block │ (defn- format-source-info           │
+│ ☐ clj-ns-browser │ ▶format-source-info│   "Format source and metadata..."  │
+│ ☐ clj-ns-browser.│ format-usage      │   [doc-map]                         │
+│   browser        │                   │   (let [{:keys [ns file line]} ...  │
+│                   │                   │                                     │
+│ 17         [Req] │ 14    [Trace]     │ [Inspect] [Edit] [Browse]           │
+└───────────────────┴───────────────────┴─────────────────────────────────────┘
 ```
+
+**Key UI patterns from clj-ns-browser:**
+- Dropdown for filter *mode* (loaded/unloaded, Vars-public/private/macro/etc.)
+- Text field for filter *pattern* (regex with visual feedback)
+- Counts at bottom (17 namespaces, 14 vars)
+- Toggle button row for doc sections (multi-select with Cmd-click)
+- Color coding by var type (macro=red, function=green, protocol=blue)
 
 ---
 
