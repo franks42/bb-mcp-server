@@ -98,7 +98,8 @@ bb nrepl eval "[cm6/editor {:value \"(+ 1 2)\" :language :clojure :read-only tru
 ## Recent Changes
 
 ```
-(pending) feat(code-browser): Phase 0 dev infrastructure complete
+bb79ed3 fix(code-browser): Add React/ReactDOM scripts required for Reagent
+e11cce8 feat(code-browser): Complete Phase 0 dev infrastructure
 59793fb docs: Add Dev Environment Quick Reference section
 83ba763 docs: Update context.md with code browser Phase 0 status
 ea824c1 docs: Update implementation plan and design for code browser
@@ -150,6 +151,7 @@ Things learned that aren't in CLAUDE.md:
 - **Safari background throttling** - Safari tabs throttle JS when unfocused, breaking WebSocket heartbeats
 - **sente-lite heartbeat config** - 30s ping interval, 60s pong timeout = 90s before disconnect
 - **Monitor browser health** - Use `sente-browser.server/get-connection-health` via local-eval
+- **React/ReactDOM for Reagent** - Scittle's reagent.js plugin requires React/ReactDOM loaded first (not bundled)
 
 ---
 
