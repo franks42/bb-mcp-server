@@ -371,20 +371,61 @@ For bidirectional sync, last-write-wins with optional version vectors:
 
 ### CodeMirror 6 in Scittle
 
-CodeMirror 6 is a JavaScript library. Integration options:
+**Decision:** ES modules via esm.sh + custom Reagent wrapper in separate reusable namespace.
 
-**Option 1: JS Interop**
-```clojure
-(def cm-view (js/EditorView.
-  #js {:doc "code here"
-       :extensions #js [(js/clojure)]}))
+**Rationale:**
+- No off-the-shelf CM6 Reagent/Scittle wrapper exists
+- [nextjournal/clojure-mode](https://github.com/nextjournal/clojure-mode) provides language support only
+- Maria.cloud still uses CM5 (hasn't migrated)
+- esm.sh handles bundling/CDN, keeps options open
+- Separate namespace (`scittle-cm6`) enables reuse outside this project
+
+**Bootstrap HTML preload:**
+```html
+<script type="module">
+  import {EditorView, basicSetup} from 'https://esm.sh/@codemirror/basic-setup';
+  import {EditorState} from 'https://esm.sh/@codemirror/state';
+  import {clojure} from 'https://esm.sh/@nextjournal/lang-clojure';
+  globalThis.CM = {EditorView, EditorState, basicSetup, clojure};
+</script>
 ```
 
-**Option 2: Wrapper Component**
-Create a React/Reagent wrapper that manages CM6 lifecycle.
+**Wrapper component (loaded via nREPL, iterated live):**
+```clojure
+(ns scittle-cm6.core
+  "Reusable CodeMirror 6 wrapper for Scittle/Reagent.
+   Separate namespace for use outside code-browser."
+  (:require [reagent.core :as r]
+            [reagent.dom :as rdom]))
 
-**Option 3: Pre-built Scittle CM6 integration**
-Check if one exists (e.g., from Maria.cloud, Clerk).
+(defn code-viewer
+  "Read-only CodeMirror 6 viewer with Clojure syntax."
+  [{:keys [code]}]
+  (let [!view (atom nil)]
+    (r/create-class
+      {:component-did-mount
+       (fn [this]
+         (let [el (rdom/dom-node this)
+               view (js/CM.EditorView.
+                      #js {:doc (or code "")
+                           :extensions #js [(js/CM.basicSetup)
+                                            (js/CM.clojure)
+                                            (js/CM.EditorView.editable.of false)]
+                           :parent el})]
+           (reset! !view view)))
+       :component-did-update
+       (fn [this [_ old-props]]
+         (let [[_ new-props] (r/argv this)]
+           (when (and @!view (not= (:code old-props) (:code new-props)))
+             (.dispatch @!view
+               #js {:changes #js {:from 0
+                                   :to (.. @!view -state -doc -length)
+                                   :insert (:code new-props)}}))))
+       :component-will-unmount
+       (fn [_] (when @!view (.destroy @!view)))
+       :reagent-render
+       (fn [_] [:div.cm-container])})))
+```
 
 ### Filtering
 
@@ -455,12 +496,129 @@ modules/sente-browser/
 
 ---
 
+## Dev Infrastructure
+
+### System Config: `bb-code-browser-dev-system.edn`
+
+```edn
+{:server-name "code-browser-dev"
+ :modules ["local-eval"
+           "nrepl"
+           "mcp-http"
+           "clojure-lsp"
+           "sente-browser"]
+ :config {:sente-browser {:bootstrap-port 8091
+                          :ws-port 8090}
+          :mcp-http {:port 3000}
+          :clojure-lsp {:project-root "."}}}  ;; bb-mcp-server itself
+```
+
+**Start:**
+```bash
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+```
+
+### Bootstrap HTML Preloads
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>bb-mcp Code Browser</title>
+  <style>/* CSS for panels, CM6, etc. */</style>
+</head>
+<body>
+  <div id="app">Loading...</div>
+
+  <!-- 1. Scittle core + plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.reagent.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.promesa.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js"></script>
+
+  <!-- 2. Trove logging -->
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/..." type="application/x-scittle"></script>
+
+  <!-- 3. CodeMirror 6 via ES modules -->
+  <script type="module">
+    import {EditorView, basicSetup} from 'https://esm.sh/@codemirror/basic-setup';
+    import {EditorState} from 'https://esm.sh/@codemirror/state';
+    import {clojure} from 'https://esm.sh/@nextjournal/lang-clojure';
+    globalThis.CM = {EditorView, EditorState, basicSetup, clojure};
+    // Signal CM6 ready, then eval Scittle
+    window.CM6_READY = true;
+  </script>
+
+  <!-- 4. sente-lite + nREPL adapter bundle -->
+  <script src="/sente-lite-nrepl.cljs" type="application/x-scittle"></script>
+
+  <!-- 5. Atom sync + error boundary (bootstrap infrastructure) -->
+  <script type="application/x-scittle">
+    (ns code-browser.bootstrap
+      (:require [reagent.core :as r]))
+
+    ;; Error boundary for safe REPL development
+    (defn error-boundary [& children]
+      (let [!error (r/atom nil)]
+        (r/create-class
+          {:component-did-catch (fn [_ e _] (reset! !error e))
+           :reagent-render
+           (fn [& children]
+             (if @!error
+               [:div.error [:h3 "Error"] [:pre (str @!error)]
+                [:button {:on-click #(reset! !error nil)} "Clear"]]
+               (into [:<>] children)))})))
+
+    ;; Synced atoms registry (bidirectional with server)
+    (defonce !synced-atoms (atom {}))
+
+    (defn get-synced-atom [key]
+      (or (get @!synced-atoms key)
+          (let [a (r/atom nil)]
+            (swap! !synced-atoms assoc key a)
+            a)))
+
+    ;; Dev namespace with preloaded helpers
+    (def dev-ns 'code-browser.dev)
+  </script>
+
+  <!-- 6. Eval all Scittle tags -->
+  <script>scittle.core.eval_script_tags();</script>
+</body>
+</html>
+```
+
+### UI Code Loading via nREPL
+
+UI code is NOT hardcoded in HTML. Load iteratively:
+
+```clojure
+;; From bb REPL
+(require '[bb-mcp-server.mcp-client :as mcp])
+
+;; Load UI component
+(mcp/browser-eval! "browser-1"
+  '(do
+     (require '[code-browser.panels :as panels])
+     (panels/mount! (js/document.getElementById "app"))))
+
+;; Iterate live
+(mcp/browser-eval! "browser-1"
+  '(swap! code-browser.state/!layout assoc :ns-width "30%"))
+
+;; Hot reload a namespace
+(mcp/browser-load-file! "browser-1"
+  "modules/sente-browser/resources/scittle/code_browser/panels.cljs")
+```
+
+---
+
 ## Dependencies
 
 - `sente-browser` - WebSocket communication, bidirectional atom sync
 - `clojure-lsp` - **Primary data source** for static analysis (required)
 - `nrepl` - Runtime introspection (Phase 2)
-- CodeMirror 6 - Source display (or `<pre>` + highlight.js for MVP)
+- CodeMirror 6 - Source display via esm.sh
 - Reagent (via Scittle) - UI framework, reactive atoms
 
 ---
@@ -490,14 +648,23 @@ modules/sente-browser/
 
 ---
 
-## Questions to Resolve
+## Design Decisions Summary
 
-1. **CodeMirror integration:** Use existing Scittle/CM6 wrapper or build custom? Start with `<pre>` + highlight.js?
-2. **Multi-project:** Support browsing multiple projects? (Probably yes - switch via REPL)
-3. **Persistence:** Remember selected namespaces across sessions? (localStorage or server-side?)
-4. **Theming:** Dark/light mode, match system preference?
-5. **Reagent vs vanilla:** Use Reagent atoms or plain Scittle atoms? (Reagent for reactivity)
-6. **Initial data load:** Push on connect or request on demand?
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| CodeMirror integration | ES modules via esm.sh + custom wrapper | No existing wrapper; esm.sh is simple |
+| CM6 namespace | Separate `scittle-cm6` | Reusable outside code-browser |
+| Reagent vs vanilla | Reagent atoms | Reactivity needed |
+| UI code loading | Via nREPL (not hardcoded) | Live iteration without page refresh |
+| Data source | clojure-lsp only (no custom parsing) | LSP handles macros/protocols correctly |
+| Dev config | Dedicated `bb-code-browser-dev-system.edn` | All modules in one config |
+| Default test project | bb-mcp-server itself | Dogfooding, always available |
+| Atom sync location | Bootstrap bundle (preloaded) | Must exist before UI code loads |
+
+**Open questions:**
+- **Persistence:** localStorage for layout preferences?
+- **Theming:** Dark/light mode, match system preference?
+- **Initial data load:** Push on connect or request on demand?
 
 ---
 
@@ -527,12 +694,21 @@ modules/sente-browser/
 
 ## Next Steps
 
-1. **Prototype bidirectional atom sync** - Core infrastructure
-2. **Minimal namespace list** - Server pushes, browser renders
-3. **Filter component** - Wildcard matching
-4. **Vars panel** - Wire to namespace selection
-5. **Source display** - Simple `<pre>` first, CM6 later
+**Phase 0: Dev Infrastructure**
+1. Create `bb-code-browser-dev-system.edn` config
+2. Update bootstrap HTML with preloaded scripts (Reagent, CM6, trove)
+3. Create `scittle-cm6` namespace (reusable CM6 wrapper)
+4. Implement atom sync primitives in bootstrap bundle
+5. Add error boundary for safe REPL development
+6. Test: load UI code via nREPL, iterate live
+
+**Phase 1: Static Browsing**
+1. Namespace list panel (Reagent)
+2. Vars list panel
+3. Source viewer (CM6, read-only)
+4. Filter components (wildcard/regex)
+5. Wire clojure-lsp as data source
 
 ---
 
-*Last Updated: 2025-12-31*
+*Last Updated: 2026-01-01*

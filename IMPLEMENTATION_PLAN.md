@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Phase 0 (Introspection) Complete
+**Status:** Code Browser Phase 0 (Infrastructure)
 **Version:** v1.8.0+
-**Last Updated:** 2025-12-30
+**Last Updated:** 2026-01-01
 
 ---
 
@@ -14,275 +14,80 @@ Production-ready MCP server with:
 - Dynamic module system
 - 16+ tool modules
 - E2E test suite
+- Scittle browser nREPL with stable session identity
 
 ---
 
-## Maintenance Log
+## Active Work: Scittle Code Browser
 
-### 2025-12-29: CLI Script Lint Fixes
+**Goal:** Browser-based code browser embedded in Scittle dev environment.
 
-Fixed clj-kondo errors and warnings in CLI scripts caused by implicit `user` namespace usage.
+**Design doc:** `docs/design/bb-scittle-code-browser-design.md`
 
-**Issues:**
-- Scripts in `scripts/` used implicit `user` namespace
-- When analyzed together, clj-kondo reported "redefined var" warnings
-- Function arity conflicts between `http_test.clj` and `mcp_cli.clj` (both defined `cmd-init`, `cmd-tools`, `cmd-call` with different signatures)
+### Phase 0: Dev Infrastructure (Current)
 
-**Fix:** Added proper `ns` declarations to each script:
-- `http_test.clj` → `(ns http-test ...)`
-- `mcp_cli.clj` → `(ns mcp-cli ...)`
-- `nrepl_cli.clj` → `(ns nrepl-cli ...)`
-- `rebel_nrepl_client.clj` → `(ns rebel-nrepl-client ...)`
+| Task | Description | Status |
+|------|-------------|--------|
+| 0.1 | Create `bb-code-browser-dev-system.edn` config | Pending |
+| 0.2 | Update bootstrap HTML with preloaded scripts | Pending |
+| 0.3 | Create `scittle-cm6` namespace (reusable CM6 wrapper) | Pending |
+| 0.4 | Implement bidirectional atom sync (bootstrap bundle) | Pending |
+| 0.5 | Add error boundary for safe REPL development | Pending |
+| 0.6 | Test: load UI code via nREPL, iterate live | Pending |
 
-**Result:** Lint passes with 0 errors, 0 warnings.
+**Dev Config Contents:**
+- `local-eval` - Server-side eval
+- `nrepl` - Browser introspection
+- `http-server` - HTTP transport
+- `clojure-lsp` - Static analysis (integral, always loaded)
+- `sente-browser` - Scittle nREPL
+- Default project: `bb-mcp-server` itself
+
+**Bootstrap Preloads:**
+```html
+<!-- Scittle core + plugins -->
+scittle.js, scittle.reagent.js, scittle.promesa.js, scittle.nrepl.js, trove
+
+<!-- CodeMirror 6 via ES modules (esm.sh) -->
+@codemirror/view, @codemirror/state, @codemirror/basic-setup
+@nextjournal/lang-clojure
+
+<!-- Our infrastructure (in bootstrap bundle) -->
+atom-sync primitives, error boundary, dev namespace
+```
+
+**UI Loading Pattern:**
+```clojure
+;; From bb REPL - load UI code via nREPL
+(browser-eval! browser-1 '(require '[code-browser.core :as cb]))
+(browser-eval! browser-1 '(cb/mount!))
+
+;; Iterate live without page refresh
+(browser-eval! browser-1 '(swap! cb/!layout assoc :ns-width "25%"))
+```
+
+### Phase 1: Static Browsing
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.1 | Namespace list panel (Reagent) | Pending |
+| 1.2 | Vars list panel | Pending |
+| 1.3 | Source viewer (CM6, read-only) | Pending |
+| 1.4 | Filter components (wildcard/regex) | Pending |
+| 1.5 | Wire clojure-lsp as data source | Pending |
+
+### Phase 2: Runtime Introspection
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.1 | Mode toggle (Static/Runtime) | Pending |
+| 2.2 | Wire nREPL introspection tools | Pending |
+| 2.3 | Show REPL-defined vars | Pending |
+| 2.4 | Static vs runtime diff view | Pending |
 
 ---
 
 ## Pending Work
-
-### Scittle Browser Session Stability (Investigation)
-
-**Problem:** Scittle browsers keep disconnecting and reconnecting on new sente-lite channels (browser-1, browser-2, browser-3...) instead of reusing existing channels. This causes confusion during testing as connection names keep changing.
-
-**Priority:** HIGH - Makes Scittle browser nREPL tedious and error-prone.
-
----
-
-#### Root Cause Analysis
-
-Based on code review, here's what happens:
-
-```
-1. Browser connects → sente-lite assigns sente-conn-id (e.g., "abc123")
-2. server.clj sync-task detects new sente-conn-id → calls handle-browser-connect!
-3. connection.clj creates browser-{counter}-{uuid} (e.g., "browser-1-xyz")
-4. ** DISCONNECT ** (tab throttle, network blip, timeout, etc.)
-5. sente-lite assigns NEW sente-conn-id (e.g., "def456")
-6. sync-task sees "abc123" gone → handle-browser-disconnect! (browser-1 marked closed)
-7. sync-task sees "def456" new → handle-browser-connect! creates "browser-2-xyz"
-8. User now has to use "browser-2" instead of "browser-1" 😤
-```
-
-**The fundamental issue:** sente-lite has no built-in session persistence across reconnects. Each WebSocket connection gets a fresh UUID.
-
----
-
-#### Investigation Tasks
-
-**Phase A: Understand Current Behavior (Observation)**
-
-| # | Task | Method |
-|---|------|--------|
-| A1 | Reproduce disconnection reliably | Tab switch, network throttle, idle timeout |
-| A2 | Measure time-to-disconnect | Log timestamps, identify trigger |
-| A3 | Check sente-lite reconnect behavior | Does it auto-reconnect? With same ID? |
-| A4 | Check browser console for errors | WebSocket close codes, sente-lite logs |
-| A5 | Check server logs pattern | Which disconnect happens first? |
-
-**Phase A Results (2025-12-31):**
-
-| # | Finding |
-|---|---------|
-| A1 | **Reproduced**: Safari disconnects reliably when tab unfocused. Playwright headless stays connected indefinitely. |
-| A2 | **Timing**: 90s pattern confirmed (30s heartbeat + 60s timeout). Some disconnects faster (~15s) when rapidly switching tabs. |
-| A3 | **sente-lite behavior**: Each reconnect gets NEW conn-id (`conn-{timestamp}-{random}`). No session persistence. |
-| A4 | **Not tested**: Would require manual browser dev tools inspection. |
-| A5 | **Server logs**: `sente-lite.heartbeat/timeout` logged when pong not received. Safari throttles JS preventing pong. |
-
-**Root Cause Confirmed:**
-```
-Safari background → JS throttled → pong not sent → sente-lite 60s timeout → close connection
-Browser reconnects → sente-lite new conn-id → server creates browser-N+1 → name changes
-```
-
-**Stable Connection Evidence:**
-- Playwright headless browser (browser-304) stayed connected 1+ hours
-- Safari browser cycled through browser-335 → 346 → 347 → ... within minutes
-
-**Recommendation:**
-- **B4 (visibilitychange)** addresses the root cause (Safari throttling)
-- **B1 (localStorage)** provides stability regardless of cause
-- Combination: B4 to reduce disconnects + B1 for when they do happen
-
-**Phase B: Evaluate Solutions**
-
-| # | Solution | Pros | Cons | Effort |
-|---|----------|------|------|--------|
-| B1 | **Browser-stable-id via localStorage** | Stable names, survives refresh | Need mapping layer, stale cleanup | Medium |
-| B2 | **Grace period before disconnect** | Simple, no client changes | Delay in detecting real disconnect | Low |
-| B3 | **Increase heartbeat interval** | May reduce false disconnects | Longer detection of real issues | Low |
-| B4 | **visibilitychange event handling** | Prevents tab-throttle disconnects | Client-side change needed | Medium |
-| B5 | **sente-lite session persistence** | Cleanest if sente-lite supports it | May need fork/PR to sente-lite | High |
-| B6 | **nickname reuse on reconnect** | User picks stable name | Manual step required | Low |
-
-**Phase C: Implementation - Ready Handshake Protocol**
-
-**Selected Approach:** Event-driven ready handshake (evolved from B1 session-id approach).
-
-**Key Insight:** The original session-id approach had a race condition - browser could send `:nrepl/session-hello` before the server's 500ms sync-task created the connection entry. Solution: Replace polling with event-driven ready handshake.
-
-**Ready Handshake Protocol:**
-```
-1. Browser connects via WebSocket (gets new sente-conn-id each time)
-2. Browser sends :client/ready {:session-id X} when handlers ready
-3. Server validates nREPL capability (sends :describe probe)
-4. Browser responds to describe probe
-5. Server validates, sends :server/ready {:nickname ... :reconnect true/false}
-6. Both sides now ready for normal communication
-```
-
-**Why this is better than polling:**
-- No race conditions - messages only sent after both sides ready
-- No 500ms polling overhead
-- Clean event-driven architecture
-- Session registry lookup happens at exactly the right moment
-
-```
-FIRST CONNECT:
-Browser → WS connect → new sente-conn-id "abc123"
-Browser → [:client/ready {:session-id "session-XYZ"}]
-Server: handle-client-ready! → No registry entry → send describe probe
-Browser → responds to describe
-Server: promote-to-validated! → create mcp-conn-id "browser-1-uuid"
-        Store: session-XYZ → browser-1-uuid
-Server → [:server/ready {:nickname "browser-1" :reconnect false}]
-Browser sees: "Registered as browser-1"
-
-RECONNECT (Safari tab unfocused, then refocused):
-Browser → WS connect → new sente-conn-id "def456" (different!)
-Browser → [:client/ready {:session-id "session-XYZ"}] (same session-id!)
-Server: handle-client-ready! → Registry lookup → session-XYZ exists!
-        Reactivate connection, update sente-conn-id mapping
-Server → [:server/ready {:nickname "browser-1" :reconnect true}]
-Browser sees: "Reconnected as browser-1" (stable!)
-```
-
-**Implementation Tasks:**
-
-| # | Task | File | Status |
-|---|------|------|--------|
-| C1 | Add `defonce !browser-session-id` and `get-or-create-session-id` | bootstrap.clj | ✅ Complete |
-| C2 | Send `:client/ready` in `:on-open` callback | bootstrap.clj | ✅ Complete |
-| C3 | Send `:client/ready` in `:on-reconnect` callback | bootstrap.clj | ✅ Complete |
-| C4 | Add `!session-registry` atom | server.clj | ✅ Complete |
-| C5 | Add `handle-client-ready!` function | server.clj | ✅ Complete |
-| C6 | Remove sync-task polling (replaced with event-driven) | server.clj | ✅ Complete |
-| C7 | Handle `:client/ready` event in `on-browser-message` | server.clj | ✅ Complete |
-| C8 | Modify `promote-to-validated!` to send `:server/ready` | server.clj | ✅ Complete |
-| C9 | Update `handle-browser-disconnect!` to preserve registry | server.clj | ✅ Complete |
-
-Also added to connection.clj:
-- `reactivate-browser-connection!` - Reactivates closed browser connection with new sente-conn-id
-
-**Testing (2025-12-31):**
-- ✅ Safari and Chrome connect with unique browser-N identities
-- ✅ Laptop sleep/wake: Both browsers reconnect with SAME identity
-- ✅ Server logs show `:reconnect true` on reconnection
-- ✅ Multiple reconnects maintain stable identity
-- ✅ No race conditions observed
-
----
-
-#### Detailed Solution Designs
-
-**B1: Browser-stable-id via localStorage**
-```
-Client-side:
-  - On page load: read `bb-mcp-browser-id` from localStorage
-  - If not present: generate UUID, store in localStorage
-  - Send browser-id in initial WebSocket handshake
-
-Server-side:
-  - New: !browser-identity atom maps browser-id → current sente-conn-id
-  - On connect: check if browser-id exists in !browser-identity
-    - If yes: reuse existing mcp-conn-id, update sente-conn-id mapping
-    - If no: create new mcp-conn-id as today
-  - On disconnect: DON'T mark closed immediately, set "awaiting-reconnect" status
-  - On reconnect within grace period: restore to :connected
-  - After grace period: actually mark closed, clean up
-```
-
-**B2: Grace period before disconnect**
-```
-Server-side only:
-  - handle-browser-disconnect! doesn't immediately mark closed
-  - Sets status to :disconnecting with timestamp
-  - New periodic task: after 60s in :disconnecting, mark closed
-  - If same sente-conn-id reappears (sente-lite internal reconnect): cancel
-  - Doesn't help if sente-lite generates new conn-id
-```
-
-**B3: Increase heartbeat interval**
-```
-Current:
-  heartbeat-interval-ms 10000  ; Send every 10s
-  heartbeat-timeout-ms  30000  ; Stale after 30s
-
-Try:
-  heartbeat-interval-ms 30000  ; Send every 30s
-  heartbeat-timeout-ms  90000  ; Stale after 90s
-
-Won't help tab throttling, but reduces false positives from transient issues.
-```
-
-**B4: visibilitychange event handling**
-```
-Client-side (sente-lite bundle or bootstrap.cljs):
-  - On visibilitychange hidden: pause heartbeat responses, don't disconnect
-  - On visibilitychange visible: resume, send immediate ping
-  - Prevents Chrome tab throttling from triggering timeout
-
-Server-side:
-  - Accept "dormant" status during hidden period
-  - Longer grace for dormant connections
-```
-
-**B6: nickname reuse on reconnect**
-```
-Allow user to specify nickname:
-  bb nrepl connect --mcp scittle-dev --nickname my-browser
-
-If browser reconnects:
-  - Old browser-2 closed
-  - New browser-3 created
-  - User can: bb nrepl nickname browser-3 my-browser
-
-Doesn't solve the problem but gives escape hatch.
-```
-
----
-
-#### Files to Examine/Modify
-
-| File | Role |
-|------|------|
-| `modules/sente-browser/src/sente_browser/server.clj` | Sync task, connect/disconnect handlers |
-| `modules/nrepl/src/nrepl/state/connection.clj` | register-browser-connection! |
-| `sente-lite/dist/sente-lite-nrepl.cljs` | Client reconnect behavior |
-| `modules/sente-browser/src/sente_browser/bootstrap.clj` | Bootstrap HTML generation |
-
----
-
-#### Decision Criteria
-
-Choose B1 (browser-stable-id) if:
-- Disconnects are frequent and unavoidable
-- We need truly stable names across page refreshes
-
-Choose B2+B3 (grace period + longer timeout) if:
-- Disconnects are rare/transient
-- Simpler fix is preferred
-
-Choose B4 (visibilitychange) if:
-- Tab throttling is the main cause
-- We can modify sente-lite bundle
-
----
-
-**Status:** Phase C Complete ✅ (Tested 2025-12-31)
-**Result:** Safari and Chrome maintain stable identity across laptop sleep/wake cycles
-
----
 
 ### bb calc CLI (Low Priority)
 
@@ -300,237 +105,27 @@ Low priority - calculate works fine via `bb mcp call`.
 
 ---
 
-### clojure-lsp Module
+### clojure-lsp Module ✅ (Phase 5.5 Complete)
 
-Clojure LSP integration via persistent subprocess.
+Clojure LSP integration via persistent subprocess. **16 MCP tools, 18 CLI commands.**
+
+**Phase 6 remaining:** Error handling, README, test coverage.
+
+**References:** `modules/clojure-lsp/docs/` for design and CLI examples.
+
+---
+
+### Static + Live State Integration
+
+Unified view: clojure-lsp (static) + nREPL (runtime). **Phase 0 complete.**
+
+**Design docs:** `docs/design/live-static-state-design-implementation.md`
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Foundation (jsonrpc, client, server) | ✅ Complete |
-| 2 | Clojure API (tools.clj) | ✅ Complete |
-| 3 | CLI (bb clojure-lsp) | ✅ Complete |
-| 4 | MCP Tools (11 tools) | ✅ Complete |
-| 5 | Watch Mode & Extended CLI | ✅ Complete |
-| 5.5 | MCP Tools Parity (16 tools) | ✅ Complete |
-| 6 | Polish & Docs | Pending |
-
-**Phase 5.5 Complete (2025-12-29):**
-
-Per Gemini review feedback, added 5 missing MCP tools to achieve full parity with `tools.clj`:
-- `clj-find-symbol` - Workspace-wide symbol search by name
-- `clj-implementations` - Find protocol/interface implementations
-- `clj-format` - Format files via clojure-lsp
-- `clj-execute-command` - Execute refactoring commands (cycle-privacy, extract-function, etc.)
-- `clj-watch` - Control file watcher (start/stop/status)
-
-Enhanced: `clj-init` now accepts `watch: true` to auto-start file watcher.
-
-**MCP tools: 16 total** | **CLI commands: 18 total**
-
-**Phase 5 Complete (2025-12-29):**
-
-CLI expanded to 18 commands with watch mode:
-
-| Category | Commands |
-|----------|----------|
-| Lifecycle | `start`, `stop`, `status`, `watch` |
-| Navigation | `definition`, `references`, `hover`, `implementations` |
-| Search | `find-symbol` (workspace-wide by name) |
-| Analysis | `diagnostics`, `symbols`, `call-hierarchy` |
-| Refactoring | `completions`, `code-actions`, `rename`, `refactor`, `format` |
-
-Key additions:
-- **`bb clojure-lsp watch`** - File watcher using pod-babashka-fswatcher v0.0.7
-  - Monitors `.clj/.cljs/.cljc/.edn` recursively
-  - Sends `workspace/didChangeWatchedFiles` to keep index fresh
-  - Logs via trove for telemetry integration
-- **`find-symbol`** - Symbol-centric search (not position-dependent)
-- **`format`** - Format files via clojure-lsp
-- **`implementations`** - Find protocol implementations
-- **`refactor`** - Execute refactoring commands (cycle-privacy, extract-function, etc.)
-- **`bb pprint`** - EDN pretty-printer utility for CLI output
-- **Default output: EDN** (use `--json` for JSON)
-
-**Phase 6 Tasks:**
-- Error handling: timeouts, process crashes, auto-restart
-- README.md for the module
-- Test coverage for new commands
-
-**Note:** Multi-project support available at bb-mcp-server level (run multiple instances).
-
-**Test Strategy:** Integration tests spawn real `clojure-lsp` subprocess using module's own source files as test corpus.
-
-**References:**
-- `modules/clojure-lsp/docs/design-implementation.md` - How it works
-- `modules/clojure-lsp/docs/design-rationale.md` - Why decisions were made
-- `modules/clojure-lsp/docs/clojure-lsp-cli-examples.md` - Complete CLI examples
-
----
-
-### Static + Live State Integration (Planned)
-
-Unified view combining clojure-lsp static analysis with nREPL runtime introspection.
-
-**Problem:** clojure-lsp sees files on disk; nREPL sees runtime state. Neither gives complete picture when code is evaluated at REPL without saving.
-
-**Solution:** Hybrid introspection that merges:
-- **Static** (clojure-lsp): AST, references, call hierarchy, refactoring
-- **Dynamic** (nREPL): Runtime values, dynamically defined vars, loaded namespaces
-
-**Design documents:**
-- `docs/design/live-static-state-design-implementation.md` - Original design
-- `docs/design/live-static-state-design-implementation-review.md` - Gemini review
-
-**Architecture (per Gemini review):**
-- Create dedicated `state-monitor` module (not in clojure-lsp or nrepl)
-- Dependency: `state-monitor` → `clojure-lsp` + `nrepl`
-- Ensures lower-level modules stay focused on their domains
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | nREPL Introspection Tools | ✅ Complete |
-| 0.5 | REPL Source Capture | Planned |
-| 1 | Namespace-Focused Query | Planned |
-| 2 | State Monitor Module | Planned |
-| 3 | Full Unification & CLI | Planned |
-
----
-
-#### Phase 0: nREPL Introspection Tools ✅ (Complete 2025-12-30)
-
-Add basic introspection tools to `nrepl` module. No unification logic needed - provides immediate value for AI agents to verify assumptions.
-
-**CLI Wrappers ✅ (2025-12-31):**
-
-Added convenience commands to `bb nrepl` for human-friendly introspection:
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `namespaces [--prefix X]` | List loaded namespaces | `bb nrepl namespaces --prefix clojure --mcp srv` |
-| `vars <ns>` | List vars in namespace | `bb nrepl vars clojure.string --mcp srv` |
-| `meta <symbol>` | Get var metadata | `bb nrepl meta user/foo --pprint --mcp srv` |
-| `value <symbol>` | Get var value | `bb nrepl value user/counter --mcp srv` |
-
-All commands support `--connection` for targeting specific nREPL connections.
-Tested against Scittle browser connections (SCI metadata limitations apply).
-
-**Implemented MCP Tools:**
-
-| Tool | Purpose | Implementation |
-|------|---------|----------------|
-| `nrepl-loaded-namespaces` | List all loaded namespaces | `(all-ns)` with optional prefix filter |
-| `nrepl-introspect-ns` | List loaded vars in a namespace | `(ns-publics 'ns)` + `(ns-interns 'ns)` |
-| `nrepl-var-meta` | Get var metadata (arglists, doc, etc.) | `(meta #'ns/var)` |
-| `nrepl-get-value` | Get EDN value of a var | `@(resolve 'ns/var)` with truncation |
-
-**Key features:**
-- Works with vanilla `clojure.core` - no cider-nrepl required
-- Prefix filtering for `nrepl-loaded-namespaces`
-- Optional metadata inclusion for `nrepl-introspect-ns`
-- Large collection truncation for `nrepl-get-value`
-- Functions return signature info instead of function objects
-
-**Tests:** 8 new tests, 33 assertions (nrepl module now 42 tests, 164 assertions)
-
-**Example usage:**
-```clojure
-;; Agent verifies a var is loaded
-(nrepl-introspect-ns {:ns "my.app.core"})
-;; => {:publics [foo bar baz], :interns [foo bar baz helper-]}
-
-;; Agent checks actual runtime value
-(nrepl-get-value {:symbol "my.app.config/settings"})
-;; => {:port 8080, :host "localhost"}
-```
-
----
-
-#### Phase 0.5: REPL Source Capture
-
-**Problem:** REPL-evaluated code loses its source (`:file "NO_SOURCE_FILE"`).
-
-**Solution:** Intercept `nrepl-eval`, capture source, store in Datalevin + var metadata.
-
-**New MCP Tools:**
-
-| Tool | Purpose |
-|------|---------|
-| `nrepl-var-source` | Get source for a var (file or REPL-captured) |
-| `nrepl-eval-history` | List recent evals with defined vars |
-
-**Storage:** Hybrid - Datalevin (persistent) + var metadata (ephemeral backup)
-
-**See:** `docs/design/live-static-state-design-implementation.md` for full spec.
-
----
-
-#### Phase 1: Namespace-Focused Query
-
-**Recommendation from Gemini:** Prioritize focused queries over global diff.
-
-| Tool | Purpose |
-|------|---------|
-| `query-namespace` | Compare static vs live for ONE namespace |
-| `inspect-value` | LSP-verify symbol exists, then fetch via nREPL |
-
-**Why focused > global:**
-- Global diff is slow (network round-trips)
-- Global diff is noisy (libraries differ slightly)
-- Agent works in one file/namespace at a time
-
----
-
-#### Phase 2: State Monitor Module
-
-Create `modules/state-monitor/` as orchestrator:
-
-```
-state-monitor/
-├── src/state_monitor/
-│   ├── core.clj        # Module lifecycle, MCP tools
-│   ├── query.clj       # Unified query logic
-│   └── normalize.clj   # Static↔Live normalization
-└── module.edn
-```
-
-**Dependencies:**
-- `clojure-lsp` module (static analysis)
-- `nrepl` module (runtime introspection)
-
-**Normalization challenges:**
-- Static sees text: `(defn foo [x] ...)`
-- Runtime sees data: `{:arglists '([x])}`
-- Must normalize for comparison (ignore line numbers, handle aliases, macro expansions)
-
----
-
-#### Phase 3: Full Unification & CLI
-
-**CLI:** `bb state ...` commands:
-```bash
-bb state query my.ns/some-fn    # Static + live info
-bb state diff my.ns             # What's different?
-bb state sync my.ns             # Reload from disk
-bb state watch                  # Alert on divergence
-```
-
-**MCP Tools:**
-- `state-query-symbol` - Full picture of a symbol
-- `state-diff-namespace` - Divergence report
-- `state-sync-namespace` - Reload to sync
-
----
-
-#### Implementation Notes
-
-**Fallback strategy:** Core introspection must work with vanilla `clojure.core`:
-- `ns-publics`, `ns-interns`, `all-ns`
-- `meta`, `resolve`, `source`
-
-Enhanced features when `cider-nrepl` available:
-- `info` op for richer metadata
-- `eldoc` for signatures
-- `ns-path` for file locations
+| 0 | nREPL Introspection Tools (4 tools + CLI wrappers) | ✅ Complete |
+| 0.5 | REPL Source Capture (Datalevin + var metadata) | Planned |
+| 1-3 | State Monitor Module, Unified CLI | Planned |
 
 ---
 
