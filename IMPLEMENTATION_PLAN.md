@@ -18,6 +18,54 @@ Production-ready MCP server with:
 
 ---
 
+## Dev Environment Quick Reference
+
+**Essential commands:**
+```bash
+# Run tests (ALWAYS before committing)
+bb test:modules          # All module tests
+bb lint                  # clj-kondo (must be 0 errors, 0 warnings)
+bb format                # cljfmt check
+
+# Start servers
+bb server                           # Stdio (Claude Desktop)
+bb server --http                    # HTTP on port 3000
+bb server --http --config <file>    # Custom config
+bb server:stop [port]               # Stop server on port
+
+# Scittle browser dev
+bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+# Then open http://localhost:8091
+
+# Code browser dev (when config exists)
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+
+# nREPL CLI
+bb nrepl list --mcp <nickname>      # List connections
+bb nrepl eval "<code>" --mcp <nick> # Eval code
+bb nrepl connect <port>             # Connect to external nREPL
+
+# MCP CLI
+bb mcp servers                      # List running servers
+bb mcp tools --mcp <nickname>       # List tools
+bb mcp call <tool> '<json>' --mcp <nick>  # Call tool
+```
+
+**Key files:**
+- `bb.edn` - All tasks, paths, deps
+- `system.edn` - Default module config
+- `bb-scittle-dev-system.edn` - Scittle browser dev config
+- `CLAUDE.md` - AI instructions (read first)
+- `context.md` - Session state (read at start)
+- `docs/design/*.md` - Design documents
+
+**Verification workflow (run before every commit):**
+```bash
+bb lint && bb format && bb test:modules
+```
+
+---
+
 ## Active Work: Scittle Code Browser
 
 **Goal:** Browser-based code browser embedded in Scittle dev environment.
