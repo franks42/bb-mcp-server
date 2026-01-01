@@ -400,6 +400,20 @@ Unified view combining clojure-lsp static analysis with nREPL runtime introspect
 
 Add basic introspection tools to `nrepl` module. No unification logic needed - provides immediate value for AI agents to verify assumptions.
 
+**CLI Wrappers ✅ (2025-12-31):**
+
+Added convenience commands to `bb nrepl` for human-friendly introspection:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `namespaces [--prefix X]` | List loaded namespaces | `bb nrepl namespaces --prefix clojure --mcp srv` |
+| `vars <ns>` | List vars in namespace | `bb nrepl vars clojure.string --mcp srv` |
+| `meta <symbol>` | Get var metadata | `bb nrepl meta user/foo --pprint --mcp srv` |
+| `value <symbol>` | Get var value | `bb nrepl value user/counter --mcp srv` |
+
+All commands support `--connection` for targeting specific nREPL connections.
+Tested against Scittle browser connections (SCI metadata limitations apply).
+
 **Implemented MCP Tools:**
 
 | Tool | Purpose | Implementation |
