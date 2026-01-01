@@ -8,23 +8,32 @@
 
 ## Previous Session Summary
 
-**Browser Session Stability: Phase C Implementation Complete**
+**Browser Session Stability: Ready Handshake Protocol Complete & Tested**
 
-Implemented session-id handshake to maintain stable browser identity across WebSocket reconnects.
+Implemented event-driven ready handshake to maintain stable browser identity across WebSocket reconnects. This replaces the original session-hello approach which had a race condition.
 
-**Solution Implemented:**
-1. Browser generates session-id via `defonce` (persists across WS reconnects)
-2. Browser sends `:nrepl/session-hello {:session-id X}` on connect/reconnect
-3. Server maintains `!session-registry` mapping session-id → mcp-conn-id
-4. On reconnect, server looks up existing mcp-conn-id from registry
-5. Browser keeps same nickname (browser-1 stays browser-1)
+**Solution Implemented (Ready Handshake Protocol):**
+1. Browser connects via WebSocket
+2. Browser sends `:client/ready {:session-id X}` when handlers ready
+3. Server validates nREPL capability via `:describe` probe
+4. Server sends `:server/ready {:nickname ... :reconnect true/false}`
+5. Both sides now ready for normal communication
+
+**Why ready handshake instead of polling:**
+- Original session-hello had race condition: message arrived before 500ms sync-task created entry
+- Ready handshake is event-driven: no polling, no race conditions
+- Session registry lookup happens at exactly the right moment
 
 **Files Modified:**
-- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Client-side session-id + hello events
-- `modules/sente-browser/src/sente_browser/server.clj` - Session registry + hello handler
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Send `:client/ready`, handle `:server/ready`
+- `modules/sente-browser/src/sente_browser/server.clj` - `handle-client-ready!`, removed sync-task polling
 - `modules/nrepl/src/nrepl/state/connection.clj` - Added `reactivate-browser-connection!`
 
-**Key Insight:** Safari tab throttling pauses JS but does NOT reset the runtime. `defonce` persists the session-id, so on reconnect the same ID is sent to the server.
+**Testing Results (2025-12-31):**
+- ✅ Safari and Chrome connect with unique browser-N identities
+- ✅ Laptop sleep/wake: Both browsers reconnect with SAME identity
+- ✅ Server logs show `:reconnect true` on reconnection
+- ✅ Multiple reconnects maintain stable identity
 
 See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full details.
 
@@ -32,23 +41,23 @@ See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full de
 
 ## Current Focus
 
+**Completed:**
+- ✅ **Browser session stability** - Ready handshake protocol tested and working
+
 **Next priorities:**
 
-1. **Test browser session stability** - Verify Safari reconnects keep same identity
-2. **Add introspection commands to `bb nrepl` CLI** - convenience wrappers
-3. **Phase 0.5: REPL source capture** - Datalevin + var metadata
+1. **Add introspection commands to `bb nrepl` CLI** - convenience wrappers
+2. **Phase 0.5: REPL source capture** - Datalevin + var metadata
+3. **Phase 0.6: Top-level non-def forms visibility**
 
-**To test browser session stability:**
+**Quick verification of browser stability:**
 ```bash
 # Start Scittle dev server
 bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
 
-# Open Safari at http://localhost:8091 - note the browser-N name
-# Switch to another tab for 2+ minutes
-# Switch back - should still be browser-N (not browser-N+1)
-
-# Check session registry
-bb mcp call local-eval.local-eval '{"code":"(sente-browser.server/get-session-registry)"}' --mcp scittle-dev
+# Open Safari and Chrome at http://localhost:8091
+# Sleep laptop, wake up - browsers should reconnect with same identity
+# Server logs should show ":reconnect true"
 ```
 
 ---
@@ -67,9 +76,9 @@ bb mcp call local-eval.local-eval '{"code":"(sente-browser.server/get-session-re
 ## Recent Changes
 
 ```
-d0d1a17 docs: Add detailed bug report for tools.clj loading failure
-53f1854 docs: Update context.md for clojure-lsp Phase 3 completion
-a3b8177 feat(clojure-lsp): Implement Phase 3 - CLI (bb clojure-lsp)
+9945343 fix(sente-browser): Stable browser identity across WebSocket reconnects
+eee329a fix(nrepl): SCI compatibility for nrepl-get-value + metadata research
+e535c85 feat(nrepl): Implement Phase 0 - Runtime introspection tools
 ```
 
 ---
@@ -78,6 +87,7 @@ a3b8177 feat(clojure-lsp): Implement Phase 3 - CLI (bb clojure-lsp)
 
 **Immediate:**
 - ~~**Scittle compatibility testing**~~ - ✅ All 4 tools verified
+- ~~**Browser session stability**~~ - ✅ Ready handshake protocol complete
 - **Add introspection commands to `bb nrepl` CLI** - convenience wrappers:
   - `bb nrepl namespaces [--prefix X]` → calls `nrepl.nrepl-loaded-namespaces`
   - `bb nrepl vars <ns>` → calls `nrepl.nrepl-introspect-ns`

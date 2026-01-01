@@ -115,33 +115,46 @@ Browser reconnects → sente-lite new conn-id → server creates browser-N+1 →
 | B5 | **sente-lite session persistence** | Cleanest if sente-lite supports it | May need fork/PR to sente-lite | High |
 | B6 | **nickname reuse on reconnect** | User picks stable name | Manual step required | Low |
 
-**Phase C: Implementation - B1 (Session-ID Handshake)**
+**Phase C: Implementation - Ready Handshake Protocol**
 
-**Selected Approach:** Simplified B1 using `defonce` instead of localStorage.
+**Selected Approach:** Event-driven ready handshake (evolved from B1 session-id approach).
 
-**Key Insight:** Safari background throttling pauses JS but does NOT reset the runtime. When WebSocket reconnects, the Scittle CLJS state is still there. We only need localStorage for page refresh scenarios (a separate, harder problem).
+**Key Insight:** The original session-id approach had a race condition - browser could send `:nrepl/session-hello` before the server's 500ms sync-task created the connection entry. Solution: Replace polling with event-driven ready handshake.
 
-**Solution:**
-1. Client generates stable session-id via `defonce` (persists across WebSocket reconnects)
-2. Client sends `:nrepl/session-hello {:session-id X}` immediately on connect/reconnect
-3. Server maintains `!session-registry` mapping session-id → mcp-conn-id
-4. On reconnect, server looks up existing mcp-conn-id from registry
-5. Browser keeps same nickname (browser-1 stays browser-1)
+**Ready Handshake Protocol:**
+```
+1. Browser connects via WebSocket (gets new sente-conn-id each time)
+2. Browser sends :client/ready {:session-id X} when handlers ready
+3. Server validates nREPL capability (sends :describe probe)
+4. Browser responds to describe probe
+5. Server validates, sends :server/ready {:nickname ... :reconnect true/false}
+6. Both sides now ready for normal communication
+```
+
+**Why this is better than polling:**
+- No race conditions - messages only sent after both sides ready
+- No 500ms polling overhead
+- Clean event-driven architecture
+- Session registry lookup happens at exactly the right moment
 
 ```
 FIRST CONNECT:
 Browser → WS connect → new sente-conn-id "abc123"
-Browser → [:nrepl/session-hello {:session-id "session-XYZ"}]
-Server: No registry entry → create mcp-conn-id "browser-1-uuid"
+Browser → [:client/ready {:session-id "session-XYZ"}]
+Server: handle-client-ready! → No registry entry → send describe probe
+Browser → responds to describe
+Server: promote-to-validated! → create mcp-conn-id "browser-1-uuid"
         Store: session-XYZ → browser-1-uuid
-Browser sees: "Connected as browser-1"
+Server → [:server/ready {:nickname "browser-1" :reconnect false}]
+Browser sees: "Registered as browser-1"
 
 RECONNECT (Safari tab unfocused, then refocused):
 Browser → WS connect → new sente-conn-id "def456" (different!)
-Browser → [:nrepl/session-hello {:session-id "session-XYZ"}] (same session-id!)
-Server: Registry lookup → session-XYZ maps to browser-1-uuid
-        Reuse mcp-conn-id, update sente-conn-id mapping
-Browser sees: "Connected as browser-1" (stable!)
+Browser → [:client/ready {:session-id "session-XYZ"}] (same session-id!)
+Server: handle-client-ready! → Registry lookup → session-XYZ exists!
+        Reactivate connection, update sente-conn-id mapping
+Server → [:server/ready {:nickname "browser-1" :reconnect true}]
+Browser sees: "Reconnected as browser-1" (stable!)
 ```
 
 **Implementation Tasks:**
@@ -149,16 +162,24 @@ Browser sees: "Connected as browser-1" (stable!)
 | # | Task | File | Status |
 |---|------|------|--------|
 | C1 | Add `defonce !browser-session-id` and `get-or-create-session-id` | bootstrap.clj | ✅ Complete |
-| C2 | Send `:nrepl/session-hello` in `:on-open` callback | bootstrap.clj | ✅ Complete |
-| C3 | Send `:nrepl/session-hello` in `:on-reconnect` callback | bootstrap.clj | ✅ Complete |
+| C2 | Send `:client/ready` in `:on-open` callback | bootstrap.clj | ✅ Complete |
+| C3 | Send `:client/ready` in `:on-reconnect` callback | bootstrap.clj | ✅ Complete |
 | C4 | Add `!session-registry` atom | server.clj | ✅ Complete |
-| C5 | Handle `:nrepl/session-hello` event in `on-browser-message` | server.clj | ✅ Complete |
-| C6 | Modify `promote-to-validated!` to check session registry | server.clj | ✅ Complete |
-| C7 | Update `handle-browser-disconnect!` to NOT delete registry entry | server.clj | ✅ Complete |
-| C8 | Add registry cleanup for truly stale sessions (e.g., 1 hour) | server.clj | ✅ Complete |
+| C5 | Add `handle-client-ready!` function | server.clj | ✅ Complete |
+| C6 | Remove sync-task polling (replaced with event-driven) | server.clj | ✅ Complete |
+| C7 | Handle `:client/ready` event in `on-browser-message` | server.clj | ✅ Complete |
+| C8 | Modify `promote-to-validated!` to send `:server/ready` | server.clj | ✅ Complete |
+| C9 | Update `handle-browser-disconnect!` to preserve registry | server.clj | ✅ Complete |
 
 Also added to connection.clj:
 - `reactivate-browser-connection!` - Reactivates closed browser connection with new sente-conn-id
+
+**Testing (2025-12-31):**
+- ✅ Safari and Chrome connect with unique browser-N identities
+- ✅ Laptop sleep/wake: Both browsers reconnect with SAME identity
+- ✅ Server logs show `:reconnect true` on reconnection
+- ✅ Multiple reconnects maintain stable identity
+- ✅ No race conditions observed
 
 ---
 
@@ -258,8 +279,8 @@ Choose B4 (visibilitychange) if:
 
 ---
 
-**Status:** Phase C Complete ✅
-**Next Step:** Test with real Safari browser to verify reconnection keeps same identity
+**Status:** Phase C Complete ✅ (Tested 2025-12-31)
+**Result:** Safari and Chrome maintain stable identity across laptop sleep/wake cycles
 
 ---
 
@@ -671,4 +692,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2025-12-29*
+*Last Updated: 2025-12-31*
