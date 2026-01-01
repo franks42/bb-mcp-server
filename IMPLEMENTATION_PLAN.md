@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser Phase 0 (Infrastructure)
+**Status:** Code Browser Phase 1 (Static Browsing)
 **Version:** v1.8.0+
 **Last Updated:** 2026-01-01
 
@@ -72,36 +72,26 @@ bb lint && bb format && bb test:modules
 
 **Design doc:** `docs/design/bb-scittle-code-browser-design.md`
 
-### Phase 0: Dev Infrastructure (Current)
+### Phase 0: Dev Infrastructure ✅ Complete
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 0.1 | Create `bb-code-browser-dev-system.edn` config | Pending |
-| 0.2 | Update bootstrap HTML with preloaded scripts | Pending |
-| 0.3 | Create `scittle-cm6` namespace (reusable CM6 wrapper) | Pending |
-| 0.4 | Implement bidirectional atom sync (bootstrap bundle) | Pending |
-| 0.5 | Add error boundary for safe REPL development | Pending |
-| 0.6 | Test: load UI code via nREPL, iterate live | Pending |
+| 0.1 | Create `bb-code-browser-dev-system.edn` config | ✅ |
+| 0.2 | Update bootstrap HTML with preloaded scripts | ✅ |
+| 0.3 | Create `scittle-cm6` namespace (reusable CM6 wrapper) | ✅ |
+| 0.4 | Implement bidirectional atom sync (bootstrap bundle) | ✅ |
+| 0.5 | Add error boundary for safe REPL development | ✅ |
+| 0.6 | Test: load UI code via nREPL, iterate live | ✅ |
 
-**Dev Config Contents:**
-- `local-eval` - Server-side eval
-- `nrepl` - Browser introspection
-- `http-server` - HTTP transport
-- `clojure-lsp` - Static analysis (integral, always loaded)
-- `sente-browser` - Scittle nREPL
-- Default project: `bb-mcp-server` itself
+**Files created:**
+- `bb-code-browser-dev-system.edn` - Dev config
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - code-browser HTML
+- `modules/sente-browser/src/browser/scittle_cm6.cljs` - CM6 wrapper
 
-**Bootstrap Preloads:**
-```html
-<!-- Scittle core + plugins -->
-scittle.js, scittle.reagent.js, scittle.promesa.js, scittle.nrepl.js, trove
-
-<!-- CodeMirror 6 via ES modules (esm.sh) -->
-@codemirror/view, @codemirror/state, @codemirror/basic-setup
-@nextjournal/lang-clojure
-
-<!-- Our infrastructure (in bootstrap bundle) -->
-atom-sync primitives, error boundary, dev namespace
+**Start code browser:**
+```bash
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+# Open http://localhost:8091
 ```
 
 **UI Loading Pattern:**
@@ -114,7 +104,7 @@ atom-sync primitives, error boundary, dev namespace
 (browser-eval! browser-1 '(swap! cb/!layout assoc :ns-width "25%"))
 ```
 
-### Phase 1: Static Browsing
+### Phase 1: Static Browsing (Current)
 
 | Task | Description | Status |
 |------|-------------|--------|

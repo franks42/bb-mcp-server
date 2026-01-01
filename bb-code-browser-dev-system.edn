@@ -1,0 +1,50 @@
+;; Code Browser Development Environment
+;;
+;; Start with:
+;;   bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+;;
+;; Then:
+;;   1. Open browser: http://localhost:8091 (code browser page)
+;;   2. List connections: bb nrepl list --mcp code-browser-dev
+;;   3. Load UI: bb nrepl eval "(require '[code-browser.core :as cb])" --connection browser-1 --mcp code-browser-dev
+;;
+;; Modules:
+;;   - local-eval: Server-side eval
+;;   - nrepl: Browser introspection
+;;   - mcp-http: HTTP MCP transport
+;;   - clojure-lsp: Static analysis (always loaded)
+;;   - sente-browser: Scittle nREPL + bootstrap page
+;;   - nrepl-proxy-server: rebel-readline support
+;;   - nrepl-test-server: bb eval target
+
+{:modules ["local-eval"
+           "nrepl"
+           "nrepl-test-server"
+           "mcp-http"
+           "clojure-lsp"
+           "sente-browser"
+           "nrepl-proxy-server"]
+
+ :config {"nrepl-test-server" {:port 7888
+                               :host "localhost"}
+
+          "mcp-http" {:port 3000
+                      :host "127.0.0.1"}
+
+          "clojure-lsp" {:project-root "."
+                         :auto-start true}
+
+          "sente-browser" {:enabled true
+                           :ws-port 8090
+                           :bootstrap-port 8091
+                           :host "127.0.0.1"
+                           ;; Path to sente-lite bundle
+                           :bundle-path "/Users/franksiebenlist/Development/sente_lite/dist/sente-lite-nrepl.cljs"
+                           ;; Code browser mode - enables enhanced bootstrap
+                           :code-browser true}
+
+          "nrepl-proxy-server" {:enabled true
+                                :port 1667
+                                :host "127.0.0.1"
+                                :write-port-file? true
+                                :port-file ".nrepl-proxy-port"}}}

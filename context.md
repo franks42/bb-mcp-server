@@ -45,35 +45,41 @@ See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full de
 - ✅ **Browser session stability** - Ready handshake protocol tested and working
 - ✅ **CLI introspection wrappers** - 4 new `bb nrepl` commands implemented
 - ✅ **Code browser design decisions** - CM6, dev config, UI loading pattern
+- ✅ **Code Browser Phase 0** - Dev infrastructure complete
 
-**Active work: Code Browser Phase 0 (Dev Infrastructure)**
+**Code Browser Phase 0 Complete:**
 
 | Task | Status |
 |------|--------|
-| Create `bb-code-browser-dev-system.edn` config | Pending |
-| Update bootstrap HTML with preloads | Pending |
-| Create `scittle-cm6` namespace (reusable) | Pending |
-| Implement atom sync in bootstrap bundle | Pending |
-| Add error boundary for REPL dev | Pending |
-| Test: load UI via nREPL, iterate live | Pending |
+| Create `bb-code-browser-dev-system.edn` config | ✅ Complete |
+| Update bootstrap HTML with preloads | ✅ Complete |
+| Create `scittle-cm6` namespace (reusable) | ✅ Complete |
+| Implement atom sync in bootstrap bundle | ✅ Complete |
+| Add error boundary for REPL dev | ✅ Complete |
+| Test: load UI via nREPL, iterate live | ✅ Complete |
 
-**Key decisions made:**
-- CM6 via ES modules (esm.sh) + custom Reagent wrapper
-- Separate `scittle-cm6` namespace for reuse
-- UI code loaded via nREPL (not hardcoded)
-- clojure-lsp always loaded (integral)
-- Default test project: bb-mcp-server itself
+**Files created/modified:**
+- `bb-code-browser-dev-system.edn` - Dev config with all modules
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Added code-browser HTML with CM6, Reagent, Promesa, error boundary, atom sync
+- `modules/sente-browser/src/browser/scittle_cm6.cljs` - Reusable CM6 Reagent wrapper
+
+**Next: Code Browser Phase 1 (Static Browsing)**
 
 See: `docs/design/bb-scittle-code-browser-design.md` and `IMPLEMENTATION_PLAN.md`
 
-**Quick verification of browser stability:**
+**Quick verification of code browser:**
 ```bash
-# Start Scittle dev server
-bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+# Start Code Browser dev server
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 
-# Open Safari and Chrome at http://localhost:8091
-# Sleep laptop, wake up - browsers should reconnect with same identity
-# Server logs should show ":reconnect true"
+# Open browser at http://localhost:8091 (note: refresh to get latest HTML)
+bb nrepl list --mcp code-browser-dev
+
+# Load scittle-cm6 into browser
+bb nrepl eval "(require '[scittle-cm6 :as cm6])" --connection browser-1 --mcp code-browser-dev
+
+# Mount a test component
+bb nrepl eval "[cm6/editor {:value \"(+ 1 2)\" :language :clojure :read-only true}]" --connection browser-1 --mcp code-browser-dev
 ```
 
 ---
@@ -92,9 +98,10 @@ bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
 ## Recent Changes
 
 ```
+(pending) feat(code-browser): Phase 0 dev infrastructure complete
+59793fb docs: Add Dev Environment Quick Reference section
+83ba763 docs: Update context.md with code browser Phase 0 status
 ea824c1 docs: Update implementation plan and design for code browser
-7a00e2f docs(code-browser): Add clj-ns-browser-inspired UI layout
-b20ced2 docs: Add Scittle UI components research
 ```
 
 ---
