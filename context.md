@@ -4,7 +4,7 @@
 > Keep this structure intact. Update sections as you work. Refresh "Recent Changes" from git log.
 > When ending a session, update "Previous Session Summary" and "Current Focus" for the next assistant.
 
-**Last Updated:** 2025-12-31
+**Last Updated:** 2026-01-01
 
 ## Previous Session Summary
 
@@ -44,15 +44,27 @@ See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full de
 **Completed:**
 - ✅ **Browser session stability** - Ready handshake protocol tested and working
 - ✅ **CLI introspection wrappers** - 4 new `bb nrepl` commands implemented
+- ✅ **Code browser design decisions** - CM6, dev config, UI loading pattern
 
-**Next priorities:**
+**Active work: Code Browser Phase 0 (Dev Infrastructure)**
 
-1. **Scittle Code Browser** - Design complete, implementation next
-   - Bidirectional atom sync infrastructure
-   - LSP-first (clojure-lsp as data source)
-   - See: `docs/design/bb-scittle-code-browser-design.md`
-2. **Phase 0.5: REPL source capture** - Datalevin + var metadata
-3. **Phase 0.6: Top-level non-def forms visibility**
+| Task | Status |
+|------|--------|
+| Create `bb-code-browser-dev-system.edn` config | Pending |
+| Update bootstrap HTML with preloads | Pending |
+| Create `scittle-cm6` namespace (reusable) | Pending |
+| Implement atom sync in bootstrap bundle | Pending |
+| Add error boundary for REPL dev | Pending |
+| Test: load UI via nREPL, iterate live | Pending |
+
+**Key decisions made:**
+- CM6 via ES modules (esm.sh) + custom Reagent wrapper
+- Separate `scittle-cm6` namespace for reuse
+- UI code loaded via nREPL (not hardcoded)
+- clojure-lsp always loaded (integral)
+- Default test project: bb-mcp-server itself
+
+See: `docs/design/bb-scittle-code-browser-design.md` and `IMPLEMENTATION_PLAN.md`
 
 **Quick verification of browser stability:**
 ```bash
@@ -80,9 +92,9 @@ bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
 ## Recent Changes
 
 ```
-9945343 fix(sente-browser): Stable browser identity across WebSocket reconnects
-eee329a fix(nrepl): SCI compatibility for nrepl-get-value + metadata research
-e535c85 feat(nrepl): Implement Phase 0 - Runtime introspection tools
+ea824c1 docs: Update implementation plan and design for code browser
+7a00e2f docs(code-browser): Add clj-ns-browser-inspired UI layout
+b20ced2 docs: Add Scittle UI components research
 ```
 
 ---
