@@ -321,17 +321,21 @@
     `);
   </script>
 
-  <!-- 3. Scittle plugins: nREPL, Reagent, Promesa -->
+  <!-- 3. React + ReactDOM (required for Reagent) -->
+  <script src=\"https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js\"></script>
+
+  <!-- 4. Scittle plugins: nREPL, Reagent, Promesa -->
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js\"></script>
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.reagent.js\"></script>
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.promesa.js\"></script>
 
-  <!-- 4. Trove (logging) -->
+  <!-- 5. Trove (logging) -->
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc\" type=\"application/x-scittle\"></script>
 
-  <!-- 5. CodeMirror 6 via ES modules - loaded async, signals when ready -->
+  <!-- 6. CodeMirror 6 via ES modules - loaded async, signals when ready -->
   <script>window.CM6_READY = false;</script>
   <script type=\"module\">
     import {EditorView, basicSetup} from 'https://esm.sh/@codemirror/basic-setup@0.20.0';
@@ -342,10 +346,10 @@
     console.log('[code-browser] CodeMirror 6 loaded');
   </script>
 
-  <!-- 6. sente-lite-nrepl bundle -->
+  <!-- 7. sente-lite-nrepl bundle -->
   <script src=\"/sente-lite-nrepl.cljs\" type=\"application/x-scittle\"></script>
 
-  <!-- 7. Code browser infrastructure: error boundary, atom sync, client -->
+  <!-- 8. Code browser infrastructure: error boundary, atom sync, client -->
   <script type=\"application/x-scittle\">
     (ns code-browser.bootstrap
       \"Code browser infrastructure loaded at startup.
@@ -503,7 +507,7 @@
                    (js/document.getElementById \"code-browser-root\")))
   </script>
 
-  <!-- 8. Evaluate all Scittle scripts -->
+  <!-- 9. Evaluate all Scittle scripts -->
   <script>scittle.core.eval_script_tags();</script>
 </body>
 </html>"))
