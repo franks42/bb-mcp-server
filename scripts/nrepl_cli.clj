@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 
 (ns nrepl-cli
-  "nREPL CLI - Command-line interface for nREPL operations via MCP.
+    "nREPL CLI - Command-line interface for nREPL operations via MCP.
 
    Usage: bb scripts/nrepl_cli.clj <subcommand> [args] [options]
 
@@ -12,18 +12,23 @@
      status               Show active connection status
      eval <code>          Evaluate Clojure code
      load-file <path>     Load and evaluate a Clojure file
+     namespaces           List loaded namespaces (with optional --prefix filter)
+     vars <ns>            List vars in a namespace
+     meta <symbol>        Get var metadata (arglists, doc, etc.)
+     value <symbol>       Get current value of a var
      help                 Show this help
 
    Options:
      --mcp NAME           MCP server nickname (default: bb-nrepl-system-1)
      --connection NAME    nREPL connection nickname (for eval/load-file)
      --nickname NAME      Nickname for new connection (for connect)
+     --prefix PREFIX      Filter namespaces by prefix (for namespaces command)
      --output MODE        Output mode: result (default), full, pipe
      --pprint             Pretty-print output
      --timeout MS         Timeout in milliseconds (default: 30000)"
-  (:require [bb-mcp-server.mcp-client :as client]
-            [cheshire.core :as json]
-            [clojure.pprint :as pp]))
+    (:require [bb-mcp-server.mcp-client :as client]
+              [cheshire.core :as json]
+              [clojure.pprint :as pp]))
 
 ;; =============================================================================
 ;; Argument Parsing
@@ -38,6 +43,7 @@
                :mcp "bb-nrepl-system-1"
                :connection nil
                :nickname nil
+               :prefix nil
                :output :result
                :pprint false
                :timeout 30000}]
@@ -55,6 +61,9 @@
 
               (= arg "--nickname")
               (recur (rest rest-args) (assoc opts :nickname (first rest-args)))
+
+              (= arg "--prefix")
+              (recur (rest rest-args) (assoc opts :prefix (first rest-args)))
 
               (= arg "--output")
               (recur (rest rest-args) (assoc opts :output (keyword (first rest-args))))
@@ -307,6 +316,137 @@
                      (println "Error:" (ex-message e)))
             (System/exit 1)))))
 
+;; =============================================================================
+;; Introspection Commands
+;; =============================================================================
+
+(defn cmd-namespaces
+  "List loaded namespaces."
+  [{:keys [mcp connection prefix pprint]}]
+  (try
+   (let [args (cond-> {}
+                      connection (assoc :connection connection)
+                      prefix (assoc :prefix prefix))
+         response (client/call-tool! mcp "nrepl.nrepl-loaded-namespaces" args)
+         result (client/extract-tool-result response)]
+     (if (= "success" (:status result))
+       (let [namespaces (:namespaces result)]
+         (if pprint
+           (pp/pprint namespaces)
+           (doseq [ns-name namespaces]
+                  (println ns-name))))
+       (do
+        (println "Error:" (:error result))
+        (System/exit 1))))
+   (catch Exception e
+          (println "Error:" (ex-message e))
+          (System/exit 1))))
+
+(defn cmd-vars
+  "List vars in a namespace."
+  [{:keys [mcp connection positional pprint]}]
+  (let [ns-name (first positional)]
+    (when-not ns-name
+      (println "Usage: bb nrepl vars <namespace> [--connection NAME]")
+      (println)
+      (println "Examples:")
+      (println "  bb nrepl vars clojure.string")
+      (println "  bb nrepl vars my.app.core --connection browser-1")
+      (System/exit 1))
+    (try
+     (let [args (cond-> {:ns ns-name}
+                        connection (assoc :connection connection))
+           response (client/call-tool! mcp "nrepl.nrepl-introspect-ns" args)
+           result (client/extract-tool-result response)]
+       (if (= "success" (:status result))
+         (if pprint
+           (pp/pprint result)
+           (do
+            (println (format "Namespace: %s" (:ns result)))
+            (when-let [publics (seq (:publics result))]
+                      (println (format "Public vars (%d):" (count publics)))
+                      (doseq [v (sort publics)]
+                             (println (format "  %s" v))))
+            (when-let [interns (seq (:interns result))]
+                      (let [private-only (remove (set (:publics result)) interns)]
+                        (when (seq private-only)
+                          (println (format "Private vars (%d):" (count private-only)))
+                          (doseq [v (sort private-only)]
+                                 (println (format "  %s" v))))))))
+         (do
+          (println "Error:" (:error result))
+          (System/exit 1))))
+     (catch Exception e
+            (println "Error:" (ex-message e))
+            (System/exit 1)))))
+
+(defn cmd-meta
+  "Get var metadata."
+  [{:keys [mcp connection positional pprint]}]
+  (let [symbol-name (first positional)]
+    (when-not symbol-name
+      (println "Usage: bb nrepl meta <symbol> [--connection NAME]")
+      (println)
+      (println "Examples:")
+      (println "  bb nrepl meta clojure.string/join")
+      (println "  bb nrepl meta my.app.core/handler --connection browser-1")
+      (System/exit 1))
+    (try
+     (let [args (cond-> {:symbol symbol-name}
+                        connection (assoc :connection connection))
+           response (client/call-tool! mcp "nrepl.nrepl-var-meta" args)
+           result (client/extract-tool-result response)]
+       (if (= "success" (:status result))
+         (if pprint
+           (pp/pprint (:metadata result))
+           (let [meta-data (:metadata result)]
+             (println (format "Symbol: %s" symbol-name))
+             (when-let [arglists (:arglists meta-data)]
+                       (println (format "Arglists: %s" arglists)))
+             (when-let [doc (:doc meta-data)]
+                       (println "Doc:")
+                       (println (format "  %s" doc)))
+             (when-let [file (:file meta-data)]
+                       (println (format "File: %s:%s" file (:line meta-data))))
+             (when (:macro meta-data)
+               (println "Type: macro"))
+             (when (:private meta-data)
+               (println "Visibility: private"))))
+         (do
+          (println "Error:" (:error result))
+          (System/exit 1))))
+     (catch Exception e
+            (println "Error:" (ex-message e))
+            (System/exit 1)))))
+
+(defn cmd-value
+  "Get current value of a var."
+  [{:keys [mcp connection positional pprint]}]
+  (let [symbol-name (first positional)]
+    (when-not symbol-name
+      (println "Usage: bb nrepl value <symbol> [--connection NAME]")
+      (println)
+      (println "Examples:")
+      (println "  bb nrepl value my.app.config/settings")
+      (println "  bb nrepl value *ns* --connection browser-1")
+      (System/exit 1))
+    (try
+     (let [args (cond-> {:symbol symbol-name}
+                        connection (assoc :connection connection))
+           response (client/call-tool! mcp "nrepl.nrepl-get-value" args)
+           result (client/extract-tool-result response)]
+       (if (= "success" (:status result))
+         (if pprint
+           (pp/pprint (:value-parsed result (:value result)))
+           (let [value (:value-parsed result (:value result))]
+             (prn value)))
+         (do
+          (println "Error:" (:error result))
+          (System/exit 1))))
+     (catch Exception e
+            (println "Error:" (ex-message e))
+            (System/exit 1)))))
+
 (defn cmd-help
   "Show help information."
   [_]
@@ -321,12 +461,20 @@
   (println "  status               Show active connection status")
   (println "  eval <code>          Evaluate Clojure code")
   (println "  load-file <path>     Load and evaluate a Clojure file")
+  (println)
+  (println "Introspection:")
+  (println "  namespaces           List loaded namespaces")
+  (println "  vars <ns>            List vars in a namespace")
+  (println "  meta <symbol>        Get var metadata (arglists, doc, etc.)")
+  (println "  value <symbol>       Get current value of a var")
+  (println)
   (println "  help                 Show this help")
   (println)
   (println "Options:")
   (println "  --mcp NAME           MCP server nickname (default: bb-nrepl-system-1)")
-  (println "  --connection NAME    nREPL connection nickname (for eval/load-file)")
+  (println "  --connection NAME    nREPL connection nickname")
   (println "  --nickname NAME      Nickname for new connection (for connect)")
+  (println "  --prefix PREFIX      Filter namespaces by prefix (for namespaces)")
   (println "  --output MODE        Output mode: result (default), full, pipe")
   (println "  --pprint             Pretty-print output")
   (println "  --timeout MS         Timeout in milliseconds (default: 30000)")
@@ -345,7 +493,23 @@
   (println "  bb nrepl load-file src/my_app/core.clj --mcp nrepl-mcp")
   (println)
   (println "  # List connections")
-  (println "  bb nrepl list --mcp nrepl-mcp"))
+  (println "  bb nrepl list --mcp nrepl-mcp")
+  (println)
+  (println "Introspection examples:")
+  (println "  # List all loaded namespaces")
+  (println "  bb nrepl namespaces --mcp nrepl-mcp")
+  (println)
+  (println "  # List namespaces with prefix filter")
+  (println "  bb nrepl namespaces --prefix clojure.string --mcp nrepl-mcp")
+  (println)
+  (println "  # List vars in a namespace")
+  (println "  bb nrepl vars clojure.string --mcp nrepl-mcp")
+  (println)
+  (println "  # Get var metadata")
+  (println "  bb nrepl meta clojure.string/join --mcp nrepl-mcp")
+  (println)
+  (println "  # Get var value")
+  (println "  bb nrepl value *ns* --mcp nrepl-mcp"))
 
 ;; =============================================================================
 ;; Main Entry Point
@@ -362,6 +526,11 @@
       "status" (cmd-status opts)
       "eval" (cmd-eval opts)
       "load-file" (cmd-load-file opts)
+      ;; Introspection commands
+      "namespaces" (cmd-namespaces opts)
+      "vars" (cmd-vars opts)
+      "meta" (cmd-meta opts)
+      "value" (cmd-value opts)
       ("help" "-h" "--help" nil) (cmd-help opts)
       (do
        (println "Unknown subcommand:" (:subcommand opts))

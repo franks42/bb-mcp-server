@@ -43,12 +43,12 @@ See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full de
 
 **Completed:**
 - ✅ **Browser session stability** - Ready handshake protocol tested and working
+- ✅ **CLI introspection wrappers** - 4 new `bb nrepl` commands implemented
 
 **Next priorities:**
 
-1. **Add introspection commands to `bb nrepl` CLI** - convenience wrappers
-2. **Phase 0.5: REPL source capture** - Datalevin + var metadata
-3. **Phase 0.6: Top-level non-def forms visibility**
+1. **Phase 0.5: REPL source capture** - Datalevin + var metadata
+2. **Phase 0.6: Top-level non-def forms visibility**
 
 **Quick verification of browser stability:**
 ```bash
@@ -88,12 +88,11 @@ e535c85 feat(nrepl): Implement Phase 0 - Runtime introspection tools
 **Immediate:**
 - ~~**Scittle compatibility testing**~~ - ✅ All 4 tools verified
 - ~~**Browser session stability**~~ - ✅ Ready handshake protocol complete
-- **Add introspection commands to `bb nrepl` CLI** - convenience wrappers:
+- ~~**Add introspection commands to `bb nrepl` CLI**~~ - ✅ Complete:
   - `bb nrepl namespaces [--prefix X]` → calls `nrepl.nrepl-loaded-namespaces`
   - `bb nrepl vars <ns>` → calls `nrepl.nrepl-introspect-ns`
   - `bb nrepl meta <symbol>` → calls `nrepl.nrepl-var-meta`
   - `bb nrepl value <symbol>` → calls `nrepl.nrepl-get-value`
-  - File: `scripts/nrepl_cli.clj`
 
 **Static + Live State Integration** (next priority):
 - ~~Phase 0: nREPL introspection tools~~ ✅ Complete
@@ -140,17 +139,16 @@ bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
 # List browser connections (refresh browser at http://localhost:8091 if needed)
 bb nrepl list --mcp scittle-dev
 
-# Test introspection primitives with bb nrepl eval (use latest browser-N)
-bb nrepl eval "(count (all-ns))" --connection browser-13 --mcp scittle-dev
-bb nrepl eval "(keys (ns-publics 'clojure.string))" --connection browser-13 --mcp scittle-dev
-bb nrepl eval "(meta #'clojure.string/join)" --connection browser-13 --mcp scittle-dev
-bb nrepl eval "@(resolve 'clojure.string/join)" --connection browser-13 --mcp scittle-dev
+# Test introspection via CLI wrappers (use latest browser-N)
+bb nrepl namespaces --connection browser-15 --mcp scittle-dev
+bb nrepl namespaces --prefix clojure --connection browser-15 --mcp scittle-dev
+bb nrepl vars clojure.string --connection browser-15 --mcp scittle-dev
+bb nrepl meta user/my-var --connection browser-15 --mcp scittle-dev --pprint
+bb nrepl value user/my-var --connection browser-15 --mcp scittle-dev
 
-# Test MCP tool wrappers (alternative approach)
-bb mcp call nrepl.nrepl-loaded-namespaces '{"connection":"browser-13"}' --mcp scittle-dev
-bb mcp call nrepl.nrepl-introspect-ns '{"ns":"clojure.string","connection":"browser-13"}' --mcp scittle-dev
-bb mcp call nrepl.nrepl-var-meta '{"symbol":"clojure.string/join","connection":"browser-13"}' --mcp scittle-dev
-bb mcp call nrepl.nrepl-get-value '{"symbol":"clojure.string/join","connection":"browser-13"}' --mcp scittle-dev
+# Or use raw MCP tool calls
+bb mcp call nrepl.nrepl-loaded-namespaces '{"connection":"browser-15"}' --mcp scittle-dev
+bb mcp call nrepl.nrepl-introspect-ns '{"ns":"clojure.string","connection":"browser-15"}' --mcp scittle-dev
 
 # Verify everything works
 bb test:modules
