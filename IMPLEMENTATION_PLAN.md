@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1 (Static Browsing)
-**Version:** v1.8.0+
-**Last Updated:** 2026-01-01
+**Version:** v1.10.1
+**Last Updated:** 2026-01-02
 
 ---
 
@@ -110,15 +110,17 @@ bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser
 (browser-eval! browser-1 '(swap! cb/!layout assoc :ns-width "25%"))
 ```
 
-### Phase 1: Static Browsing (Current)
+### Phase 1: Static Browsing ✅ Complete (v1.10.1)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.1 | Namespace list panel (Reagent) | Pending |
-| 1.2 | Vars list panel | Pending |
-| 1.3 | Source viewer (CM6, read-only) | Pending |
+| 1.1 | Namespace list panel (Reagent) | ✅ 37 namespaces |
+| 1.2 | Vars list panel | ✅ Click ns → symbols |
+| 1.3 | Source viewer (CM6, read-only) | ✅ Fira Code font |
 | 1.4 | Filter components (wildcard/regex) | Pending |
-| 1.5 | Wire clojure-lsp as data source | Pending |
+| 1.5 | Wire clojure-lsp as data source | ✅ |
+
+**CM6 Fix (commit 28555f2):** EditorState must be imported separately from `@codemirror/state`, not from `codemirror` meta-package. Use `?deps=` for version pinning.
 
 ### Phase 2: Runtime Introspection
 
@@ -156,6 +158,21 @@ Clojure LSP integration via persistent subprocess. **16 MCP tools, 18 CLI comman
 **Phase 6 remaining:** Error handling, README, test coverage.
 
 **References:** `modules/clojure-lsp/docs/` for design and CLI examples.
+
+**Version Info (2026-01-02):**
+| Component | Installed | Latest | Notes |
+|-----------|-----------|--------|-------|
+| clojure-lsp | 2025.11.28-12.47.43 | 2025.11.28 | ✅ Latest release |
+| clj-kondo (bundled) | 2025.10.24-SNAPSHOT | 2025.12.24 (master) | ⚠️ Older than standalone |
+| clj-kondo (standalone) | v2025.12.23 | v2025.12.23 | ✅ Latest |
+
+**Known Issue:** Sporadic NUL byte corruption in clojure-lsp JSON-RPC responses (stdout pollution from bundled clj-kondo). Client is resilient - logs error and continues. See commits `a65aca5` and `8a4eff7` for diagnostics.
+
+**Directive:** If NUL byte crashes recur frequently, install HEAD version:
+```bash
+brew install --HEAD clojure-lsp/brew/clojure-lsp-native
+```
+This will get the latest bundled clj-kondo (2025.12.24+).
 
 ---
 
@@ -345,4 +362,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2025-12-31*
+*Last Updated: 2026-01-02*
