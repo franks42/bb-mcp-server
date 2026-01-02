@@ -423,6 +423,26 @@
     (defonce !initialized (atom false))
     (defonce !browser-session-id (atom nil))
     (defonce !client-id (atom nil))
+    (defonce !event-handlers (atom {}))
+
+    (defn register-event-handler!
+      \"Register a handler for custom event types.
+       handler-fn will be called with [event-id data].\"
+      [event-prefix handler-fn]
+      (swap! !event-handlers assoc event-prefix handler-fn)
+      (js/console.log (str \"[bootstrap] Registered handler for \" event-prefix)))
+
+    (defn dispatch-custom-event!
+      \"Dispatch to custom event handlers by prefix match.\"
+      [event-id data]
+      (js/console.log (str \"[dispatch] event-id=\" event-id \" handlers=\" (pr-str (keys @!event-handlers))))
+      (if-let [ns-str (namespace event-id)]
+        (if-let [handler (get @!event-handlers (keyword ns-str))]
+          (do
+            (js/console.log (str \"[dispatch] Found handler for \" ns-str \", calling...\"))
+            (handler [event-id data]))
+          (js/console.log (str \"[dispatch] No handler for namespace: \" ns-str)))
+        (js/console.log \"[dispatch] Event has no namespace\")))
 
     (defn get-or-create-session-id []
       (or @!browser-session-id
@@ -486,7 +506,8 @@
                                        (on-sync-message data)
                                        :nrepl/request
                                        (log! \"eval\" (str \"eval: \" (subs (pr-str (:code data)) 0 (min 50 (count (pr-str (:code data)))))))
-                                       nil))})]
+                                       ;; Try custom handlers for unrecognized events
+                                       (dispatch-custom-event! event-id data)))})]
             (reset! !client-id cid))
 
           (log! \"info\" \"Code Browser ready - load UI via nREPL\"))))

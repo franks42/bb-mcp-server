@@ -15,6 +15,7 @@
    - Only validated browsers (responded to :describe) are listed"
     (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
+              [sente-browser.code-browser :as code-browser]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.messages :as msg-state]
               [nrepl.state.results :as results]
@@ -83,7 +84,9 @@
                       :session-id session-id
                       :has-registry-entry (boolean (get @!session-registry session-id))}})
     ;; Send describe probe to validate nREPL capability
-    (send-describe-probe! sente-conn-id probe-id)))
+    ;; Return nil to avoid sente-lite echoing response back to browser
+    (send-describe-probe! sente-conn-id probe-id)
+    nil))
 
 (defn handle-browser-disconnect!
   "Called when a browser disconnects.
@@ -167,7 +170,10 @@
                           :reconnect is-reconnect
                           :ops (keys ops)
                           :nrepl-version (get versions "sci-nrepl")}})
-        mcp-conn-id)
+        ;; Return nil - :server/ready already sent the info to browser
+        ;; Returning mcp-conn-id would cause sente-lite to send it as raw response,
+        ;; which breaks client's parse-message (expects vector, not string)
+        nil)
       ;; No eval capability - not a valid nREPL
       (do
        (log/log! {:level :warn
@@ -250,11 +256,27 @@
                           :probe-id (:probe-id conn-info)
                           :response-keys (keys data)}})))
 
-    ;; Unknown event - log it
-    (log/log! {:level :debug
-               :id ::unknown-event
-               :msg "Unknown browser event"
-               :data {:event-id event-id}})))
+    ;; Try code-browser dispatch
+    (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
+      ;; Code browser event handled - send response
+            (let [conn-info (get @!browser-connections sente-conn-id)]
+              (log/log! {:level :info
+                         :id ::code-browser-response
+                         :msg "Sending code-browser response"
+                         :data {:response-event response-event-id
+                                :status (:status conn-info)
+                                :sente-conn-id sente-conn-id}})
+              (when (= :validated (:status conn-info))
+                (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
+                  (log/log! {:level :info
+                             :id ::code-browser-sent
+                             :msg "Response sent"
+                             :data {:sent? sent?}}))))
+      ;; Unknown event - log it
+            (log/log! {:level :debug
+                       :id ::unknown-event
+                       :msg "Unknown browser event"
+                       :data {:event-id event-id}}))))
 
 ;; =============================================================================
 ;; Public API
@@ -420,10 +442,16 @@
 
    Config options:
    - :host - bind address (default 127.0.0.1)
-   - :ws-port - WebSocket port (default 8090)"
+   - :ws-port - WebSocket port (default 8090)
+   - :code-browser - enable code browser handlers (default false)"
   [config]
   (let [host (get config :host "127.0.0.1")
-        port (get config :ws-port 8090)]
+        port (get config :ws-port 8090)
+        code-browser-enabled? (get config :code-browser false)]
+
+    ;; Enable code browser if configured
+    (when code-browser-enabled?
+      (code-browser/enable!))
     (log/log! {:level :info
                :id ::starting
                :msg "Starting sente WebSocket server"
@@ -457,6 +485,9 @@
              :id ::stopping
              :msg "Stopping sente WebSocket server"
              :data {:browser-count (browser-count)}})
+
+  ;; Disable code browser handlers
+  (code-browser/disable!)
 
   ;; Stop heartbeat task
   (stop-heartbeat-task!)

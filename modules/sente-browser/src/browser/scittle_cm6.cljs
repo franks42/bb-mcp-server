@@ -115,7 +115,8 @@
   [{:keys [id value language read-only on-change _class _style]}]
   (let [editor-id (or id (str "cm6-" (random-uuid)))
         !view (r/atom nil)
-        !container (r/atom nil)]
+        !container (r/atom nil)
+        !current-value (r/atom value)]
     (r/create-class
      {:display-name "cm6-editor"
 
@@ -133,11 +134,12 @@
                     (js/console.warn "[scittle-cm6] CM6 not ready, cannot mount editor"))))
 
       :component-did-update
-      (fn [this _old-argv]
-        (let [[_ new-props] (r/argv this)
-              new-value (:value new-props)]
-          (when-let [view @!view]
-                    (set-value! view new-value))))
+      (fn [_this _old-argv]
+        ;; Update editor value when prop changes
+        (when-let [view @!view]
+                  (when (not= @!current-value value)
+                    (reset! !current-value value)
+                    (set-value! view value))))
 
       :component-will-unmount
       (fn [_this]
@@ -147,6 +149,8 @@
 
       :reagent-render
       (fn [props]
+        ;; Update tracked value from props for did-update comparison
+        (reset! !current-value (:value props))
         [:div.cm-container
          {:ref #(reset! !container %)
           :class (:class props)

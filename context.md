@@ -4,83 +4,58 @@
 > Keep this structure intact. Update sections as you work. Refresh "Recent Changes" from git log.
 > When ending a session, update "Previous Session Summary" and "Current Focus" for the next assistant.
 
-**Last Updated:** 2026-01-01
+**Last Updated:** 2026-01-02
 
 ## Previous Session Summary
 
-**Browser Session Stability: Ready Handshake Protocol Complete & Tested**
+**Fixed `:invalid-format` Warnings in sente-lite Client**
 
-Implemented event-driven ready handshake to maintain stable browser identity across WebSocket reconnects. This replaces the original session-hello approach which had a race condition.
+Root cause identified and fixed. Two functions were returning values that sente-lite echoed back to browser as raw data (not event vectors).
 
-**Solution Implemented (Ready Handshake Protocol):**
-1. Browser connects via WebSocket
-2. Browser sends `:client/ready {:session-id X}` when handlers ready
-3. Server validates nREPL capability via `:describe` probe
-4. Server sends `:server/ready {:nickname ... :reconnect true/false}`
-5. Both sides now ready for normal communication
+**Root Cause:**
+sente-lite's `on-websocket-message` sends any truthy return from `route-message` back to the client. The client's `parse-message` expects vectors, not raw values.
 
-**Why ready handshake instead of polling:**
-- Original session-hello had race condition: message arrived before 500ms sync-task created entry
-- Ready handshake is event-driven: no polling, no race conditions
-- Session registry lookup happens at exactly the right moment
+**Fixes Made (`server.clj`):**
+1. **`handle-client-ready!`** - Was returning `true` from `send-describe-probe!`
+   - Added explicit `nil` return after sending probe
 
-**Files Modified:**
-- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Send `:client/ready`, handle `:server/ready`
-- `modules/sente-browser/src/sente_browser/server.clj` - `handle-client-ready!`, removed sync-task polling
-- `modules/nrepl/src/nrepl/state/connection.clj` - Added `reactivate-browser-connection!`
+2. **`promote-to-validated!`** - Was returning `mcp-conn-id` string
+   - Changed to return `nil` (`:server/ready` event already sends info to browser)
 
-**Testing Results (2025-12-31):**
-- ✅ Safari and Chrome connect with unique browser-N identities
-- ✅ Laptop sleep/wake: Both browsers reconnect with SAME identity
-- ✅ Server logs show `:reconnect true` on reconnection
-- ✅ Multiple reconnects maintain stable identity
+**Verification:**
+- ✅ No more `:invalid-format` warnings in browser console
+- ✅ Handshake flow works correctly
+- ✅ Lint: 0 errors, 0 warnings
 
-See `IMPLEMENTATION_PLAN.md` → "Scittle Browser Session Stability" for full details.
+**Key Learning:**
+- sente-lite `on-message` callback return values get sent back to client
+- Always return `nil` from message handlers unless you want to send a response
+- Added debug logging to sente-lite client to show raw data on parse errors
 
 ---
 
 ## Current Focus
 
-**Completed:**
-- ✅ **Browser session stability** - Ready handshake protocol tested and working
-- ✅ **CLI introspection wrappers** - 4 new `bb nrepl` commands implemented
-- ✅ **Code browser design decisions** - CM6, dev config, UI loading pattern
-- ✅ **Code Browser Phase 0** - Dev infrastructure complete
+**Code Browser Phase 1: Ready for Testing with clojure-lsp**
 
-**Code Browser Phase 0 Complete:**
+The event dispatch architecture is complete and working. Next step is testing with clojure-lsp running to verify full data flow.
 
-| Task | Status |
-|------|--------|
-| Create `bb-code-browser-dev-system.edn` config | ✅ Complete |
-| Update bootstrap HTML with preloads | ✅ Complete |
-| Create `scittle-cm6` namespace (reusable) | ✅ Complete |
-| Implement atom sync in bootstrap bundle | ✅ Complete |
-| Add error boundary for REPL dev | ✅ Complete |
-| Test: load UI via nREPL, iterate live | ✅ Complete |
-
-**Files created/modified:**
-- `bb-code-browser-dev-system.edn` - Dev config with all modules
-- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Added code-browser HTML with CM6, Reagent, Promesa, error boundary, atom sync
-- `modules/sente-browser/src/browser/scittle_cm6.cljs` - Reusable CM6 Reagent wrapper
-
-**Next: Code Browser Phase 1 (Static Browsing)**
-
-See: `docs/design/bb-scittle-code-browser-design.md` and `IMPLEMENTATION_PLAN.md`
-
-**Quick verification of code browser:**
+**To Test Full Flow:**
 ```bash
-# Start Code Browser dev server
+# Start server
 bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 
-# Open browser at http://localhost:8091 (note: refresh to get latest HTML)
-bb nrepl list --mcp code-browser-dev
+# Initialize clojure-lsp (REQUIRED)
+bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
 
-# Load scittle-cm6 into browser
-bb nrepl eval "(require '[scittle-cm6 :as cm6])" --connection browser-1 --mcp code-browser-dev
-
-# Mount a test component
-bb nrepl eval "[cm6/editor {:value \"(+ 1 2)\" :language :clojure :read-only true}]" --connection browser-1 --mcp code-browser-dev
+# Use Playwright test
+node test/scripts/code_browser_event_test.mjs
 ```
+
+**Remaining Work:**
+1. Test with clojure-lsp running (should return actual namespaces)
+2. Add CSS styling for three-panel layout
+3. Test symbol/source navigation
 
 ---
 
@@ -98,28 +73,29 @@ bb nrepl eval "[cm6/editor {:value \"(+ 1 2)\" :language :clojure :read-only tru
 ## Recent Changes
 
 ```
+2c3f35b docs: Update context.md with React/ReactDOM fix and session note
 bb79ed3 fix(code-browser): Add React/ReactDOM scripts required for Reagent
 e11cce8 feat(code-browser): Complete Phase 0 dev infrastructure
 59793fb docs: Add Dev Environment Quick Reference section
 83ba763 docs: Update context.md with code browser Phase 0 status
-ea824c1 docs: Update implementation plan and design for code browser
 ```
+
+**Uncommitted changes:**
+- `modules/sente-browser/src/sente_browser/server.clj` - Fixed return values causing `:invalid-format` warnings
+- `modules/sente-browser/src/browser/code_browser.cljs` - Fixed reagent.dom require
+- `test/scripts/code_browser_event_test.mjs` - Uses nrepl-eval-local-file tool
+- (sente_lite project) `client_scittle.cljs` - Added raw-data logging for debugging
 
 ---
 
 ## Pending Work
 
-**Immediate:**
-- ~~**Scittle compatibility testing**~~ - ✅ All 4 tools verified
-- ~~**Browser session stability**~~ - ✅ Ready handshake protocol complete
-- ~~**Add introspection commands to `bb nrepl` CLI**~~ - ✅ Complete:
-  - `bb nrepl namespaces [--prefix X]` → calls `nrepl.nrepl-loaded-namespaces`
-  - `bb nrepl vars <ns>` → calls `nrepl.nrepl-introspect-ns`
-  - `bb nrepl meta <symbol>` → calls `nrepl.nrepl-var-meta`
-  - `bb nrepl value <symbol>` → calls `nrepl.nrepl-get-value`
+**Immediate (Code Browser Phase 1):**
+- Test with clojure-lsp running
+- Add CSS styling for three-panel layout
+- Test end-to-end flow: namespaces → symbols → source viewer
 
 **Static + Live State Integration** (next priority):
-- ~~Phase 0: nREPL introspection tools~~ ✅ Complete
 - Phase 0.5: REPL source capture (Datalevin + var metadata)
 - Phase 0.6: Top-level non-def forms visibility
 - Phase 1-3: See `IMPLEMENTATION_PLAN.md`
@@ -152,28 +128,33 @@ Things learned that aren't in CLAUDE.md:
 - **sente-lite heartbeat config** - 30s ping interval, 60s pong timeout = 90s before disconnect
 - **Monitor browser health** - Use `sente-browser.server/get-connection-health` via local-eval
 - **React/ReactDOM for Reagent** - Scittle's reagent.js plugin requires React/ReactDOM loaded first (not bundled)
+- **clojure-lsp must be initialized** - Call `clj-init` before code-browser works
+- **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable (see code_browser.clj for full mapping)
+- **Scittle reagent.dom** - Available in inline script but NOT when loading via nREPL eval; use bootstrap/mount-root! wrapper
+- **nrepl-eval-local-file** - Correct tool for loading .cljs files into Scittle (reads locally, evals via nrepl-eval)
+- **sente-lite on-message callback** - Return values from `on-message` callback get sent back to client; ALWAYS return `nil` unless you explicitly want to send a response event
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start Scittle dev server
-bb server --http --config bb-scittle-dev-system.edn --nickname scittle-dev
+# Start Code Browser dev server
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 
-# List browser connections (refresh browser at http://localhost:8091 if needed)
-bb nrepl list --mcp scittle-dev
+# Initialize clojure-lsp (REQUIRED)
+bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
 
-# Test introspection via CLI wrappers (use latest browser-N)
-bb nrepl namespaces --connection browser-15 --mcp scittle-dev
-bb nrepl namespaces --prefix clojure --connection browser-15 --mcp scittle-dev
-bb nrepl vars clojure.string --connection browser-15 --mcp scittle-dev
-bb nrepl meta user/my-var --connection browser-15 --mcp scittle-dev --pprint
-bb nrepl value user/my-var --connection browser-15 --mcp scittle-dev
+# Run automated test
+node test/scripts/code_browser_event_test.mjs
 
-# Or use raw MCP tool calls
-bb mcp call nrepl.nrepl-loaded-namespaces '{"connection":"browser-15"}' --mcp scittle-dev
-bb mcp call nrepl.nrepl-introspect-ns '{"ns":"clojure.string","connection":"browser-15"}' --mcp scittle-dev
+# Or manual testing - open browser at http://localhost:8091
+bb nrepl list --mcp code-browser-dev
+
+# Load and mount code browser (use the actual browser-N nickname)
+bb mcp call nrepl.nrepl-eval-local-file '{"file-path":"modules/sente-browser/src/browser/scittle_cm6.cljs","connection":"browser-1"}' --mcp code-browser-dev
+bb mcp call nrepl.nrepl-eval-local-file '{"file-path":"modules/sente-browser/src/browser/code_browser.cljs","connection":"browser-1"}' --mcp code-browser-dev
+bb nrepl eval "(code-browser/mount!)" --connection browser-1 --mcp code-browser-dev
 
 # Verify everything works
 bb test:modules
