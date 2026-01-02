@@ -114,9 +114,9 @@
    - :style      - Inline styles for container"
   [{:keys [id value language read-only on-change _class _style]}]
   (let [editor-id (or id (str "cm6-" (random-uuid)))
-        !view (r/atom nil)
-        !container (r/atom nil)
-        !current-value (r/atom value)]
+        !view (atom nil)           ; plain atom - not tracked by Reagent
+        !container (atom nil)      ; plain atom
+        !current-value (atom value)] ; plain atom - avoid re-render loops
     (r/create-class
      {:display-name "cm6-editor"
 
@@ -135,11 +135,8 @@
 
       :component-did-update
       (fn [_this _old-argv]
-        ;; Update editor value when prop changes
-        (when-let [view @!view]
-                  (when (not= @!current-value value)
-                    (reset! !current-value value)
-                    (set-value! view value))))
+        ;; Value update now handled in reagent-render
+        nil)
 
       :component-will-unmount
       (fn [_this]
@@ -149,8 +146,11 @@
 
       :reagent-render
       (fn [props]
-        ;; Update tracked value from props for did-update comparison
-        (reset! !current-value (:value props))
+        ;; Update editor content when value prop changes
+        (let [new-value (:value props)]
+          (when (and @!view (not= @!current-value new-value))
+            (reset! !current-value new-value)
+            (set-value! @!view new-value)))
         [:div.cm-container
          {:ref #(reset! !container %)
           :class (:class props)
