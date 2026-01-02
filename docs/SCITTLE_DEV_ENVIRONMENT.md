@@ -2,6 +2,8 @@
 
 > **Purpose:** Step-by-step guide for setting up and verifying the Scittle browser nREPL development environment. Follow this EXACTLY to avoid configuration issues.
 
+> ⚠️ **AI Assistant Directive:** ALWAYS test changes with Playwright first before asking the user to try them in their browser. Use headless Playwright to verify functionality works before telling the user to refresh/test.
+
 ## Prerequisites
 
 Before starting, ensure you have:
@@ -12,6 +14,8 @@ Before starting, ensure you have:
 ---
 
 ## Step 1: Start the Server
+
+> ⚠️ **AI Directive:** ALWAYS use the existing `bb server` task commands to start/stop servers. Never use raw `kill` commands or construct complex shell commands - use `bb server:stop` instead.
 
 ```bash
 cd /Users/franksiebenlist/Development/bb-mcp-server
@@ -26,6 +30,9 @@ Starting bootstrap HTTP server on port 8091
 ```
 
 **Keep this terminal open.** The server must stay running.
+
+**To stop the server:** Use `bb server:stop <nickname>` (e.g., `bb server:stop code-browser-dev`)
+**To list servers:** Use `bb server:list` to see all running servers
 
 ---
 
@@ -153,6 +160,31 @@ bb mcp call nrepl.nrepl-eval '{"code":"(code-browser/mount!)","connection":"brow
 | `nrepl.nrepl-connection op=list` | List all connections | ALWAYS before any eval to get current nickname |
 | `nrepl.nrepl-eval` | Evaluate code in browser | Short code snippets |
 | `nrepl.nrepl-eval-local-file` | Load .cljs file into browser | Loading source files (reads locally, evals remotely) |
+
+---
+
+## Convenient CLI Commands
+
+Instead of `bb mcp call nrepl.*`, use the shorter `bb nrepl` CLI:
+
+```bash
+# List connections (find browser nickname)
+bb nrepl list --mcp code-browser-dev
+
+# Evaluate code in browser
+bb nrepl eval "(+ 1 2 3)" --connection browser-6 --mcp code-browser-dev
+
+# Load a .cljs file into browser
+bb nrepl load-file modules/sente-browser/src/browser/scittle_cm6.cljs --connection browser-6 --mcp code-browser-dev
+
+# Introspection
+bb nrepl namespaces --connection browser-6 --mcp code-browser-dev
+bb nrepl vars user --connection browser-6 --mcp code-browser-dev
+```
+
+**Tip:** The Code Browser now has a "Load Code Browser" button - click it instead of running CLI commands!
+
+---
 
 **DO NOT:**
 - Manually read files and eval the content (use `nrepl-eval-local-file`)

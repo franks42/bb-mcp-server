@@ -4,15 +4,34 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
 **Last Updated:** 2026-01-02
-**Version:** v1.10.0-code-browser-phase1
+**Version:** v1.10.2-cm6-working
 
 ---
 
 ## Current State
 
-Code Browser Phase 1 complete. Event dispatch working. sente-lite warnings fixed.
+**Code Browser fully working!** CM6 source viewer fixed.
 
-**Next:** Test with clojure-lsp running to verify namespaces populate.
+**What works:**
+- Load Code Browser button loads UI
+- Namespace list shows 37 namespaces
+- Clicking namespace shows symbols
+- Event dispatch working
+- **CM6 source viewer renders Clojure code** ✓
+- Fira Code font for code display
+
+**CM6 Fix Summary:**
+The `codemirror` meta-package does NOT export `EditorState` - only `EditorView` and `basicSetup`. Must import `EditorState` separately from `@codemirror/state` and use `?deps=` to force all packages to use the same version:
+
+```javascript
+const { EditorState } = await import('https://esm.sh/@codemirror/state@6.5.2');
+const { EditorView, basicSetup } = await import('https://esm.sh/codemirror@6.0.1?deps=@codemirror/state@6.5.2,...');
+const { clojure } = await import('https://esm.sh/@nextjournal/lang-clojure@1.0.0?deps=@codemirror/state@6.5.2,...');
+```
+
+**Server:** `bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev`
+
+**Test command:** `node test/scripts/test_cm6_source_viewer.mjs`
 
 ---
 

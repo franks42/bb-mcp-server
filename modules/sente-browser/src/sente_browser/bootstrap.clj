@@ -6,6 +6,7 @@
    2. Implements nREPL protocol handler
    3. Evals code received from Claude and sends results back"
     (:require [clojure.java.io :as io]
+              [clojure.string :as str]
               [org.httpkit.server :as http-kit]
               [taoensso.trove :as log]))
 
@@ -241,6 +242,10 @@
 <head>
   <meta charset=\"UTF-8\">
   <title>bb-mcp Code Browser</title>
+  <!-- Fira Code font for code display -->
+  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
+  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
+  <link href=\"https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap\" rel=\"stylesheet\">
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; padding: 0; height: 100vh; }
@@ -253,7 +258,7 @@
     .error-boundary h3 { color: #721c24; margin-top: 0; }
     .error-boundary pre { background: #1e1e1e; color: #f14c4c; padding: 1rem; overflow: auto; }
     .error-boundary button { background: #721c24; color: white; border: none; padding: 0.5rem 1rem; cursor: pointer; }
-    #log { font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4;
+    #log { font-family: 'Fira Code', monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4;
            padding: 0.5rem; max-height: 150px; overflow-y: auto; white-space: pre-wrap; margin: 0.5rem; }
     .log-entry { margin: 0.1rem 0; }
     .log-eval { color: #569cd6; }
@@ -262,15 +267,86 @@
     .log-info { color: #9cdcfe; }
     /* CodeMirror container */
     .cm-container { height: 100%; }
-    .cm-editor { height: 100%; }
+    .cm-editor { height: 100%; font-family: 'Fira Code', monospace !important; }
+    .cm-editor .cm-content { font-family: 'Fira Code', monospace !important; }
+    .cm-editor .cm-gutters { font-family: 'Fira Code', monospace !important; }
+
+    /* Code Browser three-panel layout */
+    .code-browser { display: flex; flex-direction: column; height: calc(100vh - 200px); }
+    .panels-container { display: flex; flex: 1; overflow: hidden; border: 1px solid #ddd; }
+    .panel { display: flex; flex-direction: column; border-right: 1px solid #ddd; overflow: hidden; }
+    .panel:last-child { border-right: none; }
+    .panel-header { padding: 0.5rem; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .panel-header h3 { margin: 0; font-size: 14px; }
+    .panel-footer { padding: 0.25rem 0.5rem; background: #f5f5f5; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
+    .filter-input { width: 100%; padding: 0.5rem; border: none; border-bottom: 1px solid #ddd; font-size: 13px; }
+    .filter-input:focus { outline: none; background: #fffef0; }
+    .list-container { flex: 1; overflow-y: auto; }
+    .list-item { padding: 0.4rem 0.75rem; cursor: pointer; font-size: 13px; font-family: 'Fira Code', monospace; border-bottom: 1px solid #eee; }
+    .list-item:hover { background: #f0f0f0; }
+    .list-item.selected { background: #e3f2fd; font-weight: 500; }
+    .symbol-name { margin-right: 0.5rem; }
+    .symbol-kind { font-size: 11px; color: #888; }
+    .source-container { flex: 1; overflow: auto; }
+    .empty-message { padding: 1rem; color: #888; font-style: italic; }
+    .refresh-btn { font-size: 12px; padding: 0.25rem 0.5rem; cursor: pointer; }
+    .load-ui-btn { font-size: 14px; padding: 0.5rem 1rem; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px; margin: 0.5rem; }
+    .load-ui-btn:hover { background: #45a049; }
+    .load-ui-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; }
+    .spinner { width: 30px; height: 30px; border: 3px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-banner { background: #f8d7da; color: #721c24; padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: center; }
   </style>
 </head>
 <body>
   <div id=\"app\">
     <div id=\"status\" class=\"status connecting\">Loading Code Browser...</div>
+    <div id=\"ui-loader\">
+      <button id=\"load-ui-btn\" class=\"load-ui-btn\" onclick=\"loadCodeBrowserUI()\" disabled>Load Code Browser</button>
+      <span id=\"loader-status\">Waiting for WebSocket connection...</span>
+    </div>
     <div id=\"log\"></div>
-    <div id=\"code-browser-root\"><!-- UI loaded via nREPL --></div>
+    <div id=\"code-browser-root\"><!-- UI loaded via button or nREPL --></div>
   </div>
+  <script>
+    // Load Code Browser UI files and mount
+    async function loadCodeBrowserUI() {
+      const btn = document.getElementById('load-ui-btn');
+      const status = document.getElementById('loader-status');
+      btn.disabled = true;
+      try {
+        status.textContent = 'Loading scittle-cm6...';
+        const cm6Resp = await fetch('/browser/scittle_cm6.cljs');
+        if (!cm6Resp.ok) throw new Error('Failed to load scittle_cm6.cljs');
+        const cm6Code = await cm6Resp.text();
+        scittle.core.eval_string(cm6Code);
+
+        status.textContent = 'Loading code-browser...';
+        const cbResp = await fetch('/browser/code_browser.cljs');
+        if (!cbResp.ok) throw new Error('Failed to load code_browser.cljs');
+        const cbCode = await cbResp.text();
+        scittle.core.eval_string(cbCode);
+
+        status.textContent = 'Mounting UI...';
+        scittle.core.eval_string('(code-browser/mount!)');
+
+        // Hide loader once mounted
+        document.getElementById('ui-loader').style.display = 'none';
+        status.textContent = 'Code Browser loaded!';
+      } catch (e) {
+        console.error('[load-ui] Error:', e);
+        status.textContent = 'Error: ' + e.message;
+        btn.disabled = false;
+      }
+    }
+    // Enable button once WebSocket is connected
+    function enableLoadButton() {
+      const btn = document.getElementById('load-ui-btn');
+      const status = document.getElementById('loader-status');
+      if (btn) { btn.disabled = false; status.textContent = 'Ready - click to load UI'; }
+    }
+  </script>
 
   <!-- 1. Scittle core -->
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js\"></script>
@@ -335,13 +411,25 @@
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc\" type=\"application/x-scittle\"></script>
 
-  <!-- 6. CodeMirror 6 via ES modules - loaded async, signals when ready -->
+  <!-- 6. CodeMirror 6 via ES modules -->
+  <!-- Import codemirror (EditorView, basicSetup) + @codemirror/state (EditorState) separately -->
+  <!-- The codemirror meta-package does NOT export EditorState - must import from @codemirror/state -->
   <script>window.CM6_READY = false;</script>
   <script type=\"module\">
-    import {EditorView, basicSetup} from 'https://esm.sh/@codemirror/basic-setup@0.20.0';
-    import {EditorState} from 'https://esm.sh/@codemirror/state@6.2.0';
-    import {clojure} from 'https://esm.sh/@nextjournal/lang-clojure@1.0.0';
-    globalThis.CM = {EditorView, EditorState, basicSetup, clojure};
+    // Pin @codemirror/state version and use ?deps to ensure all packages use the same version
+    const STATE_VERSION = '6.5.2';
+    const VIEW_VERSION = '6.36.4';
+
+    // Import EditorState from @codemirror/state (not included in codemirror meta-package)
+    const { EditorState } = await import(`https://esm.sh/@codemirror/state@${STATE_VERSION}`);
+
+    // Import EditorView and basicSetup from codemirror, forcing same state version
+    const { EditorView, basicSetup } = await import(`https://esm.sh/codemirror@6.0.1?deps=@codemirror/state@${STATE_VERSION},@codemirror/view@${VIEW_VERSION}`);
+
+    // Import Clojure language support with matching deps
+    const { clojure } = await import(`https://esm.sh/@nextjournal/lang-clojure@1.0.0?deps=@codemirror/state@${STATE_VERSION},@codemirror/view@${VIEW_VERSION}`);
+
+    globalThis.CM = { EditorView, EditorState, basicSetup, clojure };
     window.CM6_READY = true;
     console.log('[code-browser] CodeMirror 6 loaded');
   </script>
@@ -501,7 +589,10 @@
                                        (let [{:keys [nickname connection-id reconnect]} data]
                                          (set-status! \"connected\" (str \"Code Browser - \" nickname))
                                          (log! \"info\" (str (if reconnect \"Reconnected\" \"Registered\")
-                                                            \" as \" nickname)))
+                                                            \" as \" nickname))
+                                         ;; Enable the Load UI button
+                                         (when-let [enable-fn (aget js/window \"enableLoadButton\")]
+                                           (enable-fn)))
                                        :sync/atom
                                        (on-sync-message data)
                                        :nrepl/request
@@ -510,7 +601,7 @@
                                        (dispatch-custom-event! event-id data)))})]
             (reset! !client-id cid))
 
-          (log! \"info\" \"Code Browser ready - load UI via nREPL\"))))
+          (log! \"info\" \"Code Browser ready - click button or load UI via nREPL\"))))
 
     ;; Initialize
     (init!)
@@ -581,6 +672,20 @@
               {:status 404
                :headers {"Content-Type" "text/plain"}
                :body "Bundle file not found"})
+
+      ;; Serve UI .cljs files from modules/sente-browser/src/browser/
+      (and (str/starts-with? uri "/browser/")
+           (str/ends-with? uri ".cljs"))
+      (let [filename (subs uri 9) ;; strip "/browser/"
+            file (io/file "modules/sente-browser/src/browser" filename)]
+        (if (.exists file)
+          {:status 200
+           :headers {"Content-Type" "application/x-clojure; charset=utf-8"
+                     "Cache-Control" "no-cache"}
+           :body (slurp file)}
+          {:status 404
+           :headers {"Content-Type" "text/plain"}
+           :body (str "File not found: " filename)}))
 
       ;; 404
       :else
