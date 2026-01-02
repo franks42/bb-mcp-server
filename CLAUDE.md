@@ -86,6 +86,9 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 4. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
 5. **IMPLEMENTATION_PLAN.md** - Task tracking and pending work
 
+**When working on Scittle browser development:**
+6. **docs/SCITTLE_DEV_ENVIRONMENT.md** - Step-by-step setup guide (REQUIRED before any Scittle work!)
+
 ---
 
 ## Key Technical Notes

@@ -59,6 +59,12 @@ bb mcp call <tool> '<json>' --mcp <nick>  # Call tool
 - `context.md` - Session state (read at start)
 - `docs/design/*.md` - Design documents
 
+**Required reading for Scittle browser development:**
+- `docs/SCITTLE_DEV_ENVIRONMENT.md` - Step-by-step setup guide (READ THIS FIRST!)
+  - How to start server, connect browser, find nicknames
+  - Tool usage (nrepl-eval-local-file vs nrepl-eval)
+  - Common pitfalls and troubleshooting
+
 **Verification workflow (run before every commit):**
 ```bash
 bb lint && bb format && bb test:modules
