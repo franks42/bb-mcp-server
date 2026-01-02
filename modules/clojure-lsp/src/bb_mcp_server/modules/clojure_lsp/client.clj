@@ -48,10 +48,23 @@
   (try
    (loop []
          (when-let [msg (rpc/read-message! in)]
-                   (if (:id msg)
-                     (handle-response! msg)
-                     (handle-notification! msg))
-                   (recur)))
+                   (cond
+                    ;; JSON parse error - log and continue
+                     (:parse-error msg)
+                     (do
+                      (trove/log! {:level :warn
+                                   :id :clojure-lsp/parse-error
+                                   :msg "Failed to parse LSP message (continuing)"
+                                   :data (:parse-error msg)})
+                      (recur))
+
+                    ;; Response (has :id)
+                     (:id msg)
+                     (do (handle-response! msg) (recur))
+
+                    ;; Notification (no :id)
+                     :else
+                     (do (handle-notification! msg) (recur)))))
    (catch Exception e
           (trove/log! {:level :warn
                        :id :clojure-lsp/read-loop-ended
