@@ -12,6 +12,7 @@
          (atom {:process nil
                 :in nil
                 :out nil
+                :err nil
                 :project-root nil
                 :executable-path "clojure-lsp"
                 :request-id 0
@@ -39,6 +40,35 @@
     ;; Default: ignore unknown notifications
     nil))
 
+(defn- stderr-loop!
+  "Background reader loop for logging clojure-lsp stderr output."
+  [^BufferedReader err]
+  (trove/log! {:level :debug
+               :id :clojure-lsp/stderr-loop-started
+               :msg "Starting LSP stderr reader"})
+  (try
+   (loop []
+         (when-let [line (.readLine err)]
+                   (trove/log! {:level :warn
+                                :id :clojure-lsp/stderr
+                                :msg "clojure-lsp stderr"
+                                :data {:line line}})
+                   (recur)))
+   (catch Exception e
+          (trove/log! {:level :debug
+                       :id :clojure-lsp/stderr-loop-ended
+                       :msg "LSP stderr loop ended"
+                       :data {:error (.getMessage e)}}))))
+
+(defn- find-nul-positions
+  "Find positions of NUL bytes in a string for debugging."
+  [^String s]
+  (let [max-positions 10]
+    (->> (range (count s))
+         (filter #(= \u0000 (.charAt s %)))
+         (take max-positions)
+         vec)))
+
 (defn- read-loop!
   "Background reader loop for processing LSP responses and notifications."
   [^BufferedReader in]
@@ -49,14 +79,25 @@
    (loop []
          (when-let [msg (rpc/read-message! in)]
                    (cond
-                    ;; JSON parse error - log and continue
+                    ;; JSON parse error - log with NUL byte detection
                      (:parse-error msg)
-                     (do
-                      (trove/log! {:level :warn
-                                   :id :clojure-lsp/parse-error
-                                   :msg "Failed to parse LSP message (continuing)"
-                                   :data (:parse-error msg)})
-                      (recur))
+                     (let [{:keys [message length preview]} (:parse-error msg)
+                           nul-positions (find-nul-positions preview)
+                           has-nul? (seq nul-positions)]
+                       (trove/log! {:level :error
+                                    :id :clojure-lsp/parse-error
+                                    :msg (if has-nul?
+                                           "LSP response contains NUL bytes (stdout corruption?)"
+                                           "Failed to parse LSP message")
+                                    :data {:message message
+                                           :length length
+                                           :has-nul-bytes has-nul?
+                                           :nul-positions nul-positions
+                                           :preview-hex (when has-nul?
+                                                          (apply str (map #(format "%02x " (int %))
+                                                                          (take 50 preview))))
+                                           :preview-escaped (pr-str (subs preview 0 (min 100 (count preview))))}})
+                       (recur))
 
                     ;; Response (has :id)
                      (:id msg)
@@ -183,19 +224,22 @@
                         {:dir project-root
                          :in :pipe
                          :out :pipe
-                         :err :inherit})
+                         :err :pipe})  ; Capture stderr instead of inheriting
         in (BufferedReader. (InputStreamReader. (:out proc)))
-        out (BufferedWriter. (OutputStreamWriter. (:in proc)))]
+        out (BufferedWriter. (OutputStreamWriter. (:in proc)))
+        err (BufferedReader. (InputStreamReader. (:err proc)))]
 
     (swap! state assoc
            :process proc
            :in in
            :out out
+           :err err
            :project-root project-root
            :executable-path executable-path)
 
-    ;; Start reader thread
+    ;; Start reader threads
     (future (read-loop! in))
+    (future (stderr-loop! err))
 
     (trove/log! {:level :info
                  :id :clojure-lsp/started
