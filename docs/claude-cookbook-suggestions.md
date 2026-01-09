@@ -497,6 +497,126 @@ The cognitive overhead of switching to REPL-first is non-trivial, but the power 
 
 ---
 
+## Browser Automation: Better MCP Alternatives
+
+> **Problem:** Writing JavaScript test files and parsing console output is clunky.
+> There are now official MCP servers that provide direct browser control.
+
+### Microsoft Playwright MCP Server
+
+**[github.com/microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)**
+
+```json
+{
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp@latest"]
+  }
+}
+```
+
+**Key Features:**
+- Uses accessibility tree, not screenshots (LLM-friendly)
+- No vision model needed
+- Deterministic tool application
+- Direct browser control from conversation
+
+**Usage:**
+```
+"Use playwright to navigate to localhost:8091, click 'Select fn2' button,
+ and verify the editor content contains 'Second value'"
+```
+
+### Chrome DevTools MCP Server (Official Google)
+
+**[github.com/ChromeDevTools/chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)**
+
+```json
+{
+  "chrome-devtools": {
+    "command": "npx",
+    "args": ["-y", "chrome-devtools-mcp@latest"]
+  }
+}
+```
+
+**26 Tools Including:**
+- Navigation: `navigate_page`, `new_page`, `wait_for`
+- Interaction: `click`, `fill`, `drag`, `hover`
+- Inspection: `evaluate_script`, `list_console_messages`
+- Performance: `performance_start_trace`, `performance_analyze_insight`
+- Network: `list_network_requests`, `get_network_request`
+
+**Usage:**
+```
+"Use chrome-devtools to evaluate (+ 1 2) in the browser console"
+```
+
+### How This Changes Our Workflow
+
+**Before (current pain):**
+```javascript
+// 1. Write test_cm6_update.mjs
+// 2. Run via node
+// 3. Parse console output
+// 4. Hope MCP session handling is correct
+```
+
+**After (with MCP servers):**
+```
+Me: "Use playwright to:
+     1. Navigate to localhost:8091
+     2. Wait for browser connection (check for nrepl-adapter message)
+     3. Click 'Select fn2' button
+     4. Get the CM6 editor content
+     5. Verify it contains 'Second value'"
+
+Playwright MCP: {success: true, content: "Second value - fn2 different source"}
+```
+
+### When to Use Which
+
+| Task | Best Tool | Why |
+|------|-----------|-----|
+| UI interaction (click, fill) | Playwright MCP | Accessibility tree based |
+| Console evaluation | Chrome DevTools | Direct JS execution |
+| Network inspection | Chrome DevTools | CDP native |
+| Performance profiling | Chrome DevTools | Trace analysis |
+| Simple navigation | Either | Both work well |
+| Form automation | Playwright MCP | Better for user flows |
+
+### Recommendation
+
+Use **both** together:
+- **Playwright MCP** for navigation, clicking, user flows
+- **Chrome DevTools MCP** for console, debugging, inspection
+
+This eliminates:
+- Writing JavaScript test files
+- Manual MCP session initialization
+- Parsing console output
+- The entire `test_cm6_update.mjs` pattern
+
+### Configuration Added
+
+Both servers added to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp@latest"]
+  },
+  "chrome-devtools": {
+    "command": "npx",
+    "args": ["-y", "chrome-devtools-mcp@latest"]
+  }
+}
+```
+
+**Note:** Restart Claude Desktop/Claude Code to pick up new MCP servers.
+
+---
+
 ## Next Steps
 
 1. [ ] Add checkpoint discipline to CLAUDE.md
@@ -504,3 +624,4 @@ The cognitive overhead of switching to REPL-first is non-trivial, but the power 
 3. [ ] Create parallel test runner pattern
 4. [ ] Evaluate hook-based verification (pre-commit lint/format)
 5. [ ] Consider "Verify" subagent for automated checks
+6. [x] Add Playwright and Chrome DevTools MCP servers
