@@ -4,7 +4,7 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
 **Last Updated:** 2026-01-08
-**Version:** v1.10.1 (tagged) + fixes in working directory
+**Version:** v1.10.2 (tagged, pushed)
 
 ---
 
@@ -23,22 +23,11 @@ The issue was in `scittle_cm6.cljs` Form-3 Reagent component. The fix:
 [test] SUCCESS: CM6 editor updates correctly when value prop changes!
 ```
 
-### Fixed/Modified Files (uncommitted)
+### v1.10.2 Changes (committed)
 - `modules/sente-browser/src/browser/scittle_cm6.cljs` - CM6 update fix
 - `test/bb_mcp_server/bootstrap/config_test.clj` - Syntax errors fixed
 - `test/scripts/test_cm6_update.mjs` - Playwright test for CM6 updates
-- `docs/SCITTLE_DEV_ENVIRONMENT.md` - Added Playwright testing section
-
-### To Commit
-```bash
-git add -A && git commit -m "fix(code-browser): CM6 editor updates when source changes
-
-- Fix Form-3 component to use plain atom for !last-value
-- Compare and update in reagent-render when props change
-- Add Playwright test for CM6 update behavior
-- Fix config_test.clj syntax errors
-- Document Playwright testing pattern in SCITTLE_DEV_ENVIRONMENT.md"
-```
+- `docs/SCITTLE_DEV_ENVIRONMENT.md` - Added Playwright testing + Clean Restart sections
 
 ---
 
