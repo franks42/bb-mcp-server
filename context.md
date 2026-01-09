@@ -2,63 +2,62 @@
 
 > **AI Assistant Directive:** Keep this concise. Update as you work.
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
+> Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-08
-**Version:** v1.10.2 (tagged, pushed)
+**Version:** v1.10.2+ (post-tag commits on main)
+
+---
+
+## NEW: Browser MCP Tools Available
+
+**Playwright MCP** and **Chrome DevTools MCP** have been added to Claude Desktop config.
+
+> ⚠️ **AI Directive:** Test these new MCP tools for browser automation instead of writing
+> JavaScript test files. These should replace the `test_cm6_update.mjs` pattern.
+
+### Try These First
+
+```
+# Instead of running node test scripts, try:
+"Use playwright to navigate to localhost:8091 and click the 'Select fn2' button"
+
+"Use chrome-devtools to evaluate (+ 1 2) in the browser console"
+```
+
+### Expected Tools (after Claude restart)
+- `playwright_navigate`, `playwright_click`, `playwright_fill`, etc.
+- `chrome-devtools` tools: `navigate_page`, `click`, `evaluate_script`, `list_console_messages`
+
+**If tools not available:** User needs to restart Claude Desktop/Claude Code to load new MCP servers.
+
+**Documentation:** See `docs/claude-cookbook-suggestions.md` → "Browser Automation: Better MCP Alternatives"
 
 ---
 
 ## Current State
 
-**CM6 fix verified with Playwright test** - working directory has corrected code, verified by lint/format/tests AND automated browser test.
+**CM6 fix verified** - All tests passing, v1.10.2 tagged and pushed.
 
-### CM6 Source Viewer Fix (TESTED)
-The issue was in `scittle_cm6.cljs` Form-3 Reagent component. The fix:
-- Use plain `atom` (not ratom) for `!last-value` to avoid re-render loops
-- Initialize `!last-value` to `nil`, set in `component-did-mount`
-- In `reagent-render`: receive new props as argument, compare with `!last-value`, update CM6 if different
-
-**Test result:**
-```
-[test] SUCCESS: CM6 editor updates correctly when value prop changes!
-```
-
-### v1.10.2 Changes (committed)
-- `modules/sente-browser/src/browser/scittle_cm6.cljs` - CM6 update fix
-- `test/bb_mcp_server/bootstrap/config_test.clj` - Syntax errors fixed
-- `test/scripts/test_cm6_update.mjs` - Playwright test for CM6 updates
-- `docs/SCITTLE_DEV_ENVIRONMENT.md` - Added Playwright testing + Clean Restart sections
+### Recent Work
+- CM6 editor update fix (Form-3 Reagent component pattern)
+- Playwright test documentation in SCITTLE_DEV_ENVIRONMENT.md
+- Claude Cookbook patterns analysis (CLI vs MCP vs REPL interfaces)
+- Added Playwright MCP + Chrome DevTools MCP to config
 
 ---
 
-## What Was Accomplished This Session
+## Quick Resume
 
-1. **clojure-lsp NUL byte issue** - Investigated and hardened:
-   - `a65aca5` - Read loop resilient to JSON parse errors
-   - `8a4eff7` - Capture stderr, add NUL byte diagnostics
-   - Issue reproduced: "CTRL-CHAR, code 0" at column 73704
-   - Root cause: clj-kondo stdout pollution (known LSP issue)
-   - Directive: Install HEAD clojure-lsp if crashes recur
+```bash
+# Start server for browser development
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 
-2. **Version check:**
-   - clojure-lsp 2025.11.28 - latest release
-   - clj-kondo bundled 2025.10.24 - older than standalone
-   - clj-kondo standalone 2025.12.23 - latest
+# Initialize clojure-lsp (required for code-browser)
+bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
 
-3. **Tagged v1.10.1** - last known good state
-
-4. **Updated IMPLEMENTATION_PLAN.md** with version info
-
----
-
-## Recent Commits
-
-```
-b2add29 fix(code-browser): CM6 editor update attempt (superseded by working dir fix)
-521ca6e docs: Update plan - Phase 1 complete, clojure-lsp version info
-8a4eff7 feat(clojure-lsp): Capture stderr and add NUL byte diagnostics
-a65aca5 fix(clojure-lsp): Make read loop resilient to JSON parse errors
-28555f2 fix(code-browser): CM6 source viewer working - EditorState import fix
+# Test with Playwright MCP (NEW - try this!)
+# "Use playwright to navigate to localhost:8091"
 ```
 
 ---
@@ -68,19 +67,21 @@ a65aca5 fix(clojure-lsp): Make read loop resilient to JSON parse errors
 Things not in CLAUDE.md or other docs:
 
 - **sente-lite on-message callback** - MUST return `nil`; truthy values get echoed to client
-- **Scittle reagent.dom** - Not available via nREPL eval; use `bootstrap/mount-root!`
+- **Scittle reagent.dom** - Available via nREPL eval with `(require '[reagent.dom :as rdom])`
 - **nrepl-eval-local-file** - Correct tool for loading .cljs into Scittle
 - **clojure-lsp must be initialized** - Call `clj-init` before code-browser works
 - **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable
 - **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time, not updated
-- **clojure-lsp NUL bytes** - Sporadic stdout pollution from bundled clj-kondo
+- **CLI vs MCP** - CLI wrappers (`bb mcp`, `bb nrepl`) are often easier than native MCP tools
+- **Playwright/DevTools MCP** - NEW browser automation tools, test these!
 
 ---
 
-## Quick Resume
+## Recent Commits
 
-```bash
-# See docs/SCITTLE_DEV_ENVIRONMENT.md for full guide
-bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
-bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
+```
+48165f8 docs: Add browser MCP servers (Playwright, Chrome DevTools)
+ce8447e docs: Add Claude Cookbook patterns and interface analysis
+07a9e2f docs: Update context.md for v1.10.2
+37be9cf fix(code-browser): CM6 editor updates when source changes  <- v1.10.2
 ```
