@@ -60,15 +60,25 @@
 
 (defn fetch-all-symbols
   "Fetch all symbols from clojure-lsp workspace.
-   Returns raw LSP symbols with kind, name, location."
+   Returns raw LSP symbols with kind, name, location.
+   Returns [] on error (including LSP parse errors from NUL byte corruption)."
   []
   (try
    (let [result (lsp-client/request! "workspace/symbol" {:query ""})]
-     (log/log! {:level :info
-                :id ::fetch-all-symbols
-                :msg "Fetched workspace symbols"
-                :data {:count (count result)}})
-     result)
+     ;; Check for LSP error response (e.g., from NUL byte corruption)
+     (if (:error result)
+       (do
+        (log/log! {:level :warn
+                   :id ::fetch-all-symbols-lsp-error
+                   :msg "LSP returned error, returning empty symbols"
+                   :data {:error (:error result)}})
+        [])
+       (do
+        (log/log! {:level :info
+                   :id ::fetch-all-symbols
+                   :msg "Fetched workspace symbols"
+                   :data {:count (count result)}})
+        result)))
    (catch Exception e
           (log/log! {:level :error
                      :id ::fetch-all-symbols-error
