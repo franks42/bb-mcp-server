@@ -13,6 +13,37 @@ Before starting, ensure you have:
 
 ---
 
+## Clean Restart (Start from Scratch)
+
+Use this when inheriting a broken state or starting a fresh session:
+
+```bash
+cd /Users/franksiebenlist/Development/bb-mcp-server
+
+# 1. Stop any existing servers
+bb server:list                    # See what's running
+bb server:stop code-browser-dev   # Stop by nickname (if running)
+
+# 2. Kill any orphaned processes on the ports
+lsof -ti:3000 | xargs kill -9 2>/dev/null   # MCP HTTP
+lsof -ti:8090 | xargs kill -9 2>/dev/null   # Sente WebSocket
+lsof -ti:8091 | xargs kill -9 2>/dev/null   # Bootstrap HTTP
+
+# 3. Verify ports are free
+curl -s http://localhost:3000/health && echo "Port 3000 still in use!" || echo "Port 3000 free"
+curl -s http://localhost:8091 && echo "Port 8091 still in use!" || echo "Port 8091 free"
+
+# 4. Start fresh
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+```
+
+**One-liner for quick restart:**
+```bash
+bb server:stop code-browser-dev 2>/dev/null; sleep 1; bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+```
+
+---
+
 ## Step 1: Start the Server
 
 > ⚠️ **AI Directive:** ALWAYS use the existing `bb server` task commands to start/stop servers. Never use raw `kill` commands or construct complex shell commands - use `bb server:stop` instead.
@@ -272,6 +303,146 @@ This script:
 3. Finds active browser nickname
 4. Tests `(+ 1 2 3)` eval
 5. Reports success/failure
+
+---
+
+## Automated Playwright Testing
+
+> **AI Directive:** ALWAYS verify browser code changes with automated Playwright tests before telling the user to manually test. This ensures functionality works in a reproducible way.
+
+### MCP Session Pattern
+
+**CRITICAL:** All MCP calls require session initialization. The server returns a `Mcp-Session-Id` header that MUST be included in subsequent requests.
+
+```javascript
+// 1. Initialize MCP session
+const initResult = await fetch('http://localhost:3000/mcp', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' }
+    },
+    id: 0
+  })
+});
+const sessionId = initResult.headers.get('Mcp-Session-Id');
+
+// 2. Create helper for subsequent calls
+const mcpCall = async (method, params, id) => {
+  const res = await fetch('http://localhost:3000/mcp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Mcp-Session-Id': sessionId  // REQUIRED!
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', method, params, id })
+  });
+  return res.json();
+};
+
+// 3. Make tool calls
+const result = await mcpCall('tools/call', {
+  name: 'nrepl.nrepl-eval',
+  arguments: { code: '(+ 1 2)', connection: 'browser-1', timeout: 5000 }
+}, 1);
+```
+
+### Response Format
+
+MCP tool call responses have this structure:
+```javascript
+{
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"value\":\"3\",\"status\":\"success\"}"  // JSON string
+      }
+    ]
+  }
+}
+```
+
+To extract the value:
+```javascript
+const parsed = JSON.parse(data.result.content[0].text);
+console.log(parsed.value);  // "3"
+```
+
+### Test Pattern: Always Test nREPL First
+
+Before running complex operations, verify the nREPL connection works:
+
+```javascript
+// Simple test BEFORE complex operations
+console.log('[test] Testing nREPL with (+ 1 2)...');
+const testData = await mcpCall('tools/call', {
+  name: 'nrepl.nrepl-eval',
+  arguments: {
+    code: '(+ 1 2)',
+    connection: browserConn.nickname,
+    timeout: 5000
+  }
+}, 2);
+const testResult = JSON.parse(testData.result.content[0].text);
+if (testResult.value !== '3') {
+  throw new Error(`nREPL test failed: expected 3, got ${testResult.value}`);
+}
+console.log('[test] nREPL works!');
+```
+
+### Available Namespaces in Browser
+
+When evaluating code in Scittle browser:
+
+| Namespace | Available? | Notes |
+|-----------|------------|-------|
+| `reagent.core` | ✅ | Use `r/atom`, `r/create-class` |
+| `reagent.dom` | ✅ | Use for `rdom/render` |
+| `clojure.core` | ✅ | Standard functions |
+| `bootstrap/*` | ⚠️ | Only via bootstrap HTML, not nREPL eval |
+
+**Use `reagent.dom/render` directly:**
+```clojure
+(require '[reagent.dom :as rdom])
+(rdom/render [my-component] (.getElementById js/document "app"))
+```
+
+### Example Test Script
+
+See `test/scripts/test_cm6_update.mjs` for a complete example that:
+1. Launches headless browser
+2. Initializes MCP session with proper headers
+3. Finds browser connection nickname
+4. Tests simple nREPL eval first
+5. Loads .cljs file into browser
+6. Creates test component dynamically
+7. Interacts with UI via Playwright clicks
+8. Verifies expected behavior
+
+### Running Tests
+
+```bash
+# Start server first
+bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+
+# Run the test (in separate terminal)
+node test/scripts/test_cm6_update.mjs
+```
+
+### Common Test Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| "Invalid or missing session" | Missing `Mcp-Session-Id` header | Initialize session first, include header |
+| Timeout on eval | Wrong connection nickname | Query `nrepl-connection op=list` first |
+| "Unable to resolve symbol" | Namespace not loaded | Use `require` or load file first |
+| "bootstrap not found" | Not available in nREPL eval | Use `reagent.dom` directly |
 
 ---
 

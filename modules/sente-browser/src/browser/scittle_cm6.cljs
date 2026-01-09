@@ -114,9 +114,9 @@
    - :style      - Inline styles for container"
   [{:keys [id value language read-only on-change _class _style]}]
   (let [editor-id (or id (str "cm6-" (random-uuid)))
-        !view (atom nil)           ; plain atom - not tracked by Reagent
-        !container (atom nil)      ; plain atom
-        !current-value (atom value)] ; plain atom - avoid re-render loops
+        !view (atom nil)           ; mutable ref for EditorView
+        !container (atom nil)      ; mutable ref for DOM container
+        !last-value (atom nil)]    ; track last value to detect changes
     (r/create-class
      {:display-name "cm6-editor"
 
@@ -130,13 +130,9 @@
                                                 :read-only read-only
                                                 :on-change on-change})]
                       (reset! !view view)
+                      (reset! !last-value value)
                       (swap! !editors assoc editor-id view))
                     (js/console.warn "[scittle-cm6] CM6 not ready, cannot mount editor"))))
-
-      :component-did-update
-      (fn [_this _old-argv]
-        ;; Value update now handled in reagent-render
-        nil)
 
       :component-will-unmount
       (fn [_this]
@@ -145,16 +141,15 @@
                   (swap! !editors dissoc editor-id)))
 
       :reagent-render
-      (fn [props]
-        ;; Update editor content when value prop changes
-        (let [new-value (:value props)]
-          (when (and @!view (not= @!current-value new-value))
-            (reset! !current-value new-value)
-            (set-value! @!view new-value)))
+      (fn [{:keys [value class style] :as _props}]
+        ;; Update editor when value prop changes
+        (when (and @!view (not= @!last-value value))
+          (reset! !last-value value)
+          (set-value! @!view value))
         [:div.cm-container
          {:ref #(reset! !container %)
-          :class (:class props)
-          :style (merge {:height "100%"} (:style props))}])})))
+          :class class
+          :style (merge {:height "100%"} style)}])})))
 
 ;; =============================================================================
 ;; Utilities
