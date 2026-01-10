@@ -35,7 +35,8 @@
                 :msg "LSP debug dump disabled"}))))
 
 (defn- dump-raw-data!
-  "Dump raw LSP data to debug file if enabled."
+  "Dump raw LSP data to debug file if enabled.
+   When NUL bytes are detected, also saves the full raw body to a separate .bin file."
   [content-length body]
   (when (:enabled? @debug-state)
     (try
@@ -50,10 +51,26 @@
        (.write writer "--- RAW DATA (hex dump of first 500 bytes if NUL present) ---\n")
        (if has-nul?
          (let [preview (take 500 body)
-               hex-str (apply str (map #(format "%02x " (int %)) preview))]
+               hex-str (apply str (map #(format "%02x " (int %)) preview))
+               ;; Find first NUL position
+               first-nul-pos (str/index-of body "\u0000")
+               ;; Save FULL corrupted body to binary file for analysis
+               bin-file (str "/tmp/corrupted-lsp-" (System/currentTimeMillis) ".bin")]
            (.write writer hex-str)
-           (.write writer "\n--- RAW DATA (escaped) ---\n")
-           (.write writer (pr-str (subs body 0 (min 1000 (count body))))))
+           (.write writer (str "\n--- First NUL at byte position: " first-nul-pos " ---\n"))
+           (.write writer (str "--- Context around first NUL (bytes " (max 0 (- first-nul-pos 50)) "-" (+ first-nul-pos 50) "): ---\n"))
+           ;; Show hex around first NUL
+           (let [ctx-start (max 0 (- first-nul-pos 50))
+                 ctx-end (min (count body) (+ first-nul-pos 50))
+                 ctx-bytes (subs body ctx-start ctx-end)
+                 ctx-hex (apply str (map #(format "%02x " (int %)) ctx-bytes))]
+             (.write writer ctx-hex))
+           (.write writer "\n--- FULL BODY SAVED TO: ---\n")
+           (.write writer bin-file)
+           (.write writer "\n")
+           ;; Write full body to binary file
+           (with-open [bw (java.io.BufferedWriter. (java.io.FileWriter. bin-file))]
+             (.write bw body)))
          (.write writer body))
        (.write writer "\n=== END ===\n\n")
        (.flush writer))
@@ -100,7 +117,14 @@
             (when-let [len-str (get headers "Content-Length")]
                       (let [len (parse-long len-str)
                             buf (char-array len)
-                            _ (.read in buf 0 len)
+                            ;; IMPORTANT: BufferedReader.read() may return fewer chars than requested!
+                            ;; Must loop until all chars are read, especially for responses > 64KB
+                            ;; (macOS pipe buffer size is 64KB)
+                            _ (loop [offset 0]
+                                (when (< offset len)
+                                  (let [n (.read in buf offset (- len offset))]
+                                    (when (pos? n)
+                                      (recur (+ offset n))))))
                             body (String. buf)
                             has-nul? (str/includes? body "\u0000")
                             nul-count (when has-nul? (count (filter #(= % \u0000) body)))]
