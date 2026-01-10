@@ -79,6 +79,9 @@
   server:list {:doc "List running MCP servers"
                :task (shell "bb" "scripts/stop_server.clj" "--list")}
 
+  server:start-wait {:doc "Start server and wait for health [--nickname NAME] [--config PATH] [--port PORT]"
+                     :task (apply shell "bb" "scripts/start_wait_server.clj" *command-line-args*)}
+
   ;; ==========================================================================
   ;; HTTP Test Tasks
   ;; ==========================================================================

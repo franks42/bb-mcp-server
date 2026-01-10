@@ -43,6 +43,10 @@
 - **64KB buffer fix** - `BufferedReader.read()` may return fewer chars than requested; loop until all read
 - CM6 editor update fix (Form-3 Reagent component pattern)
 - Added Playwright MCP + Chrome DevTools MCP to config
+- **Context checkpoints** - Added checkpoint-in-todos pattern to CLAUDE.md and IMPLEMENTATION_PLAN.md
+- **Agent delegation guide** - Created `docs/agent-delegation-guide.md` for subagent workflow
+- **bb tasks reference** - Created `docs/bb-tasks-reference.md` to prevent curl/bash reinvention
+- **server:start-wait** - New task that starts server and waits for health (avoids `& sleep && curl` chains)
 
 ---
 
@@ -74,6 +78,8 @@ Things not in CLAUDE.md or other docs:
 - **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time, not updated
 - **CLI vs MCP** - CLI wrappers (`bb mcp`, `bb nrepl`) are often easier than native MCP tools
 - **Playwright/DevTools MCP** - Browser automation tools for testing
+- **Agent delegation** - Use Task tool with subagents for multi-file work; see `docs/agent-delegation-guide.md`
+- **Checkpoints in todos** - Always include checkpoint tasks in phase plans to survive compaction
 
 ---
 

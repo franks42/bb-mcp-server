@@ -72,6 +72,31 @@ bb lint && bb format && bb test:modules
 
 ---
 
+## Phase Template (with Checkpoints)
+
+Use this structure when planning new phases to prevent context loss:
+
+```
+### Phase N: [Feature Name]
+
+| Task | Description | Status |
+|------|-------------|--------|
+| N.0 | **Checkpoint:** Document starting state in context.md | Pending |
+| N.1 | Research/explore existing code | Pending |
+| N.2 | Implement core logic | Pending |
+| N.3 | **Checkpoint:** Update context.md before multi-file changes | Pending |
+| N.4 | Integration/wiring | Pending |
+| N.5 | Tests + verification | Pending |
+| N.6 | **Checkpoint:** Final state + learnings in context.md | Pending |
+```
+
+**Checkpoint contents (in context.md):**
+- Starting state: branch, relevant files, what exists
+- Mid-phase: approach chosen, files being modified, key decisions
+- Final: results, test status, session notes for next time
+
+---
+
 ## Active Work: Scittle Code Browser
 
 **Goal:** Browser-based code browser embedded in Scittle dev environment.
@@ -362,4 +387,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2026-01-02*
+*Last Updated: 2026-01-10*

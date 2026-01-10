@@ -617,11 +617,43 @@ Both servers added to `~/Library/Application Support/Claude/claude_desktop_confi
 
 ---
 
+## Agent Delegation Pattern
+
+> **Detailed Guide:** See `docs/agent-delegation-guide.md` for the full working guide.
+
+**Pattern:** Main agent acts as architect/coordinator, delegates focused tasks to subagents.
+
+```
+Architect (main conversation)
+├── Plans approach, creates todos with checkpoints
+├── Delegates: Implementation Agent → specific files/functions
+├── Delegates: Test Agent → write and run tests
+└── Reviews results, coordinates, updates context.md
+```
+
+**Benefits:**
+- Each agent has focused context (no accumulated cruft)
+- Main thread stays strategic, not lost in details
+- Agents can run in parallel when independent
+- Clear accountability per task
+
+**When to use:**
+- Multi-file features with tests
+- Complex refactors
+- Tasks with clear boundaries
+
+**When NOT to use:**
+- Quick bug fixes
+- Single-file edits
+- Exploratory/unclear work
+
+---
+
 ## Next Steps
 
-1. [ ] Add checkpoint discipline to CLAUDE.md
+1. [x] Add checkpoint discipline to CLAUDE.md
 2. [ ] Document PTC-style chaining patterns
 3. [ ] Create parallel test runner pattern
 4. [ ] Evaluate hook-based verification (pre-commit lint/format)
-5. [ ] Consider "Verify" subagent for automated checks
+5. [x] Agent delegation guide created
 6. [x] Add Playwright and Chrome DevTools MCP servers

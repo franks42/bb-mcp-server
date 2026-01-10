@@ -44,20 +44,27 @@ bb-mcp-server/
 
 ## Common Commands
 
+> **Full reference:** See `docs/bb-tasks-reference.md` for complete CLI documentation.
+> **Before writing curl/bash:** Check if a bb task exists first!
+
 ```bash
 bb tasks                        # List available tasks
-bb server                       # Run stdio (default, Claude Desktop)
-bb server --http                # Run HTTP only on port 3000
-bb server --http 8080           # Run HTTP on custom port
-bb server --stdio --http        # Run both transports
-bb server --help                # Show usage
-bb server:stop [port]           # Stop server on port
+bb server:start-wait --nickname X --config Y  # Start server, wait for health
+bb server:stop X                # Stop server by nickname
+bb server:list                  # List running servers
+
+bb lint && bb format            # Verify before commit
 bb test:modules                 # Run all module tests
-bb test:e2e                     # E2E tests (needs running server)
-bb test:bootstrap               # Bootstrap config tests
-bb lint                         # Lint with clj-kondo
-bb format                       # Format with cljfmt
+
+bb mcp servers                  # List running MCP servers
+bb mcp tools --mcp X            # List tools
+bb mcp call <tool> '<json>'     # Call any tool
+
+bb nrepl list --mcp X           # List nREPL connections
+bb nrepl eval "<code>" --mcp X  # Eval code
 ```
+
+**Avoid command chaining:** Don't use `cmd & sleep && curl` patterns. Use `bb server:start-wait` or separate tool calls. See `docs/bb-tasks-reference.md` for details.
 
 ---
 
@@ -86,8 +93,12 @@ Do NOT commit code with lint warnings. Fix all warnings before committing.
 4. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
 5. **IMPLEMENTATION_PLAN.md** - Task tracking and pending work
 
+**Reference when needed:**
+- **docs/bb-tasks-reference.md** - All bb tasks and CLI commands (CHECK BEFORE WRITING CURL/BASH!)
+- **docs/agent-delegation-guide.md** - Subagent workflow for multi-file tasks
+
 **When working on Scittle browser development:**
-6. **docs/SCITTLE_DEV_ENVIRONMENT.md** - Step-by-step setup guide (REQUIRED before any Scittle work!)
+- **docs/SCITTLE_DEV_ENVIRONMENT.md** - Step-by-step setup guide (REQUIRED before any Scittle work!)
 
 ---
 
@@ -132,6 +143,40 @@ Do NOT create or update alternative plan documents (e.g., in `docs/design/` or m
 
 ---
 
+## Context Checkpoints in Todos
+
+**Purpose:** Prevent context loss after auto-compaction by making checkpoints part of every task plan.
+
+**When creating todos for a phase, include checkpoint tasks:**
+
+```
+Phase X: [Feature Name]
+─────────────────────────
+- [ ] Checkpoint: Document starting state in context.md
+- [ ] Task 1: Research/explore
+- [ ] Task 2: Implement core logic
+- [ ] Checkpoint: Update context.md before multi-file changes
+- [ ] Task 3: Integration/wiring
+- [ ] Task 4: Tests + verification
+- [ ] Checkpoint: Final state + learnings in context.md
+```
+
+**Checkpoint timing:**
+1. **Start of phase** - Capture what exists, what we're changing, why
+2. **Before multi-file changes** - Point of no return; document approach
+3. **End of phase** - Results, decisions made, session notes for next time
+
+**What to capture in context.md:**
+- Current working branch/state
+- Files being modified
+- Key decisions made
+- Blockers or open questions
+- Test status
+
+This makes checkpointing structural (visible, accountable) rather than memory-dependent.
+
+---
+
 ## Session Health & Compaction Awareness
 
 After auto-compaction, I lose context and may become less effective. If you notice me:
@@ -147,4 +192,4 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2025-12-28*
+*Last Updated: 2026-01-10*
