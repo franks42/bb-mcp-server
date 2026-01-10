@@ -36,6 +36,9 @@
                           (do (println "✗ Failed to fix" file)
                               (System/exit 1)))))}
 
+  lint-fix {:doc "Lint file(s), auto-fix paren errors if found, re-lint (usage: bb lint-fix <file>...)"
+            :task (apply shell "bb" "scripts/lint_fix.clj" *command-line-args*)}
+
   check {:doc "Run all checks (lint + format)"
          :task (do (run 'lint) (run 'format))}
 

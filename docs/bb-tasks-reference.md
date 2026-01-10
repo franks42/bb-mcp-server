@@ -65,21 +65,21 @@ bb fix-parens src/foo.clj       # Example
 - `✓ Fixed parens in <file>` - Parens were fixed
 - `✗ Failed to fix` - Couldn't auto-fix (manual intervention needed)
 
-### Workflow After Editing Clojure Files
+### Recommended: Use `bb lint-fix`
 
 ```bash
-# 1. Save your edit
-# 2. Check for paren errors
-clj-kondo --lint <file>
-
-# 3. If paren errors, fix them
-bb fix-parens <file>
-
-# 4. Re-check
-clj-kondo --lint <file>
+bb lint-fix <file>              # Lint, auto-fix parens if needed, re-lint
+bb lint-fix src/foo.clj         # Example
+bb lint-fix src/*.clj           # Multiple files
 ```
 
-**Note:** `parmezan` (the underlying tool) uses heuristics to fix unbalanced delimiters. Always verify the fix makes sense.
+**What it does:**
+1. Runs clj-kondo on file(s)
+2. If paren/bracket errors found → runs parmezan to fix
+3. Re-runs clj-kondo and shows final result
+4. Exit code from final lint (so you see if manual fix still needed)
+
+**Note:** `parmezan` uses heuristics to fix unbalanced delimiters. If the final lint still shows paren errors, manual intervention is needed.
 
 ---
 
@@ -179,9 +179,15 @@ curl -s localhost:3000/health       # Direct (if needed)
 
 ```bash
 bb lint                             # clj-kondo (MUST be 0 warnings)
+bb lint-fix <file>                  # Lint + auto-fix parens + re-lint (RECOMMENDED)
 bb format                           # cljfmt check
 bb check                            # Both lint + format
-bb fix-parens <file>                # Fix unbalanced parens (parmezan)
+bb fix-parens <file>                # Fix unbalanced parens only (manual)
+```
+
+**After editing a file:**
+```bash
+bb lint-fix <file>                  # Catches and fixes paren errors automatically
 ```
 
 **Full verification workflow:**

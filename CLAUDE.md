@@ -79,9 +79,9 @@ bb test:modules             # MUST pass all tests
 
 Do NOT commit code with lint warnings. Fix all warnings before committing.
 
-**Paren/Bracket Errors:** If clj-kondo reports unmatched brackets or missing delimiters:
+**After editing Clojure files:** Use `bb lint-fix` to catch and fix paren errors:
 ```bash
-bb fix-parens <file>        # Auto-fix with parmezan, then re-lint
+bb lint-fix <file>          # Lint, auto-fix parens if needed, re-lint
 ```
 
 **macOS Note:** Do NOT use `timeout` command (it doesn't exist on macOS). Use `sleep` or Babashka's built-in timeout options instead.
