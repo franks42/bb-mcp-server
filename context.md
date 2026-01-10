@@ -4,8 +4,8 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-08
-**Version:** v1.10.2+ (post-tag commits on main)
+**Last Updated:** 2026-01-10
+**Version:** v1.10.3
 
 ---
 
@@ -37,12 +37,12 @@
 
 ## Current State
 
-**CM6 fix verified** - All tests passing, v1.10.2 tagged and pushed.
+**v1.10.3 released** - 64KB LSP buffer corruption fix verified and shipped.
 
 ### Recent Work
+- **64KB buffer fix** - `BufferedReader.read()` may return fewer chars than requested; loop until all read
+- Stress test script (`scripts/stress_test_lsp.clj`) for browser-based LSP testing
 - CM6 editor update fix (Form-3 Reagent component pattern)
-- Playwright test documentation in SCITTLE_DEV_ENVIRONMENT.md
-- Claude Cookbook patterns analysis (CLI vs MCP vs REPL interfaces)
 - Added Playwright MCP + Chrome DevTools MCP to config
 
 ---
@@ -66,6 +66,7 @@ bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Develo
 
 Things not in CLAUDE.md or other docs:
 
+- **64KB buffer boundary** - macOS pipe buffer is 64KB; `BufferedReader.read()` may return partial data
 - **sente-lite on-message callback** - MUST return `nil`; truthy values get echoed to client
 - **Scittle reagent.dom** - Available via nREPL eval with `(require '[reagent.dom :as rdom])`
 - **nrepl-eval-local-file** - Correct tool for loading .cljs into Scittle
@@ -73,15 +74,16 @@ Things not in CLAUDE.md or other docs:
 - **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable
 - **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time, not updated
 - **CLI vs MCP** - CLI wrappers (`bb mcp`, `bb nrepl`) are often easier than native MCP tools
-- **Playwright/DevTools MCP** - NEW browser automation tools, test these!
+- **Playwright/DevTools MCP** - Browser automation tools for testing
 
 ---
 
 ## Recent Commits
 
 ```
+5229ef5 chore: Remove debug code after 64KB fix verification  <- v1.10.3
+734d0f4 fix(clojure-lsp): Handle partial reads in JSON-RPC reader (64KB fix)
+bb90e5d docs: Update context.md with browser MCP testing directive
 48165f8 docs: Add browser MCP servers (Playwright, Chrome DevTools)
-ce8447e docs: Add Claude Cookbook patterns and interface analysis
-07a9e2f docs: Update context.md for v1.10.2
 37be9cf fix(code-browser): CM6 editor updates when source changes  <- v1.10.2
 ```
