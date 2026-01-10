@@ -41,7 +41,6 @@
 
 ### Recent Work
 - **64KB buffer fix** - `BufferedReader.read()` may return fewer chars than requested; loop until all read
-- Stress test script (`scripts/stress_test_lsp.clj`) for browser-based LSP testing
 - CM6 editor update fix (Form-3 Reagent component pattern)
 - Added Playwright MCP + Chrome DevTools MCP to config
 
@@ -81,9 +80,9 @@ Things not in CLAUDE.md or other docs:
 ## Recent Commits
 
 ```
+370344f chore: Remove broken stress test script
+05a5a82 docs: Update context.md for v1.10.3
 5229ef5 chore: Remove debug code after 64KB fix verification  <- v1.10.3
 734d0f4 fix(clojure-lsp): Handle partial reads in JSON-RPC reader (64KB fix)
-bb90e5d docs: Update context.md with browser MCP testing directive
-48165f8 docs: Add browser MCP servers (Playwright, Chrome DevTools)
 37be9cf fix(code-browser): CM6 editor updates when source changes  <- v1.10.2
 ```

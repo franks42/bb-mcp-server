@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1 (Static Browsing)
-**Version:** v1.10.1
-**Last Updated:** 2026-01-02
+**Version:** v1.10.3
+**Last Updated:** 2026-01-10
 
 ---
 
