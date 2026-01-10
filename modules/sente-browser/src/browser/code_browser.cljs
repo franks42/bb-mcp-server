@@ -228,7 +228,8 @@
       [:span (str (count syms) " vars")]]]))
 
 (defn source-panel
-  "Right panel: source code viewer."
+  "Right panel: source code viewer.
+   Uses stable editor ID to prevent flashing on source changes."
   []
   (let [layout @!layout
         source (:source @!state)]
@@ -239,21 +240,22 @@
              (str (:ns source) "/" (:var-name source))
              "Source")]]
      [:div.source-container
-      (if source
-        [cm6/editor {:value (:code source)
-                     :language :clojure
-                     :read-only true}]
-        [:div.empty-message "Select a var to view source"])]
+      ;; Always mount editor with stable ID to prevent flash on source change
+      [cm6/editor {:id "code-browser-source"
+                   :value (or (:code source) ";; Select a var to view source")
+                   :language :clojure
+                   :read-only true}]]
      (when source
        [:div.panel-footer
         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]])]))
 
 (defn loading-indicator
-  "Loading spinner overlay."
+  "Subtle loading indicator - just a small spinner, no overlay.
+   Returns nil to avoid full-page flash on quick operations."
   []
-  (when (:loading? @!state)
-    [:div.loading-overlay
-     [:div.spinner]]))
+  ;; Removed full-page overlay - it caused flash on every selection
+  ;; Could add delayed indicator for slow operations in future
+  nil)
 
 (defn error-display
   "Error message display."
