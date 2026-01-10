@@ -157,21 +157,6 @@
         initialized (eval-on-server port "(bb-mcp-server.modules.clojure-lsp.client/initialized?)")]
     (output-value {:running running :initialized initialized} json)))
 
-(defn cmd-debug-dump
-  "Enable or disable LSP debug dump to a file.
-   All raw LSP messages will be written to the file for debugging NUL byte issues."
-  [{:keys [positional json] :as opts}]
-  (let [port (resolve-server opts)
-        file-path (first positional)
-        _ (eval-on-server port "(require '[bb-mcp-server.modules.clojure-lsp.jsonrpc :as jsonrpc])")
-        code (if file-path
-               (format "(jsonrpc/enable-debug-dump! %s)" (pr-str file-path))
-               "(jsonrpc/enable-debug-dump! nil)")
-        _ (eval-on-server port code)]
-    (if file-path
-      (output-value {:status "enabled" :file file-path} json)
-      (output-value {:status "disabled"} json))))
-
 ;; =============================================================================
 ;; Navigation Commands
 ;; =============================================================================
@@ -419,7 +404,6 @@ Lifecycle:
   stop                   Stop the LSP server
   status                 Check LSP server status
   watch [path]           Watch files and update index (Ctrl-C to stop)
-  debug-dump [file]      Enable debug dump to file (or disable if no file)
 
 Navigation:
   definition <file> <line> <col>   Go to definition
@@ -486,7 +470,6 @@ Examples:
      {"start" cmd-start
       "stop" cmd-stop
       "status" cmd-status
-      "debug-dump" cmd-debug-dump
       "watch" cmd-watch
       "definition" cmd-definition
       "references" cmd-references
