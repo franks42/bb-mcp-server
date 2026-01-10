@@ -36,6 +36,50 @@ I want to...
 | `bb server & sleep 2 && curl health` | `bb server:start-wait --nickname X` |
 | `cmd1 && cmd2 && cmd3` chains | Separate tool calls or bb tasks |
 | `cmd &` (backgrounding) | Bash tool with `run_in_background=true` |
+| Manually fixing unbalanced parens | `bb fix-parens <file>` |
+
+---
+
+## Fixing Paren/Bracket Errors
+
+**AI assistants frequently make paren/bracket mistakes.** Use `bb fix-parens` to auto-fix them.
+
+### When to Use
+
+| Situation | Action |
+|-----------|--------|
+| clj-kondo reports "Unmatched bracket" | Run `bb fix-parens <file>` |
+| clj-kondo reports "Missing delimiter" | Run `bb fix-parens <file>` |
+| Code won't parse | Run `bb fix-parens <file>` |
+| After writing new Clojure code | Consider running `bb fix-parens <file>` |
+
+### Usage
+
+```bash
+bb fix-parens <file>            # Fix parens in file (writes in place)
+bb fix-parens src/foo.clj       # Example
+```
+
+**Output:**
+- `✓ No changes needed` - File was already balanced
+- `✓ Fixed parens in <file>` - Parens were fixed
+- `✗ Failed to fix` - Couldn't auto-fix (manual intervention needed)
+
+### Workflow After Editing Clojure Files
+
+```bash
+# 1. Save your edit
+# 2. Check for paren errors
+clj-kondo --lint <file>
+
+# 3. If paren errors, fix them
+bb fix-parens <file>
+
+# 4. Re-check
+clj-kondo --lint <file>
+```
+
+**Note:** `parmezan` (the underlying tool) uses heuristics to fix unbalanced delimiters. Always verify the fix makes sense.
 
 ---
 
