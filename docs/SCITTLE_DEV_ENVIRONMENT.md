@@ -2,7 +2,7 @@
 
 > **Purpose:** Step-by-step guide for setting up and verifying the Scittle browser nREPL development environment. Follow this EXACTLY to avoid configuration issues.
 
-> ⚠️ **AI Assistant Directive:** ALWAYS test changes with Playwright first before asking the user to try them in their browser. Use headless Playwright to verify functionality works before telling the user to refresh/test.
+> ⚠️ **AI Assistant Directive:** ALWAYS test changes with Playwright MCP tools or headless Playwright before asking the user to try them in their browser. Use `mcp__playwright__*` tools when available, or headless Playwright scripts as fallback.
 
 ## Prerequisites
 
@@ -24,46 +24,44 @@ cd /Users/franksiebenlist/Development/bb-mcp-server
 bb server:list                    # See what's running
 bb server:stop code-browser-dev   # Stop by nickname (if running)
 
-# 2. Kill any orphaned processes on the ports
+# 2. Kill any orphaned processes on the ports (if needed)
 lsof -ti:3000 | xargs kill -9 2>/dev/null   # MCP HTTP
 lsof -ti:8090 | xargs kill -9 2>/dev/null   # Sente WebSocket
 lsof -ti:8091 | xargs kill -9 2>/dev/null   # Bootstrap HTTP
 
-# 3. Verify ports are free
-curl -s http://localhost:3000/health && echo "Port 3000 still in use!" || echo "Port 3000 free"
-curl -s http://localhost:8091 && echo "Port 8091 still in use!" || echo "Port 8091 free"
-
-# 4. Start fresh
-bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+# 3. Start fresh (waits for health automatically)
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 ```
 
-**One-liner for quick restart:**
-```bash
-bb server:stop code-browser-dev 2>/dev/null; sleep 1; bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
-```
+**Note:** `server:start-wait` handles health checking automatically - no need to manually verify ports or add sleep commands.
 
 ---
 
 ## Step 1: Start the Server
 
-> ⚠️ **AI Directive:** ALWAYS use the existing `bb server` task commands to start/stop servers. Never use raw `kill` commands or construct complex shell commands - use `bb server:stop` instead.
+> ⚠️ **AI Directive:** Use `bb server:start-wait` to start servers - it handles health checking automatically. Use `bb server:stop` to stop. Never construct complex shell commands with chaining.
 
+**Recommended (background with health check):**
 ```bash
 cd /Users/franksiebenlist/Development/bb-mcp-server
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
+```
+
+**Verify:** Output should show:
+```
+Starting server 'code-browser-dev' on port 3000...
+  Waiting for health (timeout: 30s)...
+  ✓ Server healthy after N attempts (Xs)
+```
+
+**Alternative (foreground for debugging):**
+```bash
 bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 ```
+This keeps the terminal attached so you can see server logs.
 
-**Verify:** Server output should show:
-```
-Starting HTTP server on port 3000
-Starting sente WebSocket server on port 8090
-Starting bootstrap HTTP server on port 8091
-```
-
-**Keep this terminal open.** The server must stay running.
-
-**To stop the server:** Use `bb server:stop <nickname>` (e.g., `bb server:stop code-browser-dev`)
-**To list servers:** Use `bb server:list` to see all running servers
+**To stop the server:** `bb server:stop code-browser-dev`
+**To list servers:** `bb server:list`
 
 ---
 
@@ -308,7 +306,9 @@ This script:
 
 ## Automated Playwright Testing
 
-> **AI Directive:** ALWAYS verify browser code changes with automated Playwright tests before telling the user to manually test. This ensures functionality works in a reproducible way.
+> **AI Directive:** ALWAYS verify browser code changes before telling the user to manually test. Options:
+> 1. **Playwright MCP tools** (preferred) - Use `mcp__playwright__browser_navigate`, `mcp__playwright__browser_click`, etc.
+> 2. **Playwright scripts** (fallback) - Write .mjs test scripts when MCP tools aren't sufficient
 
 ### MCP Session Pattern
 
@@ -428,8 +428,8 @@ See `test/scripts/test_cm6_update.mjs` for a complete example that:
 ### Running Tests
 
 ```bash
-# Start server first
-bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+# Start server first (waits for health automatically)
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
 # Run the test (in separate terminal)
 node test/scripts/test_cm6_update.mjs
