@@ -5,63 +5,56 @@
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-10
-**Version:** v1.10.3
-
----
-
-## NEW: Browser MCP Tools Available
-
-**Playwright MCP** and **Chrome DevTools MCP** have been added to Claude Desktop config.
-
-> ⚠️ **AI Directive:** Test these new MCP tools for browser automation instead of writing
-> JavaScript test files. These should replace the `test_cm6_update.mjs` pattern.
-
-### Try These First
-
-```
-# Instead of running node test scripts, try:
-"Use playwright to navigate to localhost:8091 and click the 'Select fn2' button"
-
-"Use chrome-devtools to evaluate (+ 1 2) in the browser console"
-```
-
-### Expected Tools (after Claude restart)
-- `playwright_navigate`, `playwright_click`, `playwright_fill`, etc.
-- `chrome-devtools` tools: `navigate_page`, `click`, `evaluate_script`, `list_console_messages`
-
-**If tools not available:** User needs to restart Claude Desktop/Claude Code to load new MCP servers.
-
-**Documentation:** See `docs/claude-cookbook-suggestions.md` → "Browser Automation: Better MCP Alternatives"
+**Version:** v1.11.1
 
 ---
 
 ## Current State
 
-**v1.10.3 released** - 64KB LSP buffer corruption fix verified and shipped.
+**v1.11.1 released** - AI productivity patterns and lint-fix task.
 
-### Recent Work
-- **64KB buffer fix** - `BufferedReader.read()` may return fewer chars than requested; loop until all read
-- CM6 editor update fix (Form-3 Reagent component pattern)
-- Added Playwright MCP + Chrome DevTools MCP to config
-- **Context checkpoints** - Added checkpoint-in-todos pattern to CLAUDE.md and IMPLEMENTATION_PLAN.md
-- **Agent delegation guide** - Created `docs/agent-delegation-guide.md` for subagent workflow
-- **bb tasks reference** - Created `docs/bb-tasks-reference.md` to prevent curl/bash reinvention
-- **server:start-wait** - New task that starts server and waits for health (avoids `& sleep && curl` chains)
+### What's New in v1.11.x
+
+| Feature | Description |
+|---------|-------------|
+| `bb server:start-wait` | Start server + wait for health (no more `& sleep && curl`) |
+| `bb lint-fix <file>` | Lint, auto-fix paren errors, re-lint (use after editing!) |
+| `docs/bb-tasks-reference.md` | Comprehensive CLI reference (check before writing curl/bash) |
+| `docs/agent-delegation-guide.md` | Subagent workflow guide for multi-file work |
+| Checkpoint-in-todos pattern | Added to CLAUDE.md and IMPLEMENTATION_PLAN.md |
+| Scittle guide updated | Uses new patterns throughout |
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server for browser development
-bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+# Start server for browser development (RECOMMENDED - waits for health)
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
+
+# After editing Clojure files (catches and fixes paren errors)
+bb lint-fix <file>
+
+# List running servers
+bb server:list
+
+# Stop server
+bb server:stop code-browser-dev
 
 # Initialize clojure-lsp (required for code-browser)
 bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
-
-# Test with Playwright MCP (NEW - try this!)
-# "Use playwright to navigate to localhost:8091"
 ```
+
+---
+
+## Key Documentation
+
+| Doc | When to Read |
+|-----|--------------|
+| `docs/bb-tasks-reference.md` | Before writing curl/bash commands |
+| `docs/SCITTLE_DEV_ENVIRONMENT.md` | Before Scittle/browser work |
+| `docs/agent-delegation-guide.md` | For multi-file tasks with subagents |
+| `IMPLEMENTATION_PLAN.md` | For task tracking and planning |
 
 ---
 
@@ -77,18 +70,33 @@ Things not in CLAUDE.md or other docs:
 - **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable
 - **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time, not updated
 - **CLI vs MCP** - CLI wrappers (`bb mcp`, `bb nrepl`) are often easier than native MCP tools
-- **Playwright/DevTools MCP** - Browser automation tools for testing
-- **Agent delegation** - Use Task tool with subagents for multi-file work; see `docs/agent-delegation-guide.md`
+- **Playwright/DevTools MCP** - Browser automation tools available for testing
+- **Agent delegation** - Use Task tool with subagents for multi-file work
 - **Checkpoints in todos** - Always include checkpoint tasks in phase plans to survive compaction
+- **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure (auto-fixes paren errors)
+- **parmezan** - Tool that fixes unbalanced parens heuristically; lint-fix uses it automatically
 
 ---
 
 ## Recent Commits
 
 ```
-370344f chore: Remove broken stress test script
-05a5a82 docs: Update context.md for v1.10.3
-5229ef5 chore: Remove debug code after 64KB fix verification  <- v1.10.3
-734d0f4 fix(clojure-lsp): Handle partial reads in JSON-RPC reader (64KB fix)
-37be9cf fix(code-browser): CM6 editor updates when source changes  <- v1.10.2
+5478a19 docs: Update Scittle guide with new patterns
+24c21ec feat: Add bb lint-fix task for auto-fixing paren errors  <- v1.11.1
+d06a8ff docs: Make bb fix-parens more discoverable
+eacd87a feat: Add AI productivity patterns and server:start-wait task  <- v1.11.0
+89ac610 docs: Update context.md and IMPLEMENTATION_PLAN.md
 ```
+
+---
+
+## Browser MCP Tools Available
+
+**Playwright MCP** and **Chrome DevTools MCP** are configured.
+
+```
+# Playwright tools: mcp__playwright__browser_navigate, browser_click, browser_snapshot, etc.
+# Chrome DevTools: mcp__chrome-devtools__navigate_page, click, take_snapshot, etc.
+```
+
+Use these for browser automation instead of writing JavaScript test files.
