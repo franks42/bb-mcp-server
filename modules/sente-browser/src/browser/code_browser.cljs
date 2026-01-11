@@ -131,11 +131,12 @@
                {:file file :start-line start-line :end-line end-line}))
 
 (defn request-var-source!
-  "Request source for a specific var."
-  [ns-name var-name]
+  "Request source for a specific var.
+   kind is used to disambiguate when multiple symbols have same name."
+  [ns-name var-name kind]
   (swap! !state assoc :loading? true :selected-symbol var-name)
   (send-event! :code-browser/request-var-source
-               {:ns ns-name :var-name var-name}))
+               {:ns ns-name :var-name var-name :kind kind}))
 
 ;; =============================================================================
 ;; Filter Logic
@@ -209,7 +210,7 @@
     [:div.list-item
      {:class [(when selected? "selected")
               (clojure.core/name (or kind :unknown))]
-      :on-click #(request-var-source! selected-ns name)}
+      :on-click #(request-var-source! selected-ns name kind)}
      [:span.symbol-name name]
      [:span.symbol-kind (clojure.core/name (or kind :unknown))]]))
 

@@ -96,6 +96,17 @@
        (sort)
        vec))
 
+(defn- detect-kind
+  "Detect symbol kind, distinguishing forward declarations from variables.
+   Forward declarations (declare foo) are kind 13 with single-line range."
+  [sym]
+  (let [kind-num (:kind sym)
+        start-line (get-in sym [:location :range :start :line])
+        end-line (get-in sym [:location :range :end :line])]
+    (if (and (= 13 kind-num) (= start-line end-line))
+      :declare  ; Forward declaration - single line variable
+      (get symbol-kind->name kind-num :unknown))))
+
 (defn extract-ns-symbols
   "Extract symbols belonging to a specific namespace.
    Uses file location to group symbols."
@@ -107,7 +118,7 @@
                       (not= 3 (:kind sym)))))  ; Exclude namespace
        (map (fn [sym]
               {:name (:name sym)
-               :kind (get symbol-kind->name (:kind sym) :unknown)
+               :kind (detect-kind sym)
                :line (inc (get-in sym [:location :range :start :line] 0))
                :column (inc (get-in sym [:location :range :start :character] 0))}))
        (sort-by :name)
@@ -206,23 +217,35 @@
 
 (defn handle-request-var-source
   "Handle request for source of a specific var.
-   data: {:ns string :name string}
-   Finds the var via clojure-lsp and returns its source."
-  [{:keys [ns var-name]}]
+   data: {:ns string :var-name string :kind keyword}
+   Finds the var via clojure-lsp and returns its source.
+   Uses :kind to disambiguate when multiple symbols have same name."
+  [{:keys [ns var-name kind]}]
   (log/log! {:level :info
              :id ::request-var-source
              :msg "Handling var source request"
-             :data {:ns ns :var-name var-name}})
+             :data {:ns ns :var-name var-name :kind kind}})
   (let [symbols (fetch-all-symbols)
         file-uri (get-namespace-file symbols ns)
         file-path (when file-uri (str/replace file-uri "file://" ""))]
     (if-not file-path
       {:error (str "Namespace not found: " ns)}
-      ;; Find the var in symbols
-      (let [var-sym (->> symbols
-                         (filter #(and (= file-uri (get-in % [:location :uri]))
-                                       (= var-name (:name %))))
-                         first)]
+      ;; Find the var in symbols, using kind to disambiguate duplicates
+      (let [matching (->> symbols
+                          (filter #(and (= file-uri (get-in % [:location :uri]))
+                                        (= var-name (:name %)))))
+            ;; If kind provided, filter by it; otherwise take first
+            var-sym (if kind
+                      (let [kind-num (case kind
+                                       :declare 13
+                                       :function 12
+                                       :variable 13
+                                       nil)]
+                        (or (->> matching
+                                 (filter #(= kind-num (:kind %)))
+                                 first)
+                            (first matching)))
+                      (first matching))]
         (if-not var-sym
           {:error (str "Var not found: " ns "/" var-name)}
           (let [start-line (inc (get-in var-sym [:location :range :start :line] 0))
