@@ -112,9 +112,15 @@
   (send-event! :code-browser/request-namespaces {}))
 
 (defn request-symbols!
-  "Request symbols for a namespace."
+  "Request symbols for a namespace.
+   Clears symbols immediately to prevent stale-state clicks."
   [ns-name]
-  (swap! !state assoc :loading? true :selected-ns ns-name)
+  (swap! !state assoc
+         :loading? true
+         :selected-ns ns-name
+         :symbols []           ; Clear to prevent clicking stale symbols
+         :selected-symbol nil
+         :source nil)
   (send-event! :code-browser/request-symbols {:ns ns-name}))
 
 (defn request-source!
