@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1 (Static Browsing)
-**Version:** v1.10.3
-**Last Updated:** 2026-01-10
+**Version:** v1.11.2
+**Last Updated:** 2026-01-12
 
 ---
 
@@ -178,6 +178,10 @@ Test sync logic between two atoms in same process - no WebSocket yet.
 | 1.4A.8 | Implement `generate-sync-ops!` - diff + increment seq + return ops | **Done** |
 | 1.4A.9 | Implement `!subscribers` registry for push callbacks | **Done** |
 | 1.4A.10 | Implement `subscribe!` / `unsubscribe!` - register push callback | **Done** |
+| 1.4A.11 | Implement `apply-sync-op-validated` - seq validation returns :applied/:stale/:gap | **Done** |
+| 1.4A.12 | Implement `reset-expected-seq!` - reset seq tracking after resync | **Done** |
+| 1.4A.13 | Implement `get-server-seq` / `check-sync-status` - server-side sync check | **Done** |
+| 1.4A.14 | Implement `handle-heartbeat` - heartbeat response with resync ops | **Done** |
 
 #### Phase 1.4A-Test: Local Sync Testing (No Transport)
 
@@ -190,8 +194,11 @@ Test sync logic between two atoms in same process - no WebSocket yet.
 | 1.4A-T.5 | Test: Local two-atom sync (source → ops → target) | **Done** |
 | 1.4A-T.6 | Test: Seq increments correctly on each change | **Done** |
 | 1.4A-T.7 | Test: Subscriber callback receives ops on atom change | **Done** |
-| 1.4A-T.8 | Test: Gap detection (seq jump → error/resync signal) | Deferred (browser-side) |
-| 1.4A-T.9 | Test: Stale op rejection (old seq ignored) | Deferred (browser-side) |
+| 1.4A-T.8 | Test: Gap detection (seq jump → error/resync signal) | **Done** |
+| 1.4A-T.9 | Test: Stale op rejection (old seq ignored) | **Done** |
+| 1.4A-T.10 | Test: `apply-sync-op-validated` returns :applied/:stale/:gap | **Done** |
+| 1.4A-T.11 | Test: Heartbeat `check-sync-status` and `handle-heartbeat` | **Done** |
+| 1.4A-T.12 | Test: Scittle browser compatibility (21 tests) | **Done** |
 
 **Local sync test pattern:**
 ```clojure

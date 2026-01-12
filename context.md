@@ -4,8 +4,8 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-11
-**Version:** v1.11.1
+**Last Updated:** 2026-01-12
+**Version:** v1.11.2
 
 ---
 
@@ -30,9 +30,10 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 ┌────────────────────────────────┐   ┌─────────────────────────┐
 │ deep-diff->ops                 │   │ wires core to sente-lite│
 │ apply-sync-op                  │──▶│ broadcast callback      │
-│ register/unregister-synced-atom│   │ ~20 lines               │
-│ subscribe!/unsubscribe!        │   └─────────────────────────┘
-│ seq tracking, gap detection    │
+│ apply-sync-op-validated        │   │ ~20 lines               │
+│ register/unregister-synced-atom│   └─────────────────────────┘
+│ subscribe!/unsubscribe!        │
+│ seq validation, heartbeat      │
 └────────────────────────────────┘
 ```
 
@@ -41,9 +42,12 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 - `modules/atom-sync/` module created with `core.clj`
 - `deep-diff->ops` - generates sync ops from old/new values
 - `apply-sync-op` - applies ops to target atoms
+- `apply-sync-op-validated` - seq validation returns :applied/:stale/:gap
 - Registry with `register-synced-atom!` / `unregister-synced-atom!`
 - Subscriber system with `subscribe!` / `unsubscribe!`
-- 15 tests, 59 assertions - all passing
+- Heartbeat: `get-server-seq`, `check-sync-status`, `handle-heartbeat`
+- 23 Babashka tests, 102 assertions - all passing
+- 21 Scittle browser tests - all passing
 
 ### Next Steps (Phase 1.4B)
 
@@ -127,11 +131,11 @@ Things not in CLAUDE.md or other docs:
 ## Recent Commits
 
 ```
+3c532d4 feat(atom-sync): Add seq validation and heartbeat mechanism
+701e239 test: Add Scittle browser test for atom-sync
+29f592c feat: Implement atom-sync core module (Phase 1.4A)
+1396352 docs: Complete atom-sync design and update implementation plan
 f6e4f79 docs: Add static code analysis design and update implementation plan
-0dcf529 feat: Label forward declarations as 'declare' in code browser
-a1291e2 fix: Clear stale state when selecting new namespace in code browser
-d7b4560 fix: Remove loading overlay flash in code browser
-4bbd4ad docs: Update context.md for v1.11.1 session handoff
 ```
 
 ---
