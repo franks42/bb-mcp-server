@@ -365,3 +365,162 @@
 
       ;; Good subscriber received the op despite bad subscriber's error
                     (is (= 1 (count @results))))))
+
+;; =============================================================================
+;; Seq Validation Tests
+;; =============================================================================
+
+(deftest apply-sync-op-validated-normal
+         (testing "sequential ops return :applied"
+                  (let [!target (atom nil)
+                        !seqs (atom {})
+                        op1 [:sync/op {:key :s :seq 1 :op :assoc-in :path [] :value {:a 1}}]
+                        op2 [:sync/op {:key :s :seq 2 :op :assoc-in :path [:b] :value 2}]
+                        op3 [:sync/op {:key :s :seq 3 :op :assoc-in :path [:c] :value 3}]]
+                    (is (= :applied (core/apply-sync-op-validated !target op1 !seqs)))
+                    (is (= {:a 1} @!target))
+                    (is (= {:s 1} @!seqs))
+
+                    (is (= :applied (core/apply-sync-op-validated !target op2 !seqs)))
+                    (is (= {:a 1 :b 2} @!target))
+                    (is (= {:s 2} @!seqs))
+
+                    (is (= :applied (core/apply-sync-op-validated !target op3 !seqs)))
+                    (is (= {:a 1 :b 2 :c 3} @!target))
+                    (is (= {:s 3} @!seqs)))))
+
+(deftest apply-sync-op-validated-stale
+         (testing "old seq returns :stale and doesn't apply"
+                  (let [!target (atom {:a 1})
+                        !seqs (atom {:s 5})  ; Already seen seq 5
+                        stale-op [:sync/op {:key :s :seq 3 :op :assoc-in :path [:a] :value 999}]]
+                    (is (= :stale (core/apply-sync-op-validated !target stale-op !seqs)))
+      ;; Target unchanged
+                    (is (= {:a 1} @!target))
+      ;; Seq tracking unchanged
+                    (is (= {:s 5} @!seqs))))
+
+         (testing "duplicate seq returns :stale"
+                  (let [!target (atom {:a 1})
+                        !seqs (atom {:s 5})
+                        dup-op [:sync/op {:key :s :seq 5 :op :assoc-in :path [:a] :value 999}]]
+                    (is (= :stale (core/apply-sync-op-validated !target dup-op !seqs)))
+                    (is (= {:a 1} @!target)))))
+
+(deftest apply-sync-op-validated-gap
+         (testing "seq gap returns :gap but still applies"
+                  (let [!target (atom {:a 1})
+                        !seqs (atom {:s 2})  ; Expecting seq 3
+                        gap-op [:sync/op {:key :s :seq 7 :op :assoc-in :path [:a] :value 99}]]
+                    (is (= :gap (core/apply-sync-op-validated !target gap-op !seqs)))
+      ;; Op was applied (newer state is better)
+                    (is (= {:a 99} @!target))
+      ;; Seq tracking updated to received seq
+                    (is (= {:s 7} @!seqs)))))
+
+(deftest apply-sync-op-validated-multiple-keys
+         (testing "tracks seqs per key independently"
+                  (let [!target-a (atom nil)
+                        !target-b (atom nil)
+                        !seqs (atom {})
+                        op-a1 [:sync/op {:key :a :seq 1 :op :assoc-in :path [] :value {:x 1}}]
+                        op-b1 [:sync/op {:key :b :seq 1 :op :assoc-in :path [] :value {:y 1}}]
+                        op-a2 [:sync/op {:key :a :seq 2 :op :assoc-in :path [:x] :value 2}]]
+                    (is (= :applied (core/apply-sync-op-validated !target-a op-a1 !seqs)))
+                    (is (= :applied (core/apply-sync-op-validated !target-b op-b1 !seqs)))
+                    (is (= {:a 1 :b 1} @!seqs))
+
+                    (is (= :applied (core/apply-sync-op-validated !target-a op-a2 !seqs)))
+                    (is (= {:a 2 :b 1} @!seqs)))))
+
+(deftest reset-expected-seq-test
+         (testing "reset-expected-seq! updates tracking"
+                  (let [!seqs (atom {:s 5})]
+                    (core/reset-expected-seq! !seqs :s 10)
+                    (is (= {:s 10} @!seqs)))
+
+                  (let [!seqs (atom {})]
+                    (core/reset-expected-seq! !seqs :new-key 42)
+                    (is (= {:new-key 42} @!seqs)))))
+
+;; =============================================================================
+;; Heartbeat Tests
+;; =============================================================================
+
+(deftest get-server-seq-test
+         (testing "returns seq for registered atom"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (is (= 0 (core/get-server-seq :s)))
+
+      ;; After change, seq increments
+                    (core/subscribe! :dummy (fn [_]))
+                    (swap! !source assoc :x 2)
+                    (is (= 1 (core/get-server-seq :s)))))
+
+         (testing "returns nil for unregistered key"
+                  (core/reset-all!)
+                  (is (nil? (core/get-server-seq :nonexistent)))))
+
+(deftest check-sync-status-test
+         (testing "in-sync when seqs match"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (is (= :in-sync (core/check-sync-status :s 0)))))
+
+         (testing "behind when client-seq < server-seq"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (core/subscribe! :dummy (fn [_]))
+                    (swap! !source assoc :x 2)
+                    (swap! !source assoc :x 3)
+      ;; Server is at seq 2, client at seq 0
+                    (is (= :behind (core/check-sync-status :s 0)))
+                    (is (= :behind (core/check-sync-status :s 1)))))
+
+         (testing "ahead when client-seq > server-seq (shouldn't happen)"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (is (= :ahead (core/check-sync-status :s 99)))))
+
+         (testing "unknown for unregistered key"
+                  (core/reset-all!)
+                  (is (= :unknown (core/check-sync-status :nonexistent 5)))))
+
+(deftest handle-heartbeat-test
+         (testing "returns in-sync with no resync ops"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (let [result (core/handle-heartbeat :s 0)]
+                      (is (= :in-sync (:status result)))
+                      (is (= 0 (:server-seq result)))
+                      (is (nil? (:resync-ops result))))))
+
+         (testing "returns behind with resync ops"
+                  (core/reset-all!)
+                  (let [!source (atom {:x 1})]
+                    (core/register-synced-atom! :s !source)
+                    (core/subscribe! :dummy (fn [_]))
+                    (swap! !source assoc :x 2)
+                    (swap! !source assoc :x 3)
+      ;; Server at seq 2, client claims seq 0
+                    (let [result (core/handle-heartbeat :s 0)]
+                      (is (= :behind (:status result)))
+                      (is (= 2 (:server-seq result)))
+                      (is (some? (:resync-ops result)))
+        ;; Resync ops contain full state
+                      (let [[_ op-data] (first (:resync-ops result))]
+                        (is (= [] (:path op-data)))
+                        (is (= {:x 3} (:value op-data)))))))
+
+         (testing "returns unknown for unregistered key"
+                  (core/reset-all!)
+                  (let [result (core/handle-heartbeat :nonexistent 5)]
+                    (is (= :unknown (:status result)))
+                    (is (nil? (:server-seq result)))
+                    (is (nil? (:resync-ops result))))))

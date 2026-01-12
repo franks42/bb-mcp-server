@@ -281,6 +281,116 @@
   (vec (mapcat generate-full-sync-ops (keys @!synced-atoms))))
 
 ;; =============================================================================
+;; Seq Validation (Client-Side)
+;; =============================================================================
+
+(defn apply-sync-op-validated
+  "Apply op with seq validation. For use on receiving side (browser).
+
+   Args:
+     target-atom      - atom to update
+     op               - [:sync/op {:key k :seq n :op ... }]
+     expected-seqs    - atom tracking expected seq per key {:key seq}
+
+   Returns:
+     :applied - op applied, seq was expected (normal)
+     :stale   - op ignored, seq < expected (duplicate/old message)
+     :gap     - op applied, seq > expected (missed updates, may need resync)
+
+   Example:
+     (def !target (atom nil))
+     (def !seqs (atom {}))
+     (apply-sync-op-validated !target op !seqs)
+     ;; => :applied, :stale, or :gap"
+  [target-atom op expected-seqs]
+  (let [[_ {:keys [key seq]}] op
+        expected (inc (get @expected-seqs key 0))]
+    (cond
+      ;; Normal: sequential
+      (= seq expected)
+      (do
+       (apply-sync-op target-atom op)
+       (swap! expected-seqs assoc key seq)
+       :applied)
+
+      ;; Stale: already seen or old
+      (< seq expected)
+      :stale
+
+      ;; Gap: missed some updates, apply anyway (newer is better)
+      :else
+      (do
+       (apply-sync-op target-atom op)
+       (swap! expected-seqs assoc key seq)
+       :gap))))
+
+(defn reset-expected-seq!
+  "Reset expected seq for a key. Use after receiving full resync.
+
+   Args:
+     expected-seqs - atom tracking expected seqs
+     key           - atom key
+     seq           - new seq value to expect next increment from"
+  [expected-seqs key seq]
+  (swap! expected-seqs assoc key seq))
+
+;; =============================================================================
+;; Heartbeat / Sync Check (Server-Side)
+;; =============================================================================
+
+(defn get-server-seq
+  "Get current server seq for an atom key.
+   Returns nil if key not registered."
+  [key]
+  (get-in @!synced-atoms [key :seq]))
+
+(defn check-sync-status
+  "Check if client is in sync with server.
+
+   Args:
+     key        - atom key
+     client-seq - client's last seen seq
+
+   Returns:
+     :in-sync   - client has latest
+     :behind    - client missed updates (client-seq < server-seq)
+     :ahead     - unexpected (client-seq > server-seq, shouldn't happen)
+     :unknown   - key not registered on server"
+  [key client-seq]
+  (if-let [server-seq (get-server-seq key)]
+          (cond
+            (= client-seq server-seq) :in-sync
+            (< client-seq server-seq) :behind
+            :else :ahead)
+          :unknown))
+
+(defn handle-heartbeat
+  "Handle heartbeat request from client.
+
+   Args:
+     key        - atom key
+     client-seq - client's last seen seq
+
+   Returns map with:
+     :status     - :in-sync, :behind, :ahead, or :unknown
+     :server-seq - current server seq (nil if unknown)
+     :resync-ops - full sync ops if client is behind (nil otherwise)
+
+   Example:
+     (handle-heartbeat :my-atom 5)
+     ;; => {:status :behind :server-seq 8 :resync-ops [[:sync/op ...]]}
+
+     (handle-heartbeat :my-atom 8)
+     ;; => {:status :in-sync :server-seq 8 :resync-ops nil}"
+  [key client-seq]
+  (let [status (check-sync-status key client-seq)
+        server-seq (get-server-seq key)]
+    {:status status
+     :server-seq server-seq
+     :resync-ops (when (= status :behind)
+                   (generate-full-sync-ops key))}))
+
+;; =============================================================================
 ;; Reset (for testing)
 ;; =============================================================================
 

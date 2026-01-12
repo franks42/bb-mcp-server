@@ -131,6 +131,78 @@
         (map (fn [[k {:keys [seq]}]] [k seq]))
         @!synced-atoms))
 
+(defn generate-full-sync-ops
+  "Generate full sync ops for an atom (path [])."
+  [key]
+  (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
+    [[:sync/op {:key key
+                :seq seq
+                :op :assoc-in
+                :path []
+                :value @atom}]]))
+
+;; =============================================================================
+;; Seq Validation (Client-Side)
+;; =============================================================================
+
+(defn apply-sync-op-validated
+  "Apply op with seq validation. Returns :applied, :stale, or :gap"
+  [target-atom op expected-seqs]
+  (let [[_ {:keys [key seq]}] op
+        expected (inc (get @expected-seqs key 0))]
+    (cond
+      ;; Normal: sequential
+      (= seq expected)
+      (do
+        (apply-sync-op target-atom op)
+        (swap! expected-seqs assoc key seq)
+        :applied)
+
+      ;; Stale: already seen or old
+      (< seq expected)
+      :stale
+
+      ;; Gap: missed some updates, apply anyway
+      :else
+      (do
+        (apply-sync-op target-atom op)
+        (swap! expected-seqs assoc key seq)
+        :gap))))
+
+(defn reset-expected-seq!
+  "Reset expected seq for a key. Use after receiving full resync."
+  [expected-seqs key seq]
+  (swap! expected-seqs assoc key seq))
+
+;; =============================================================================
+;; Heartbeat / Sync Check (Server-Side)
+;; =============================================================================
+
+(defn get-server-seq
+  "Get current server seq for an atom key."
+  [key]
+  (get-in @!synced-atoms [key :seq]))
+
+(defn check-sync-status
+  "Check if client is in sync with server."
+  [key client-seq]
+  (if-let [server-seq (get-server-seq key)]
+    (cond
+      (= client-seq server-seq) :in-sync
+      (< client-seq server-seq) :behind
+      :else :ahead)
+    :unknown))
+
+(defn handle-heartbeat
+  "Handle heartbeat request from client."
+  [key client-seq]
+  (let [status (check-sync-status key client-seq)
+        server-seq (get-server-seq key)]
+    {:status status
+     :server-seq server-seq
+     :resync-ops (when (= status :behind)
+                   (generate-full-sync-ops key))}))
+
 ;; =============================================================================
 ;; Tests
 ;; =============================================================================
@@ -260,6 +332,115 @@
              (test-result "falsey value (false)"
                           (= [[:sync/op {:key :s :op :assoc-in :path [:a] :value false}]] ops)
                           (pr-str ops))))
+
+    ;; Test 13: apply-sync-op-validated normal
+    (let [!target (atom nil)
+          !seqs (atom {})
+          op [:sync/op {:key :s :seq 1 :op :assoc-in :path [] :value {:x 1}}]
+          result (core/apply-sync-op-validated !target op !seqs)]
+      (swap! results conj
+             (test-result "apply-sync-op-validated normal"
+                          (and (= :applied result)
+                               (= {:x 1} @!target)
+                               (= {:s 1} @!seqs))
+                          (str "result: " result " target: " (pr-str @!target) " seqs: " (pr-str @!seqs)))))
+
+    ;; Test 14: apply-sync-op-validated stale
+    (let [!target (atom {:x 1})
+          !seqs (atom {:s 5})
+          op [:sync/op {:key :s :seq 3 :op :assoc-in :path [:x] :value 99}]
+          result (core/apply-sync-op-validated !target op !seqs)]
+      (swap! results conj
+             (test-result "apply-sync-op-validated stale"
+                          (and (= :stale result)
+                               (= {:x 1} @!target)
+                               (= {:s 5} @!seqs))
+                          (str "result: " result " target: " (pr-str @!target)))))
+
+    ;; Test 15: apply-sync-op-validated gap
+    (let [!target (atom {:x 1})
+          !seqs (atom {:s 1})
+          op [:sync/op {:key :s :seq 5 :op :assoc-in :path [:x] :value 99}]
+          result (core/apply-sync-op-validated !target op !seqs)]
+      (swap! results conj
+             (test-result "apply-sync-op-validated gap"
+                          (and (= :gap result)
+                               (= {:x 99} @!target)
+                               (= {:s 5} @!seqs))
+                          (str "result: " result " target: " (pr-str @!target) " seqs: " (pr-str @!seqs)))))
+
+    ;; Test 16: reset-expected-seq!
+    (let [!seqs (atom {:s 5 :t 3})]
+      (core/reset-expected-seq! !seqs :s 10)
+      (swap! results conj
+             (test-result "reset-expected-seq!"
+                          (= {:s 10 :t 3} @!seqs)
+                          (pr-str @!seqs))))
+
+    ;; Test 17: get-server-seq
+    (core/reset-all!)
+    (let [!source (atom {:x 1})]
+      (core/register-synced-atom! :test-atom !source)
+      (swap! !source assoc :x 2)
+      (swap! !source assoc :x 3)
+      (let [seq (core/get-server-seq :test-atom)]
+        (swap! results conj
+               (test-result "get-server-seq"
+                            (= 2 seq)
+                            (str "seq: " seq)))))
+
+    ;; Test 18: check-sync-status in-sync
+    (core/reset-all!)
+    (let [!source (atom {:x 1})]
+      (core/register-synced-atom! :s !source)
+      (swap! !source assoc :x 2)
+      (let [status (core/check-sync-status :s 1)]
+        (swap! results conj
+               (test-result "check-sync-status in-sync"
+                            (= :in-sync status)
+                            (str "status: " status)))))
+
+    ;; Test 19: check-sync-status behind
+    (core/reset-all!)
+    (let [!source (atom {:x 1})]
+      (core/register-synced-atom! :s !source)
+      (swap! !source assoc :x 2)
+      (swap! !source assoc :x 3)
+      (swap! !source assoc :x 4)
+      (let [status (core/check-sync-status :s 1)]
+        (swap! results conj
+               (test-result "check-sync-status behind"
+                            (= :behind status)
+                            (str "status: " status " server-seq: " (core/get-server-seq :s))))))
+
+    ;; Test 20: handle-heartbeat in-sync
+    (core/reset-all!)
+    (let [!source (atom {:x 1})]
+      (core/register-synced-atom! :s !source)
+      (swap! !source assoc :x 2)
+      (let [response (core/handle-heartbeat :s 1)]
+        (swap! results conj
+               (test-result "handle-heartbeat in-sync"
+                            (and (= :in-sync (:status response))
+                                 (= 1 (:server-seq response))
+                                 (nil? (:resync-ops response)))
+                            (pr-str response)))))
+
+    ;; Test 21: handle-heartbeat behind with resync
+    (core/reset-all!)
+    (let [!source (atom {:x 1})]
+      (core/register-synced-atom! :s !source)
+      (swap! !source assoc :x 2)
+      (swap! !source assoc :x 3)
+      (let [response (core/handle-heartbeat :s 1)]
+        (swap! results conj
+               (test-result "handle-heartbeat behind with resync"
+                            (and (= :behind (:status response))
+                                 (= 2 (:server-seq response))
+                                 (= 1 (count (:resync-ops response)))
+                                 (= [:sync/op {:key :s :seq 2 :op :assoc-in :path [] :value {:x 3}}]
+                                    (first (:resync-ops response))))
+                            (pr-str response)))))
 
     ;; Cleanup
     (core/reset-all!)
