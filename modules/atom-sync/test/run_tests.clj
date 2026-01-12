@@ -8,10 +8,12 @@
 (cp/add-classpath "test")
 
 (require '[clojure.test :as t]
-         '[atom-sync.core-test])
+         '[atom-sync.core-test]
+         '[atom-sync.server-test])
 
 #_{:clj-kondo/ignore [:missing-docstring]}
-(def test-results (t/run-tests 'atom-sync.core-test))
+(def test-results (t/run-tests 'atom-sync.core-test
+                               'atom-sync.server-test))
 
 ;; Exit with proper code
 (let [{:keys [fail error]} test-results]

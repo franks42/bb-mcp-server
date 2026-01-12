@@ -16,6 +16,7 @@
     (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [sente-browser.code-browser :as code-browser]
+              [atom-sync.server :as atom-sync]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.messages :as msg-state]
               [nrepl.state.results :as results]
@@ -170,6 +171,8 @@
                           :reconnect is-reconnect
                           :ops (keys ops)
                           :nrepl-version (get versions "sci-nrepl")}})
+        ;; Push synced atoms to newly connected browser
+        (atom-sync/on-browser-connected! sente-conn-id)
         ;; Return nil - :server/ready already sent the info to browser
         ;; Returning mcp-conn-id would cause sente-lite to send it as raw response,
         ;; which breaks client's parse-message (expects vector, not string)
@@ -256,27 +259,34 @@
                           :probe-id (:probe-id conn-info)
                           :response-keys (keys data)}})))
 
-    ;; Try code-browser dispatch
-    (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
-      ;; Code browser event handled - send response
-            (let [conn-info (get @!browser-connections sente-conn-id)]
+    ;; Try atom-sync dispatch first
+    (if-let [[response-event-id response-data] (atom-sync/dispatch-event event-id data)]
+      ;; Atom-sync event handled - send response
+      (let [conn-info (get @!browser-connections sente-conn-id)]
+        (when (= :validated (:status conn-info))
+          (send-to-browser! sente-conn-id [response-event-id response-data])))
+
+      ;; Try code-browser dispatch
+      (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
+        ;; Code browser event handled - send response
+        (let [conn-info (get @!browser-connections sente-conn-id)]
+          (log/log! {:level :info
+                     :id ::code-browser-response
+                     :msg "Sending code-browser response"
+                     :data {:response-event response-event-id
+                            :status (:status conn-info)
+                            :sente-conn-id sente-conn-id}})
+          (when (= :validated (:status conn-info))
+            (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
               (log/log! {:level :info
-                         :id ::code-browser-response
-                         :msg "Sending code-browser response"
-                         :data {:response-event response-event-id
-                                :status (:status conn-info)
-                                :sente-conn-id sente-conn-id}})
-              (when (= :validated (:status conn-info))
-                (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
-                  (log/log! {:level :info
-                             :id ::code-browser-sent
-                             :msg "Response sent"
-                             :data {:sent? sent?}}))))
-      ;; Unknown event - log it
-            (log/log! {:level :debug
-                       :id ::unknown-event
-                       :msg "Unknown browser event"
-                       :data {:event-id event-id}}))))
+                         :id ::code-browser-sent
+                         :msg "Response sent"
+                         :data {:sent? sent?}}))))
+        ;; Unknown event - log it
+        (log/log! {:level :debug
+                   :id ::unknown-event
+                   :msg "Unknown browser event"
+                   :data {:event-id event-id}})))))
 
 ;; =============================================================================
 ;; Public API
@@ -465,6 +475,9 @@
     ;; Register browser send function so watchers can send to browsers
     (msg-state/register-browser-send-fn! send-to-browser!)
 
+    ;; Initialize atom-sync server integration
+    (atom-sync/init! broadcast-to-browsers! send-to-browser!)
+
     ;; Start global message queue watcher
     (watchers/start-all-watchers!)
 
@@ -488,6 +501,9 @@
 
   ;; Disable code browser handlers
   (code-browser/disable!)
+
+  ;; Stop atom-sync server integration
+  (atom-sync/stop!)
 
   ;; Stop heartbeat task
   (stop-heartbeat-task!)
