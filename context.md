@@ -4,35 +4,73 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-10
+**Last Updated:** 2026-01-11
 **Version:** v1.11.1
 
 ---
 
-## Current State
+## Current Work: Atom Sync Module (Phase 1.4)
 
-**v1.11.1 released** - AI productivity patterns and lint-fix task.
+**Goal:** One-way sync of Clojure atoms from server (Babashka) to browser (Scittle) over sente-lite WebSocket.
 
-### What's New in v1.11.x
+**Status:** Design complete, ready for implementation.
 
-| Feature | Description |
-|---------|-------------|
-| `bb server:start-wait` | Start server + wait for health (no more `& sleep && curl`) |
-| `bb lint-fix <file>` | Lint, auto-fix paren errors, re-lint (use after editing!) |
-| `docs/bb-tasks-reference.md` | Comprehensive CLI reference (check before writing curl/bash) |
-| `docs/agent-delegation-guide.md` | Subagent workflow guide for multi-file work |
-| Checkpoint-in-todos pattern | Added to CLAUDE.md and IMPLEMENTATION_PLAN.md |
-| Scittle guide updated | Uses new patterns throughout |
+### Essential Docs for This Work
+
+| Doc | Purpose |
+|-----|---------|
+| `docs/design/atom-sync-design.md` | **PRIMARY** - Full design, protocol, code examples |
+| `IMPLEMENTATION_PLAN.md` (Phase 1.4) | Task breakdown with status tracking |
+| `modules/sente-browser/` | Existing WebSocket infrastructure |
+
+### Architecture Summary
+
+```
+core.clj (transport-independent)     server.clj (thin wrapper)
+┌────────────────────────────────┐   ┌─────────────────────────┐
+│ deep-diff->ops                 │   │ wires core to sente-lite│
+│ apply-sync-op                  │──▶│ broadcast callback      │
+│ register/unregister-synced-atom│   │ ~20 lines               │
+│ subscribe!/unsubscribe!        │   └─────────────────────────┘
+│ seq tracking, gap detection    │
+└────────────────────────────────┘
+```
+
+### Next Steps (Phase 1.4A)
+
+1. Create `modules/atom-sync/` module structure
+2. Implement `core.clj` with `deep-diff->ops` and `apply-sync-op`
+3. Test locally: two atoms, same process, no network
+4. Then add sente-lite transport layer
+
+### Key Design Decisions Made
+
+- One-way sync first (server → browser)
+- Shared atoms (all browsers see same value)
+- Seq numbers in registry, not atom value
+- Full sync for Phase 1 (path [])
+- Vectors replaced wholesale (sufficient for code-browser)
+- `differ` library investigated but our `deep-diff->ops` (~25 lines) is simpler
+
+### Message Protocol
+
+```clojure
+[:sync/op {:key   :my-atom
+           :seq   42
+           :op    :assoc-in
+           :path  []           ; [] = full replace
+           :value {...}}]
+```
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server for browser development (RECOMMENDED - waits for health)
+# Start server for browser development
 bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
-# After editing Clojure files (catches and fixes paren errors)
+# After editing Clojure files
 bb lint-fix <file>
 
 # List running servers
@@ -40,9 +78,6 @@ bb server:list
 
 # Stop server
 bb server:stop code-browser-dev
-
-# Initialize clojure-lsp (required for code-browser)
-bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev
 ```
 
 ---
@@ -51,6 +86,7 @@ bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Develo
 
 | Doc | When to Read |
 |-----|--------------|
+| `docs/design/atom-sync-design.md` | For atom-sync implementation |
 | `docs/bb-tasks-reference.md` | Before writing curl/bash commands |
 | `docs/SCITTLE_DEV_ENVIRONMENT.md` | Before Scittle/browser work |
 | `docs/agent-delegation-guide.md` | For multi-file tasks with subagents |
@@ -75,17 +111,18 @@ Things not in CLAUDE.md or other docs:
 - **Checkpoints in todos** - Always include checkpoint tasks in phase plans to survive compaction
 - **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure (auto-fixes paren errors)
 - **parmezan** - Tool that fixes unbalanced parens heuristically; lint-fix uses it automatically
+- **differ library** - Fork at jeremyrsellars/differ is SCI-compatible, but our simple diff is sufficient
 
 ---
 
 ## Recent Commits
 
 ```
-5478a19 docs: Update Scittle guide with new patterns
-24c21ec feat: Add bb lint-fix task for auto-fixing paren errors  <- v1.11.1
-d06a8ff docs: Make bb fix-parens more discoverable
-eacd87a feat: Add AI productivity patterns and server:start-wait task  <- v1.11.0
-89ac610 docs: Update context.md and IMPLEMENTATION_PLAN.md
+f6e4f79 docs: Add static code analysis design and update implementation plan
+0dcf529 feat: Label forward declarations as 'declare' in code browser
+a1291e2 fix: Clear stale state when selecting new namespace in code browser
+d7b4560 fix: Remove loading overlay flash in code browser
+4bbd4ad docs: Update context.md for v1.11.1 session handoff
 ```
 
 ---

@@ -153,18 +153,182 @@ Replace LSP's 3 generic kinds with kondo's rich `:defined-by` classification.
 
 **Design doc:** `docs/design/static-code-analysis.md`
 
-#### Phase 1.5-Pre: Migrate to Synced Atoms
+### Phase 1.4: Synced Atoms Module (One-Way Sync)
 
-Refactor from request/response messaging to synced atoms for cleaner state management.
+**Design doc:** `docs/design/atom-sync-design.md`
+
+**Scope:** One-way sync (server → browser). Server owns atoms, browser observes.
+Shared atoms (all browsers see same value). Full state sync with sequence numbers.
+
+**New module:** `modules/atom-sync/`
+
+#### Phase 1.4A: Core Sync Logic (Transport-Independent)
+
+Test sync logic between two atoms in same process - no WebSocket yet.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Pre.1 | Server: Create synced atoms for code browser state | Pending |
-| 1.5-Pre.2 | Define state shape: `{:namespaces [...] :selected-ns nil :vars [...] :selected-var nil :source {...}}` | Pending |
-| 1.5-Pre.3 | Server: Update atoms instead of sending response events | Pending |
-| 1.5-Pre.4 | Browser: Subscribe to synced atoms instead of handling events | Pending |
-| 1.5-Pre.5 | Browser: UI reads from synced atoms (reagent reactive) | Pending |
-| 1.5-Pre.6 | Remove request/response event handlers | Pending |
+| 1.4A.1 | Create `modules/atom-sync/` directory and `module.edn` | Pending |
+| 1.4A.2 | Create `src/atom_sync/core.clj` - transport-independent sync logic | Pending |
+| 1.4A.3 | Implement `deep-diff->ops` - generate sync ops from old/new values | Pending |
+| 1.4A.4 | Implement `apply-sync-op` - apply op to target atom | Pending |
+| 1.4A.5 | Implement `!synced-atoms` registry {:key {:atom ref :seq n :last-value v}} | Pending |
+| 1.4A.6 | Implement `register-synced-atom!` with add-watch | Pending |
+| 1.4A.7 | Implement `unregister-synced-atom!` with remove-watch | Pending |
+| 1.4A.8 | Implement `generate-sync-ops!` - diff + increment seq + return ops | Pending |
+| 1.4A.9 | Implement `!subscribers` registry for push callbacks | Pending |
+| 1.4A.10 | Implement `subscribe!` / `unsubscribe!` - register push callback | Pending |
+
+#### Phase 1.4A-Test: Local Sync Testing (No Transport)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.4A-T.1 | Test: `deep-diff->ops` on flat maps | Pending |
+| 1.4A-T.2 | Test: `deep-diff->ops` on nested maps | Pending |
+| 1.4A-T.3 | Test: `deep-diff->ops` with vector values (wholesale replace) | Pending |
+| 1.4A-T.4 | Test: `apply-sync-op` roundtrip (diff → apply → equal) | Pending |
+| 1.4A-T.5 | Test: Local two-atom sync (source → ops → target) | Pending |
+| 1.4A-T.6 | Test: Seq increments correctly on each change | Pending |
+| 1.4A-T.7 | Test: Subscriber callback receives ops on atom change | Pending |
+| 1.4A-T.8 | Test: Gap detection (seq jump → error/resync signal) | Pending |
+| 1.4A-T.9 | Test: Stale op rejection (old seq ignored) | Pending |
+
+**Local sync test pattern:**
+```clojure
+;; Two atoms, same process, no network
+(def !source (atom {:count 0}))
+(def !target (atom nil))
+
+;; Subscribe target to source
+(subscribe! :my-state
+  (fn [ops]
+    (doseq [op ops]
+      (apply-sync-op !target op))))
+
+(register-synced-atom! :my-state !source)
+
+;; Change source → target updates automatically
+(swap! !source assoc :count 1)
+@!target  ; => {:count 1}
+```
+
+#### Phase 1.4B: Server Integration (sente-lite Transport)
+
+Wire core sync logic to sente-lite WebSocket transport.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.4B.1 | Create `src/atom_sync/server.clj` - sente-lite integration | Pending |
+| 1.4B.2 | Implement `init!` - subscribe to core with broadcast callback | Pending |
+| 1.4B.3 | Implement `on-browser-connected!` - push all atoms to new client | Pending |
+| 1.4B.4 | Wire into `sente-browser.server/promote-to-validated!` | Pending |
+| 1.4B.5 | Add `:sync/resync-request` handler for gap recovery | Pending |
+| 1.4B.6 | Test: register atom, change it, verify browser receives | Pending |
+
+**Transport layer is thin:**
+```clojure
+;; server.clj - just wires core to sente-lite
+(defn init! []
+  (core/subscribe! ::broadcast
+    (fn [ops]
+      (doseq [op ops]
+        (sente-browser.server/broadcast-to-browsers! op)))))
+```
+
+#### Phase 1.4C: Browser-Side (Scittle)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.4C.1 | Update bootstrap.clj: add `!sync-state` for seq tracking | Pending |
+| 1.4C.2 | Update `on-sync-message` to handle new [:sync/op {...}] format | Pending |
+| 1.4C.3 | Implement `apply-sync-op` with seq validation | Pending |
+| 1.4C.4 | Implement gap detection → request resync | Pending |
+| 1.4C.5 | Implement stale message rejection (seq < expected) | Pending |
+
+#### Phase 1.4D: Testing & Verification
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.4D.1 | Unit test: register/unregister atoms | Pending |
+| 1.4D.2 | Unit test: push increments seq correctly | Pending |
+| 1.4D.3 | Integration test: atom change → browser receives | Pending |
+| 1.4D.4 | Integration test: browser reconnect → gets fresh state | Pending |
+| 1.4D.5 | Integration test: seq gap → resync triggered | Pending |
+| 1.4D.6 | Manual test: open browser, change atom via REPL, see update | Pending |
+
+#### Phase 1.4E: Documentation
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.4E.1 | Add usage examples to design doc | Pending |
+| 1.4E.2 | Document message protocol in README or design doc | Pending |
+
+**Message Protocol (from design doc):**
+```clojure
+[:sync/op {:key   :my-atom
+           :seq   42
+           :op    :assoc-in
+           :path  []           ; [] = full replace
+           :value {...}}]
+```
+
+**Design decisions made:**
+- ✅ One-way sync first (server → browser)
+- ✅ Shared atoms (all browsers see same value)
+- ✅ Seq numbers in registry, not atom value
+- ✅ Full sync for Phase 1 (path [])
+- ✅ Delta sync deferred (deep-diff->ops ready when needed)
+- ✅ Vectors replaced wholesale (sufficient for our use case)
+
+**Future Phase 2 (Bidirectional):**
+- Browser → server sync
+- Conflict resolution
+- Per-client atoms (if needed)
+
+---
+
+#### Phase 1.5-Pre: Migrate Code Browser to Synced Atoms
+
+Refactor from request/response messaging to synced atoms for cleaner state management.
+
+**Depends on:** Phase 1.4 (atom-sync module)
+
+**Approach:** Parallel migration - keep messaging working, add synced atoms alongside, verify, then switch over.
+
+##### Step 1: Register Synced Atom (Parallel to Existing)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.1a | Server: Create `!code-browser-state` atom with state shape | Pending |
+| 1.5-Pre.1b | Server: Call `(atom-sync/register-synced-atom! :code-browser !code-browser-state)` | Pending |
+| 1.5-Pre.1c | Server: Update atom IN ADDITION to sending response events | Pending |
+| 1.5-Pre.1d | Verify: Browser receives [:sync/op {:key :code-browser ...}] | Pending |
+
+##### Step 2: Browser Reads from Synced Atom
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.2a | Browser: Get synced atom via `(get-synced-atom :code-browser)` | Pending |
+| 1.5-Pre.2b | Browser: UI components deref synced atom instead of local state | Pending |
+| 1.5-Pre.2c | Verify: UI updates when server pushes [:sync/op ...] | Pending |
+| 1.5-Pre.2d | Browser: Keep old event handlers temporarily (become no-ops) | Pending |
+
+##### Step 3: Remove Old Messaging
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.3a | Server: Stop sending response events (only atom updates) | Pending |
+| 1.5-Pre.3b | Browser: Remove old event handlers | Pending |
+| 1.5-Pre.3c | Clean up: Remove dead code from both sides | Pending |
+
+##### Step 4: Browser → Server Actions (One-Way Pattern)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.4a | Browser: User clicks ns → send [:code-browser/select-ns {:ns "..."}] | Pending |
+| 1.5-Pre.4b | Server: Handle action, `(swap! !code-browser-state ...)` | Pending |
+| 1.5-Pre.4c | Server: Watcher auto-pushes update to all browsers | Pending |
+| 1.5-Pre.4d | Verify: Click → server update → all browsers see change | Pending |
 
 **Benefits:**
 - Server builds state → automatically syncs to browser
@@ -179,6 +343,13 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
  :vars [{:name "foo" :kind :function :line 10 :defined-by 'clojure.core/defn ...}]
  :selected-var "foo"
  :source {:code "..." :file "..." :start-line 1 :end-line 20}}
+```
+
+**Action events (browser → server):**
+```clojure
+[:code-browser/select-ns {:ns "my.namespace"}]
+[:code-browser/select-var {:var "my-fn"}]
+[:code-browser/refresh]
 ```
 
 #### Phase 1.5A: On-Demand Parsing
