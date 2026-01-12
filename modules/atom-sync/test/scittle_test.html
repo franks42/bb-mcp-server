@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>atom-sync Scittle Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.22/dist/scittle.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    pre { background: #16213e; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    .pass { color: #4ade80; }
+    .fail { color: #f87171; }
+    h1 { color: #818cf8; }
+    h2 { color: #a5b4fc; margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <h1>atom-sync Scittle Test</h1>
+  <p>Testing sync logic in SCI interpreter (same as browser runtime)</p>
+  <pre id="output">Running tests...</pre>
+
+  <script type="application/x-scittle">
+;; =============================================================================
+;; atom-sync.core inlined (Scittle can't load external deps)
+;; =============================================================================
+
+(ns atom-sync.core)
+
+(defn deep-diff->ops
+  "Recursively diff two values, return assoc-in/dissoc-in ops."
+  ([key old-val new-val]
+   (deep-diff->ops key [] old-val new-val))
+  ([key path old-val new-val]
+   (cond
+     (= old-val new-val)
+     []
+
+     (and (map? old-val) (map? new-val))
+     (let [all-keys (into (set (keys old-val)) (keys new-val))]
+       (vec
+        (mapcat
+         (fn [k]
+           (let [ov (get old-val k ::missing)
+                 nv (get new-val k ::missing)
+                 path' (conj path k)]
+             (cond
+               (= ov nv) []
+               (= nv ::missing) [[:sync/op {:key key :op :dissoc-in :path path'}]]
+               (= ov ::missing) [[:sync/op {:key key :op :assoc-in :path path' :value nv}]]
+               :else (deep-diff->ops key path' ov nv))))
+         all-keys)))
+
+     :else
+     [[:sync/op {:key key :op :assoc-in :path path :value new-val}]])))
+
+(defn apply-sync-op
+  "Apply a sync op to a target atom."
+  [target-atom op]
+  (let [[_sync-op {:keys [op path value]}] op]
+    (case op
+      :assoc-in
+      (if (empty? path)
+        (reset! target-atom value)
+        (swap! target-atom assoc-in path value))
+
+      :dissoc-in
+      (if (= 1 (count path))
+        (swap! target-atom dissoc (first path))
+        (swap! target-atom update-in (butlast path) dissoc (last path)))
+
+      (do
+        (js/console.warn "[atom-sync] Unknown op:" op)
+        @target-atom))))
+
+;; Registry
+(defonce !synced-atoms (atom {}))
+(defonce !subscribers (atom {}))
+
+(defn- notify-subscribers! [ops]
+  (when (seq ops)
+    (doseq [[_sub-key callback] @!subscribers]
+      (try
+        (callback ops)
+        (catch :default e
+          (js/console.error "[atom-sync] Subscriber error:" e))))))
+
+(defn- on-atom-change [key _ref old-val new-val]
+  (when (not= old-val new-val)
+    (let [{:keys [seq]} (get @!synced-atoms key)
+          new-seq (inc (or seq 0))
+          ops (mapv
+               (fn [[op-type op-data]]
+                 [op-type (assoc op-data :seq new-seq)])
+               (deep-diff->ops key old-val new-val))]
+      (swap! !synced-atoms update key assoc
+             :seq new-seq
+             :last-value new-val)
+      (notify-subscribers! ops))))
+
+(defn register-synced-atom! [key atom-ref]
+  (let [current-val @atom-ref]
+    (swap! !synced-atoms assoc key
+           {:atom atom-ref
+            :seq 0
+            :last-value current-val})
+    (add-watch atom-ref [::sync key]
+               (fn [_key ref old-val new-val]
+                 (on-atom-change key ref old-val new-val)))
+    key))
+
+(defn unregister-synced-atom! [key]
+  (when-let [{:keys [atom]} (get @!synced-atoms key)]
+    (remove-watch atom [::sync key]))
+  (swap! !synced-atoms dissoc key)
+  key)
+
+(defn subscribe! [subscriber-key callback-fn]
+  (swap! !subscribers assoc subscriber-key callback-fn)
+  subscriber-key)
+
+(defn unsubscribe! [subscriber-key]
+  (swap! !subscribers dissoc subscriber-key)
+  subscriber-key)
+
+(defn reset-all! []
+  (doseq [key (keys @!synced-atoms)]
+    (unregister-synced-atom! key))
+  (reset! !subscribers {})
+  nil)
+
+(defn get-sync-status []
+  (into {}
+        (map (fn [[k {:keys [seq]}]] [k seq]))
+        @!synced-atoms))
+
+;; =============================================================================
+;; Tests
+;; =============================================================================
+
+(ns test-runner
+  (:require [atom-sync.core :as core]))
+
+(defn test-result [name passed? details]
+  {:name name :passed? passed? :details details})
+
+(defn run-tests []
+  (let [results (atom [])]
+
+    ;; Test 1: deep-diff->ops flat map
+    (let [ops (core/deep-diff->ops :s {:a 1 :b 2} {:a 1 :b 99 :c 3})]
+      (swap! results conj
+             (test-result "deep-diff->ops flat map"
+                          (and (= 2 (count ops))
+                               (some #(= [:sync/op {:key :s :op :assoc-in :path [:b] :value 99}] %) ops)
+                               (some #(= [:sync/op {:key :s :op :assoc-in :path [:c] :value 3}] %) ops))
+                          (pr-str ops))))
+
+    ;; Test 2: deep-diff->ops nested map
+    (let [ops (core/deep-diff->ops :s
+                {:user {:name "old" :age 30}}
+                {:user {:name "new" :age 30}})]
+      (swap! results conj
+             (test-result "deep-diff->ops nested map"
+                          (= [[:sync/op {:key :s :op :assoc-in :path [:user :name] :value "new"}]] ops)
+                          (pr-str ops))))
+
+    ;; Test 3: deep-diff->ops removal
+    (let [ops (core/deep-diff->ops :s {:a 1 :b 2} {:a 1})]
+      (swap! results conj
+             (test-result "deep-diff->ops removal"
+                          (= [[:sync/op {:key :s :op :dissoc-in :path [:b]}]] ops)
+                          (pr-str ops))))
+
+    ;; Test 4: deep-diff->ops vectors replaced wholesale
+    (let [ops (core/deep-diff->ops :s {:items [1 2 3]} {:items [1 2 3 4]})]
+      (swap! results conj
+             (test-result "deep-diff->ops vectors wholesale"
+                          (= [[:sync/op {:key :s :op :assoc-in :path [:items] :value [1 2 3 4]}]] ops)
+                          (pr-str ops))))
+
+    ;; Test 5: apply-sync-op assoc-in
+    (let [a (atom {:a 1})]
+      (core/apply-sync-op a [:sync/op {:op :assoc-in :path [:b] :value 2}])
+      (swap! results conj
+             (test-result "apply-sync-op assoc-in"
+                          (= {:a 1 :b 2} @a)
+                          (pr-str @a))))
+
+    ;; Test 6: apply-sync-op full replace
+    (let [a (atom {:old "value"})]
+      (core/apply-sync-op a [:sync/op {:op :assoc-in :path [] :value {:new "value"}}])
+      (swap! results conj
+             (test-result "apply-sync-op full replace"
+                          (= {:new "value"} @a)
+                          (pr-str @a))))
+
+    ;; Test 7: apply-sync-op dissoc-in
+    (let [a (atom {:a 1 :b 2})]
+      (core/apply-sync-op a [:sync/op {:op :dissoc-in :path [:b]}])
+      (swap! results conj
+             (test-result "apply-sync-op dissoc-in"
+                          (= {:a 1} @a)
+                          (pr-str @a))))
+
+    ;; Test 8: roundtrip (diff then apply)
+    (let [old {:user {:name "old" :age 30} :count 1}
+          new {:user {:name "new" :age 30} :count 2}
+          ops (core/deep-diff->ops :s old new)
+          result (atom old)]
+      (doseq [op ops]
+        (core/apply-sync-op result op))
+      (swap! results conj
+             (test-result "roundtrip diff->apply"
+                          (= new @result)
+                          (str "ops: " (pr-str ops) " result: " (pr-str @result)))))
+
+    ;; Test 9: Local two-atom sync
+    (core/reset-all!)
+    (let [!source (atom {:count 0})
+          !target (atom nil)
+          received-ops (atom [])]
+      (core/subscribe! :test-sub
+                       (fn [ops]
+                         (swap! received-ops into ops)
+                         (doseq [op ops]
+                           (core/apply-sync-op !target op))))
+      (core/register-synced-atom! :my-state !source)
+      (swap! !source assoc :count 1)
+      (swap! results conj
+             (test-result "local two-atom sync"
+                          (and (= {:count 1} @!target)
+                               (= 1 (count @received-ops)))
+                          (str "target: " (pr-str @!target) " ops: " (count @received-ops)))))
+
+    ;; Test 10: Multiple changes with sequential seqs
+    (core/reset-all!)
+    (let [!source (atom {:x 0})
+          received-seqs (atom [])]
+      (core/subscribe! :test-sub
+                       (fn [ops]
+                         (doseq [[_ {:keys [seq]}] ops]
+                           (swap! received-seqs conj seq))))
+      (core/register-synced-atom! :s !source)
+      (swap! !source assoc :x 1)
+      (swap! !source assoc :x 2)
+      (swap! !source assoc :x 3)
+      (swap! results conj
+             (test-result "sequential seqs"
+                          (= [1 2 3] @received-seqs)
+                          (pr-str @received-seqs))))
+
+    ;; Test 11: Falsey values (nil)
+    (let [ops (core/deep-diff->ops :s {:a 1} {:a nil})]
+      (swap! results conj
+             (test-result "falsey value (nil)"
+                          (= [[:sync/op {:key :s :op :assoc-in :path [:a] :value nil}]] ops)
+                          (pr-str ops))))
+
+    ;; Test 12: Falsey values (false)
+    (let [ops (core/deep-diff->ops :s {:a true} {:a false})]
+      (swap! results conj
+             (test-result "falsey value (false)"
+                          (= [[:sync/op {:key :s :op :assoc-in :path [:a] :value false}]] ops)
+                          (pr-str ops))))
+
+    ;; Cleanup
+    (core/reset-all!)
+
+    @results))
+
+;; =============================================================================
+;; Display Results
+;; =============================================================================
+
+(let [output (js/document.getElementById "output")
+      results (run-tests)
+      passed (count (filter :passed? results))
+      total (count results)
+      all-ok (= passed total)]
+  (set! (.-innerHTML output)
+        (str "=== atom-sync Scittle Test ===\n\n"
+             (clojure.string/join "\n"
+               (map (fn [{:keys [name passed? details]}]
+                      (str (if passed?
+                             (str "<span class=\"pass\">\u2713 PASS</span>")
+                             (str "<span class=\"fail\">\u2717 FAIL</span>"))
+                           " " name "\n"
+                           "  " details))
+                    results))
+             "\n\n"
+             "─────────────────────────────────────\n"
+             (if all-ok
+               (str "<span class=\"pass\">All " total " tests passed!</span>")
+               (str "<span class=\"fail\">" passed "/" total " tests passed</span>")))))
+  </script>
+</body>
+</html>
