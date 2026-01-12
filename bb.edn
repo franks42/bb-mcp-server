@@ -192,6 +192,36 @@
                            :depends [-bootstrap]
                            :task (load-file "modules/nrepl-proxy-server/test/run_tests.clj")}
 
+  test:clojure-lsp {:doc "Run clojure-lsp module tests"
+                    :depends [-bootstrap]
+                    :task (load-file "modules/clojure-lsp/test/run_tests.clj")}
+
+  test:atom-sync {:doc "Run atom-sync module tests"
+                  :depends [-bootstrap]
+                  :task (load-file "modules/atom-sync/test/run_tests.clj")}
+
+  test:openai-http-provider {:doc "Run openai-http-provider module tests"
+                             :depends [-bootstrap]
+                             :task (load-file "modules/openai-http-provider/test/run_tests.clj")}
+
+  test:anthropic-http-provider {:doc "Run anthropic-http-provider module tests"
+                                :depends [-bootstrap]
+                                :task (load-file "modules/anthropic-http-provider/test/run_tests.clj")}
+
+  ;; Generic module test runner - runs tests for any module by name
+  test:module {:doc "Run tests for a specific module (usage: bb test:module <module-name>)"
+               :depends [-bootstrap]
+               :task (let [module-name (first *command-line-args*)]
+                       (if module-name
+                         (let [test-file (str "modules/" module-name "/test/run_tests.clj")]
+                           (if (.exists (java.io.File. test-file))
+                             (load-file test-file)
+                             (do (println "No test runner found:" test-file)
+                                 (System/exit 1))))
+                         (do (println "Usage: bb test:module <module-name>")
+                             (println "Example: bb test:module atom-sync")
+                             (System/exit 1))))}
+
   test:modules {:doc "Run all module tests"
                 :task (do (run 'test:nrepl)
                           (run 'test:http-core)
@@ -203,6 +233,13 @@
                           (run 'test:ai-orchestrator)
                           (run 'test:ai-orchestrator-tools)
                           (run 'test:message-bus)
+                          (run 'test:datalevin-pod)
+                          (run 'test:datalevin-mcp)
+                          (run 'test:webserver)
+                          (run 'test:sente-browser)
+                          (run 'test:nrepl-proxy-server)
+                          (run 'test:clojure-lsp)
+                          (run 'test:atom-sync)
                           (run 'test:stdio)
                           (run 'test:streamable))}
 

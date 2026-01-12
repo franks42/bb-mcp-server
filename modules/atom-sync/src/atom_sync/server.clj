@@ -19,20 +19,8 @@
    │ handle-heartbeat    │    │ → sente-lite broadcast  │
    └─────────────────────┘    └─────────────────────────┘
    ```"
-    (:require [atom-sync.core :as core]))
-
-;; Conditional logging - use trove if available, no-op otherwise
-;; This allows the module to be tested standalone without deps
-(def ^:private log-fn
-  (try
-    (require 'taoensso.trove)
-    (resolve 'taoensso.trove/log!)
-    (catch Exception _
-      nil)))
-
-(defn- log! [data]
-  (when log-fn
-    (log-fn data)))
+    (:require [atom-sync.core :as core]
+              [taoensso.trove :as log]))
 
 ;; Forward declaration for sente-browser functions
 ;; These will be resolved at runtime to avoid circular deps
@@ -54,7 +42,7 @@
   [event]
   (when-let [f @broadcast-fn]
     (let [count (f event)]
-      (log! {:level :debug
+      (log/log! {:level :debug
                  :id ::broadcast
                  :msg "Broadcast sync op"
                  :data {:event-id (first event)
@@ -82,7 +70,7 @@
   [sente-conn-id]
   (let [ops (core/generate-all-full-sync-ops)]
     (when (seq ops)
-      (log! {:level :info
+      (log/log! {:level :info
                  :id ::initial-sync
                  :msg "Pushing initial sync to new browser"
                  :data {:sente-conn-id sente-conn-id
@@ -108,7 +96,7 @@
     :sync/resync-request
     (let [{:keys [key]} data
           ops (core/generate-full-sync-ops key)]
-      (log! {:level :info
+      (log/log! {:level :info
                  :id ::resync-request
                  :msg "Browser requested resync"
                  :data {:key key :has-ops (some? ops)}})
@@ -119,7 +107,7 @@
     :sync/heartbeat
     (let [{:keys [key seq]} data
           response (core/handle-heartbeat key seq)]
-      (log! {:level :debug
+      (log/log! {:level :debug
                  :id ::heartbeat-check
                  :msg "Browser heartbeat check"
                  :data {:key key :client-seq seq :status (:status response)}})
@@ -153,7 +141,7 @@
                      (doseq [op ops]
                        (broadcast! op))))
 
-  (log! {:level :info
+  (log/log! {:level :info
              :id ::initialized
              :msg "Atom-sync server integration initialized"
              :data {:subscriber-key subscriber-key}})
@@ -167,7 +155,7 @@
   (core/unsubscribe! subscriber-key)
   (reset! broadcast-fn nil)
   (reset! send-fn nil)
-  (log! {:level :info
+  (log/log! {:level :info
              :id ::stopped
              :msg "Atom-sync server integration stopped"})
   nil)
