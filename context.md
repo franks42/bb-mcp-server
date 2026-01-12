@@ -5,96 +5,92 @@
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-12
-**Version:** v1.11.4
+**Version:** v1.11.5
 
 ---
 
-## Current Work: Atom Sync Module (Phase 1.4)
+## Current Work: Phase 1.5-Pre - Migrate Code Browser to Synced Atoms
 
-**Goal:** One-way sync of Clojure atoms from server (Babashka) to browser (Scittle) over sente-lite WebSocket.
+**Goal:** Refactor code-browser from request/response messaging to reactive synced atoms.
 
-**Status:** Phase 1 COMPLETE. All four sub-phases (A, B, C, D) implemented and tested.
+**Status:** Ready to start. Depends on atom-sync module (Phase 1.4) which is COMPLETE.
 
 ### Essential Docs for This Work
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/design/atom-sync-design.md` | **PRIMARY** - Full design, protocol, code examples |
-| `IMPLEMENTATION_PLAN.md` (Phase 1.4) | Task breakdown with status tracking |
-| `modules/sente-browser/` | Existing WebSocket infrastructure |
+| `IMPLEMENTATION_PLAN.md` (Phase 1.5-Pre) | **PRIMARY** - Task breakdown with 4 steps |
+| `modules/atom-sync/README.md` | Usage guide for atom-sync API |
+| `docs/design/atom-sync-design.md` | Full design, protocol details |
+| `docs/SCITTLE_DEV_ENVIRONMENT.md` | Browser dev setup |
 
-### Architecture Summary
+### Migration Steps (from IMPLEMENTATION_PLAN.md)
 
-```
-core.clj (transport-independent)     server.clj (thin wrapper)
-┌────────────────────────────────┐   ┌─────────────────────────┐
-│ deep-diff->ops                 │   │ wires core to sente-lite│
-│ apply-sync-op                  │──▶│ broadcast callback      │
-│ apply-sync-op-validated        │   │ ~20 lines               │
-│ register/unregister-synced-atom│   └─────────────────────────┘
-│ subscribe!/unsubscribe!        │
-│ seq validation, heartbeat      │
-└────────────────────────────────┘
-```
+**Step 1: Register Synced Atom (Parallel)**
+- Server: Create `!code-browser-state` atom
+- Server: Call `(atom-sync/register-synced-atom! :code-browser !code-browser-state)`
+- Server: Update atom IN ADDITION to sending response events (parallel mode)
+- Verify: Browser receives `[:sync/op {:key :code-browser ...}]`
 
-### Completed (Phase 1.4A + 1.4B + 1.4C)
+**Step 2: Browser Reads from Synced Atom**
+- Browser: Get synced atom via `(get-synced-atom :code-browser)`
+- Browser: UI components deref synced atom instead of local state
+- Verify: UI updates when server pushes
+- Keep old event handlers temporarily (become no-ops)
 
-**Phase 1.4A (core):**
-- `modules/atom-sync/` module created with `core.clj`
-- `deep-diff->ops` - generates sync ops from old/new values
-- `apply-sync-op` - applies ops to target atoms
-- `apply-sync-op-validated` - seq validation returns :applied/:stale/:gap
-- Registry with `register-synced-atom!` / `unregister-synced-atom!`
-- Subscriber system with `subscribe!` / `unsubscribe!`
-- Heartbeat: `get-server-seq`, `check-sync-status`, `handle-heartbeat`
+**Step 3: Remove Old Messaging**
+- Server: Stop sending response events (only atom updates)
+- Browser: Remove old event handlers
+- Clean up dead code
 
-**Phase 1.4B (server):**
-- `server.clj` - thin wrapper wiring core to sente-lite transport
-- `init!` / `stop!` - lifecycle management
-- `on-browser-connected!` - push all atoms to new browsers
-- `dispatch-event` - handles :sync/resync-request and :sync/heartbeat
-- Wired into sente-browser.server (init, promote-to-validated, message dispatch)
-- 29 Babashka tests, 130 assertions - all passing
+**Step 4: Browser → Server Actions**
+- Browser: User clicks → send `[:code-browser/select-ns {:ns "..."}]`
+- Server: Handle action, `(swap! !code-browser-state ...)`
+- Watcher auto-pushes update to all browsers
 
-**Phase 1.4C (browser-side):**
-- `!sync-state` atom for seq tracking per key
-- `apply-sync-op` with seq validation (returns :applied/:stale/:gap)
-- `request-resync!` - sends :sync/resync-request on gap detection
-- `handle-resync-response` - applies ops from resync response
-- `get-sync-status` - debugging helper
-- Updated on-message handler for :sync/op and :sync/resync-response events
-- Uses trove for logging (not js/console)
-- Tested via Chrome DevTools MCP
-
-### Documentation Updated
-
-- `docs/design/atom-sync-design.md` - Updated to match implementation (Phase 1 Complete)
-- `modules/atom-sync/README.md` - NEW user guide with examples
-
-### Next Steps (Future)
-
-1. Wire code-browser to use synced atoms
-2. End-to-end integration test with browser
-3. Phase 2: Bidirectional sync (browser → server)
-
-### Key Design Decisions Made
-
-- One-way sync first (server → browser)
-- Shared atoms (all browsers see same value)
-- Seq numbers in registry, not atom value
-- Full sync for Phase 1 (path [])
-- Vectors replaced wholesale (sufficient for code-browser)
-- `differ` library investigated but our `deep-diff->ops` (~25 lines) is simpler
-
-### Message Protocol
+### Target State Shape
 
 ```clojure
-[:sync/op {:key   :my-atom
-           :seq   42
-           :op    :assoc-in
-           :path  []           ; [] = full replace
-           :value {...}}]
+{:namespaces ["ns.a" "ns.b" ...]
+ :selected-ns "ns.a"
+ :vars [{:name "foo" :kind :function :line 10 ...}]
+ :selected-var "foo"
+ :source {:code "..." :file "..." :start-line 1 :end-line 20}}
 ```
+
+### Key Files to Modify
+
+**Server-side:**
+- `modules/sente-browser/src/sente_browser/server.clj` - Add code-browser handlers
+- May need new file for code-browser server logic
+
+**Browser-side:**
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Code browser UI
+
+### Atom-Sync API (Quick Reference)
+
+```clojure
+;; Server-side (require '[atom-sync.core :as sync])
+(def !state (atom {:count 0}))
+(sync/register-synced-atom! :my-key !state)
+(swap! !state assoc :count 1)  ; auto-syncs to browsers
+(sync/unregister-synced-atom! :my-key)
+
+;; Browser-side (in Scittle)
+(def state (get-synced-atom :my-key))  ; Reagent atom
+@state  ; => {:count 1}
+```
+
+---
+
+## Completed: Atom Sync Module (Phase 1.4)
+
+**Module:** `modules/atom-sync/`
+
+- `core.clj` - Transport-independent sync logic
+- `server.clj` - sente-lite integration
+- 29 tests, 130 assertions - all passing
+- Full docs: `modules/atom-sync/README.md`
 
 ---
 
@@ -112,6 +108,9 @@ bb server:list
 
 # Stop server
 bb server:stop code-browser-dev
+
+# Run atom-sync tests
+bb test:atom-sync
 ```
 
 ---
@@ -120,11 +119,10 @@ bb server:stop code-browser-dev
 
 | Doc | When to Read |
 |-----|--------------|
-| `docs/design/atom-sync-design.md` | For atom-sync implementation |
-| `docs/bb-tasks-reference.md` | Before writing curl/bash commands |
+| `IMPLEMENTATION_PLAN.md` | Task tracking - Phase 1.5-Pre section |
+| `modules/atom-sync/README.md` | Atom-sync usage |
 | `docs/SCITTLE_DEV_ENVIRONMENT.md` | Before Scittle/browser work |
-| `docs/agent-delegation-guide.md` | For multi-file tasks with subagents |
-| `IMPLEMENTATION_PLAN.md` | For task tracking and planning |
+| `docs/bb-tasks-reference.md` | Before writing curl/bash commands |
 
 ---
 
@@ -132,32 +130,25 @@ bb server:stop code-browser-dev
 
 Things not in CLAUDE.md or other docs:
 
-- **64KB buffer boundary** - macOS pipe buffer is 64KB; `BufferedReader.read()` may return partial data
 - **sente-lite on-message callback** - MUST return `nil`; truthy values get echoed to client
-- **Scittle reagent.dom** - Available via nREPL eval with `(require '[reagent.dom :as rdom])`
-- **nrepl-eval-local-file** - Correct tool for loading .cljs into Scittle
+- **Scittle symbol order** - Symbols must be defined before use (no forward refs)
 - **clojure-lsp must be initialized** - Call `clj-init` before code-browser works
 - **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable
-- **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time, not updated
-- **CLI vs MCP** - CLI wrappers (`bb mcp`, `bb nrepl`) are often easier than native MCP tools
+- **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time
+- **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure
 - **Playwright/DevTools MCP** - Browser automation tools available for testing
-- **Agent delegation** - Use Task tool with subagents for multi-file work
-- **Checkpoints in todos** - Always include checkpoint tasks in phase plans to survive compaction
-- **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure (auto-fixes paren errors)
-- **parmezan** - Tool that fixes unbalanced parens heuristically; lint-fix uses it automatically
-- **differ library** - Fork at jeremyrsellars/differ is SCI-compatible, but our simple diff is sufficient
-- **Scittle symbol order** - In bootstrap.clj Scittle code, symbols must be defined before use (no forward refs). Moved `!client-id` defonce before sync functions that use it.
+- **trove for logging** - Use `(log/log! {:level :info :id ::my-id :msg "..." :data {...}})`
 
 ---
 
 ## Recent Commits
 
 ```
+763f511 docs: Update atom-sync docs and add README user guide
+5628e4b feat: Add module-specific bb test tasks
+ad1b92f feat(atom-sync): Add server integration layer (Phase 1.4B)
 3c532d4 feat(atom-sync): Add seq validation and heartbeat mechanism
-701e239 test: Add Scittle browser test for atom-sync
 29f592c feat: Implement atom-sync core module (Phase 1.4A)
-1396352 docs: Complete atom-sync design and update implementation plan
-f6e4f79 docs: Add static code analysis design and update implementation plan
 ```
 
 ---
