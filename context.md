@@ -13,7 +13,7 @@
 
 **Goal:** One-way sync of Clojure atoms from server (Babashka) to browser (Scittle) over sente-lite WebSocket.
 
-**Status:** Phase 1.4A complete (core sync logic + tests). Ready for Phase 1.4B (server integration).
+**Status:** Phase 1.4B complete (server integration). Ready for Phase 1.4C (browser-side).
 
 ### Essential Docs for This Work
 
@@ -37,8 +37,9 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 └────────────────────────────────┘
 ```
 
-### Completed (Phase 1.4A)
+### Completed (Phase 1.4A + 1.4B)
 
+**Phase 1.4A (core):**
 - `modules/atom-sync/` module created with `core.clj`
 - `deep-diff->ops` - generates sync ops from old/new values
 - `apply-sync-op` - applies ops to target atoms
@@ -46,15 +47,22 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 - Registry with `register-synced-atom!` / `unregister-synced-atom!`
 - Subscriber system with `subscribe!` / `unsubscribe!`
 - Heartbeat: `get-server-seq`, `check-sync-status`, `handle-heartbeat`
-- 23 Babashka tests, 102 assertions - all passing
+
+**Phase 1.4B (server):**
+- `server.clj` - thin wrapper wiring core to sente-lite transport
+- `init!` / `stop!` - lifecycle management
+- `on-browser-connected!` - push all atoms to new browsers
+- `dispatch-event` - handles :sync/resync-request and :sync/heartbeat
+- Wired into sente-browser.server (init, promote-to-validated, message dispatch)
+- 29 Babashka tests, 130 assertions - all passing
 - 21 Scittle browser tests - all passing
 
-### Next Steps (Phase 1.4B)
+### Next Steps (Phase 1.4C)
 
-1. Create `src/atom_sync/server.clj` - sente-lite integration
-2. Wire subscriber to `sente-browser.server/broadcast-to-browsers!`
-3. Hook into browser connection lifecycle
-4. Test: atom change → browser receives op
+1. Update bootstrap.clj: add `!sync-state` for seq tracking
+2. Update `on-sync-message` to handle [:sync/op {...}] format
+3. Implement `apply-sync-op` with seq validation in browser
+4. Implement gap detection → request resync
 
 ### Key Design Decisions Made
 

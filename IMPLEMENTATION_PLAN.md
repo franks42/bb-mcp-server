@@ -225,12 +225,12 @@ Wire core sync logic to sente-lite WebSocket transport.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.4B.1 | Create `src/atom_sync/server.clj` - sente-lite integration | Pending |
-| 1.4B.2 | Implement `init!` - subscribe to core with broadcast callback | Pending |
-| 1.4B.3 | Implement `on-browser-connected!` - push all atoms to new client | Pending |
-| 1.4B.4 | Wire into `sente-browser.server/promote-to-validated!` | Pending |
-| 1.4B.5 | Add `:sync/resync-request` handler for gap recovery | Pending |
-| 1.4B.6 | Test: register atom, change it, verify browser receives | Pending |
+| 1.4B.1 | Create `src/atom_sync/server.clj` - sente-lite integration | **Done** |
+| 1.4B.2 | Implement `init!` - subscribe to core with broadcast callback | **Done** |
+| 1.4B.3 | Implement `on-browser-connected!` - push all atoms to new client | **Done** |
+| 1.4B.4 | Wire into `sente-browser.server/promote-to-validated!` | **Done** |
+| 1.4B.5 | Add `:sync/resync-request` handler for gap recovery | **Done** |
+| 1.4B.6 | Test: register atom, change it, verify browser receives | **Done** |
 
 **Transport layer is thin:**
 ```clojure
