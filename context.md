@@ -13,7 +13,7 @@
 
 **Goal:** One-way sync of Clojure atoms from server (Babashka) to browser (Scittle) over sente-lite WebSocket.
 
-**Status:** Design complete, ready for implementation.
+**Status:** Phase 1.4A complete (core sync logic + tests). Ready for Phase 1.4B (server integration).
 
 ### Essential Docs for This Work
 
@@ -36,12 +36,21 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 └────────────────────────────────┘
 ```
 
-### Next Steps (Phase 1.4A)
+### Completed (Phase 1.4A)
 
-1. Create `modules/atom-sync/` module structure
-2. Implement `core.clj` with `deep-diff->ops` and `apply-sync-op`
-3. Test locally: two atoms, same process, no network
-4. Then add sente-lite transport layer
+- `modules/atom-sync/` module created with `core.clj`
+- `deep-diff->ops` - generates sync ops from old/new values
+- `apply-sync-op` - applies ops to target atoms
+- Registry with `register-synced-atom!` / `unregister-synced-atom!`
+- Subscriber system with `subscribe!` / `unsubscribe!`
+- 15 tests, 59 assertions - all passing
+
+### Next Steps (Phase 1.4B)
+
+1. Create `src/atom_sync/server.clj` - sente-lite integration
+2. Wire subscriber to `sente-browser.server/broadcast-to-browsers!`
+3. Hook into browser connection lifecycle
+4. Test: atom change → browser receives op
 
 ### Key Design Decisions Made
 

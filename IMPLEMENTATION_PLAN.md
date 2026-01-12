@@ -168,30 +168,30 @@ Test sync logic between two atoms in same process - no WebSocket yet.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.4A.1 | Create `modules/atom-sync/` directory and `module.edn` | Pending |
-| 1.4A.2 | Create `src/atom_sync/core.clj` - transport-independent sync logic | Pending |
-| 1.4A.3 | Implement `deep-diff->ops` - generate sync ops from old/new values | Pending |
-| 1.4A.4 | Implement `apply-sync-op` - apply op to target atom | Pending |
-| 1.4A.5 | Implement `!synced-atoms` registry {:key {:atom ref :seq n :last-value v}} | Pending |
-| 1.4A.6 | Implement `register-synced-atom!` with add-watch | Pending |
-| 1.4A.7 | Implement `unregister-synced-atom!` with remove-watch | Pending |
-| 1.4A.8 | Implement `generate-sync-ops!` - diff + increment seq + return ops | Pending |
-| 1.4A.9 | Implement `!subscribers` registry for push callbacks | Pending |
-| 1.4A.10 | Implement `subscribe!` / `unsubscribe!` - register push callback | Pending |
+| 1.4A.1 | Create `modules/atom-sync/` directory and `module.edn` | **Done** |
+| 1.4A.2 | Create `src/atom_sync/core.clj` - transport-independent sync logic | **Done** |
+| 1.4A.3 | Implement `deep-diff->ops` - generate sync ops from old/new values | **Done** |
+| 1.4A.4 | Implement `apply-sync-op` - apply op to target atom | **Done** |
+| 1.4A.5 | Implement `!synced-atoms` registry {:key {:atom ref :seq n :last-value v}} | **Done** |
+| 1.4A.6 | Implement `register-synced-atom!` with add-watch | **Done** |
+| 1.4A.7 | Implement `unregister-synced-atom!` with remove-watch | **Done** |
+| 1.4A.8 | Implement `generate-sync-ops!` - diff + increment seq + return ops | **Done** |
+| 1.4A.9 | Implement `!subscribers` registry for push callbacks | **Done** |
+| 1.4A.10 | Implement `subscribe!` / `unsubscribe!` - register push callback | **Done** |
 
 #### Phase 1.4A-Test: Local Sync Testing (No Transport)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.4A-T.1 | Test: `deep-diff->ops` on flat maps | Pending |
-| 1.4A-T.2 | Test: `deep-diff->ops` on nested maps | Pending |
-| 1.4A-T.3 | Test: `deep-diff->ops` with vector values (wholesale replace) | Pending |
-| 1.4A-T.4 | Test: `apply-sync-op` roundtrip (diff → apply → equal) | Pending |
-| 1.4A-T.5 | Test: Local two-atom sync (source → ops → target) | Pending |
-| 1.4A-T.6 | Test: Seq increments correctly on each change | Pending |
-| 1.4A-T.7 | Test: Subscriber callback receives ops on atom change | Pending |
-| 1.4A-T.8 | Test: Gap detection (seq jump → error/resync signal) | Pending |
-| 1.4A-T.9 | Test: Stale op rejection (old seq ignored) | Pending |
+| 1.4A-T.1 | Test: `deep-diff->ops` on flat maps | **Done** |
+| 1.4A-T.2 | Test: `deep-diff->ops` on nested maps | **Done** |
+| 1.4A-T.3 | Test: `deep-diff->ops` with vector values (wholesale replace) | **Done** |
+| 1.4A-T.4 | Test: `apply-sync-op` roundtrip (diff → apply → equal) | **Done** |
+| 1.4A-T.5 | Test: Local two-atom sync (source → ops → target) | **Done** |
+| 1.4A-T.6 | Test: Seq increments correctly on each change | **Done** |
+| 1.4A-T.7 | Test: Subscriber callback receives ops on atom change | **Done** |
+| 1.4A-T.8 | Test: Gap detection (seq jump → error/resync signal) | Deferred (browser-side) |
+| 1.4A-T.9 | Test: Stale op rejection (old seq ignored) | Deferred (browser-side) |
 
 **Local sync test pattern:**
 ```clojure

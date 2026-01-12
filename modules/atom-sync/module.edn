@@ -1,0 +1,18 @@
+;; Atom Sync module configuration
+;;
+;; Transport-independent atom synchronization.
+;; Core sync logic: diff, apply-sync-op, registry, subscribers.
+
+{:name "atom-sync"
+ :version "0.1.0"
+ :description "Transport-independent atom synchronization with diff/patch"
+
+ :requires []
+
+ ;; Entry point - returns module lifecycle map
+ :entry "atom-sync.core/module"
+
+ :defaults {}
+
+ ;; Test runner (relative to module root)
+ :test-runner "test/run_tests.clj"}

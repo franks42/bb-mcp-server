@@ -1,0 +1,308 @@
+(ns atom-sync.core
+    "Transport-independent atom synchronization.
+
+   Core sync logic that works without any network transport.
+   Can be tested locally with two atoms in the same process.
+
+   Architecture:
+   - Source atoms registered with `register-synced-atom!`
+   - Subscribers receive ops via callbacks on `subscribe!`
+   - Target atoms updated via `apply-sync-op`
+
+   Message Protocol:
+   [:sync/op {:key   :my-atom
+              :seq   42
+              :op    :assoc-in   ; or :dissoc-in
+              :path  []          ; [] = full replace
+              :value {...}}]
+
+   Example local sync:
+   (def !source (atom {:count 0}))
+   (def !target (atom nil))
+
+   (subscribe! :my-sub
+     (fn [ops]
+       (doseq [op ops]
+         (apply-sync-op !target op))))
+
+   (register-synced-atom! :my-state !source)
+
+   (swap! !source assoc :count 1)
+   @!target  ; => {:count 1}")
+
+;; =============================================================================
+;; Diff Logic
+;; =============================================================================
+
+(defn deep-diff->ops
+  "Recursively diff two values, return assoc-in/dissoc-in ops with full paths.
+   Works with nested maps. Vectors and other values are replaced wholesale.
+
+   Args:
+     key      - atom key (included in each op)
+     old-val  - previous value
+     new-val  - new value
+
+   Returns: vector of [:sync/op {...}] messages
+
+   Examples:
+     (deep-diff->ops :s {:a 1} {:a 2})
+     ;; => [[:sync/op {:key :s :op :assoc-in :path [:a] :value 2}]]
+
+     (deep-diff->ops :s {:a {:b 1}} {:a {:b 2 :c 3}})
+     ;; => [[:sync/op {:key :s :op :assoc-in :path [:a :b] :value 2}]
+     ;;     [:sync/op {:key :s :op :assoc-in :path [:a :c] :value 3}]]"
+  ([key old-val new-val]
+   (deep-diff->ops key [] old-val new-val))
+  ([key path old-val new-val]
+   (cond
+     ;; Same value - no ops needed
+     (= old-val new-val)
+     []
+
+     ;; Both maps - recurse into each key
+     (and (map? old-val) (map? new-val))
+     (let [all-keys (into (set (keys old-val)) (keys new-val))]
+       (vec
+        (mapcat
+         (fn [k]
+           (let [ov (get old-val k ::missing)
+                 nv (get new-val k ::missing)
+                 path' (conj path k)]
+             (cond
+               (= ov nv) []
+               (= nv ::missing) [[:sync/op {:key key :op :dissoc-in :path path'}]]
+               (= ov ::missing) [[:sync/op {:key key :op :assoc-in :path path' :value nv}]]
+               :else (deep-diff->ops key path' ov nv))))
+         all-keys)))
+
+     ;; Different values or types - replace at current path
+     :else
+     [[:sync/op {:key key :op :assoc-in :path path :value new-val}]])))
+
+;; =============================================================================
+;; Apply Sync Op
+;; =============================================================================
+
+(defn apply-sync-op
+  "Apply a sync op to a target atom.
+
+   Args:
+     target-atom - atom to update
+     op          - [:sync/op {:op :assoc-in/:dissoc-in :path [...] :value v}]
+
+   Returns: the new value of the atom
+
+   Example:
+     (def !a (atom {:x 1}))
+     (apply-sync-op !a [:sync/op {:op :assoc-in :path [:y] :value 2}])
+     @!a  ; => {:x 1 :y 2}"
+  [target-atom op]
+  (let [[_sync-op {:keys [op path value]}] op]
+    (case op
+      :assoc-in
+      (if (empty? path)
+        ;; Full replace
+        (reset! target-atom value)
+        ;; Nested update
+        (swap! target-atom assoc-in path value))
+
+      :dissoc-in
+      (if (= 1 (count path))
+        ;; Top-level dissoc
+        (swap! target-atom dissoc (first path))
+        ;; Nested dissoc
+        (swap! target-atom update-in (butlast path) dissoc (last path)))
+
+      ;; Unknown op - ignore but log
+      (do
+       (println "[atom-sync] Unknown op:" op)
+       @target-atom))))
+
+;; =============================================================================
+;; Registry
+;; =============================================================================
+
+;; Registry of synced atoms.
+;; Map of key -> {:atom ref :seq n :last-value v}
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !synced-atoms (atom {}))
+
+;; Registry of subscribers.
+;; Map of subscriber-key -> callback-fn
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !subscribers (atom {}))
+
+(defn- notify-subscribers!
+  "Call all subscriber callbacks with ops."
+  [ops]
+  (when (seq ops)
+    (doseq [[_sub-key callback] @!subscribers]
+           (try
+            (callback ops)
+            (catch Exception e
+                   (println "[atom-sync] Subscriber error:" (ex-message e)))))))
+
+(defn- on-atom-change
+  "Watcher callback when registered atom changes.
+   Generates ops, updates seq, notifies subscribers."
+  [key _ref old-val new-val]
+  (when (not= old-val new-val)
+    (let [{:keys [seq]} (get @!synced-atoms key)
+          new-seq (inc (or seq 0))
+          ;; Generate ops with new seq
+          ops (mapv
+               (fn [[op-type op-data]]
+                 [op-type (assoc op-data :seq new-seq)])
+               (deep-diff->ops key old-val new-val))]
+      ;; Update registry
+      (swap! !synced-atoms update key assoc
+             :seq new-seq
+             :last-value new-val)
+      ;; Notify subscribers
+      (notify-subscribers! ops))))
+
+;; =============================================================================
+;; Registration API
+;; =============================================================================
+
+(defn register-synced-atom!
+  "Register an atom for sync.
+
+   On any change, ops are generated and pushed to subscribers.
+
+   Args:
+     key       - unique identifier for this atom
+     atom-ref  - the atom to sync
+
+   Returns: the key
+
+   Example:
+     (def !state (atom {:count 0}))
+     (register-synced-atom! :my-state !state)"
+  [key atom-ref]
+  (let [current-val @atom-ref]
+    ;; Add to registry
+    (swap! !synced-atoms assoc key
+           {:atom atom-ref
+            :seq 0
+            :last-value current-val})
+    ;; Install watcher
+    (add-watch atom-ref [::sync key]
+               (fn [_key ref old-val new-val]
+                 (on-atom-change key ref old-val new-val)))
+    key))
+
+(defn unregister-synced-atom!
+  "Remove an atom from sync registry.
+
+   Args:
+     key - the atom's key
+
+   Returns: the key"
+  [key]
+  (when-let [{:keys [atom]} (get @!synced-atoms key)]
+            (remove-watch atom [::sync key]))
+  (swap! !synced-atoms dissoc key)
+  key)
+
+(defn get-synced-atom
+  "Get the atom ref for a key, or nil if not registered."
+  [key]
+  (get-in @!synced-atoms [key :atom]))
+
+(defn get-sync-status
+  "Get current sync status for debugging.
+   Returns map of atom keys to their current seq numbers."
+  []
+  (into {}
+        (map (fn [[k {:keys [seq]}]] [k seq]))
+        @!synced-atoms))
+
+;; =============================================================================
+;; Subscriber API
+;; =============================================================================
+
+(defn subscribe!
+  "Subscribe to receive sync ops.
+
+   The callback is called with a vector of ops whenever any
+   registered atom changes.
+
+   Args:
+     subscriber-key - unique identifier for this subscriber
+     callback-fn    - (fn [ops] ...) called with vector of ops
+
+   Returns: subscriber-key
+
+   Example:
+     (subscribe! :my-transport
+       (fn [ops]
+         (broadcast! ops)))"
+  [subscriber-key callback-fn]
+  (swap! !subscribers assoc subscriber-key callback-fn)
+  subscriber-key)
+
+(defn unsubscribe!
+  "Remove a subscriber.
+
+   Args:
+     subscriber-key - the subscriber to remove
+
+   Returns: subscriber-key"
+  [subscriber-key]
+  (swap! !subscribers dissoc subscriber-key)
+  subscriber-key)
+
+;; =============================================================================
+;; Push API
+;; =============================================================================
+
+(defn generate-full-sync-ops
+  "Generate full sync ops for an atom (path []).
+   Used for initial sync to new clients.
+
+   Args:
+     key - atom key
+
+   Returns: vector of ops, or nil if key not registered"
+  [key]
+  (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
+            [[:sync/op {:key key
+                        :seq seq
+                        :op :assoc-in
+                        :path []
+                        :value @atom}]]))
+
+(defn generate-all-full-sync-ops
+  "Generate full sync ops for all registered atoms.
+   Used for initial sync to new clients."
+  []
+  (vec (mapcat generate-full-sync-ops (keys @!synced-atoms))))
+
+;; =============================================================================
+;; Reset (for testing)
+;; =============================================================================
+
+(defn reset-all!
+  "Reset all state. Unregisters all atoms and clears subscribers.
+   Primarily for testing."
+  []
+  (doseq [key (keys @!synced-atoms)]
+         (unregister-synced-atom! key))
+  (reset! !subscribers {})
+  nil)
+
+;; =============================================================================
+;; Module Lifecycle
+;; =============================================================================
+
+(def module
+     "Module lifecycle map for bb-mcp-server module system."
+     {:start (fn [_config]
+               {:status :started
+                :synced-atoms !synced-atoms
+                :subscribers !subscribers})
+      :stop (fn [_instance]
+              (reset-all!)
+              nil)})
