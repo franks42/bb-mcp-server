@@ -5,7 +5,7 @@
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-12
-**Version:** v1.11.2
+**Version:** v1.11.4
 
 ---
 
@@ -13,7 +13,7 @@
 
 **Goal:** One-way sync of Clojure atoms from server (Babashka) to browser (Scittle) over sente-lite WebSocket.
 
-**Status:** Phase 1.4B complete (server integration). Ready for Phase 1.4C (browser-side).
+**Status:** Phase 1 COMPLETE. All four sub-phases (A, B, C, D) implemented and tested.
 
 ### Essential Docs for This Work
 
@@ -37,7 +37,7 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 └────────────────────────────────┘
 ```
 
-### Completed (Phase 1.4A + 1.4B)
+### Completed (Phase 1.4A + 1.4B + 1.4C)
 
 **Phase 1.4A (core):**
 - `modules/atom-sync/` module created with `core.clj`
@@ -55,14 +55,27 @@ core.clj (transport-independent)     server.clj (thin wrapper)
 - `dispatch-event` - handles :sync/resync-request and :sync/heartbeat
 - Wired into sente-browser.server (init, promote-to-validated, message dispatch)
 - 29 Babashka tests, 130 assertions - all passing
-- 21 Scittle browser tests - all passing
 
-### Next Steps (Phase 1.4C)
+**Phase 1.4C (browser-side):**
+- `!sync-state` atom for seq tracking per key
+- `apply-sync-op` with seq validation (returns :applied/:stale/:gap)
+- `request-resync!` - sends :sync/resync-request on gap detection
+- `handle-resync-response` - applies ops from resync response
+- `get-sync-status` - debugging helper
+- Updated on-message handler for :sync/op and :sync/resync-response events
+- Uses trove for logging (not js/console)
+- Tested via Chrome DevTools MCP
 
-1. Update bootstrap.clj: add `!sync-state` for seq tracking
-2. Update `on-sync-message` to handle [:sync/op {...}] format
-3. Implement `apply-sync-op` with seq validation in browser
-4. Implement gap detection → request resync
+### Documentation Updated
+
+- `docs/design/atom-sync-design.md` - Updated to match implementation (Phase 1 Complete)
+- `modules/atom-sync/README.md` - NEW user guide with examples
+
+### Next Steps (Future)
+
+1. Wire code-browser to use synced atoms
+2. End-to-end integration test with browser
+3. Phase 2: Bidirectional sync (browser → server)
 
 ### Key Design Decisions Made
 
@@ -133,6 +146,7 @@ Things not in CLAUDE.md or other docs:
 - **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure (auto-fixes paren errors)
 - **parmezan** - Tool that fixes unbalanced parens heuristically; lint-fix uses it automatically
 - **differ library** - Fork at jeremyrsellars/differ is SCI-compatible, but our simple diff is sufficient
+- **Scittle symbol order** - In bootstrap.clj Scittle code, symbols must be defined before use (no forward refs). Moved `!client-id` defonce before sync functions that use it.
 
 ---
 

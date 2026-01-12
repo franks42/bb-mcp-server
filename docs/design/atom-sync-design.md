@@ -1,7 +1,8 @@
 # Atom Sync Design
 
-**Status:** Design Draft
+**Status:** Implemented (Phase 1 Complete)
 **Created:** 2026-01-11
+**Updated:** 2026-01-12
 **Module:** `modules/atom-sync/`
 
 ---
@@ -231,190 +232,178 @@ Session identity persists (via `session-id`), but on WebSocket reconnect, server
 
 ---
 
-## Existing Code (Browser-Side)
+## Browser-Side Implementation
 
-Already in `modules/sente-browser/src/sente_browser/bootstrap.clj` (embedded in HTML):
+In `modules/sente-browser/src/sente_browser/bootstrap.clj` (embedded in HTML):
 
 ```clojure
-;; Registry of synced atoms
+;; Registry of synced Reagent atoms: {:key (r/atom value)}
 (defonce !synced-atoms (atom {}))
-(defonce !sync-watchers-installed (atom #{}))
 
-;; Get or create a synced Reagent atom by key
-(defn get-synced-atom [key]
+;; Sync state tracking: {:key {:seq n}} for gap detection
+(defonce !sync-state (atom {}))
+
+;; Client ID for sending messages (set by init!)
+(defonce !client-id (atom nil))
+
+(defn get-synced-atom
+  "Get or create a synced Reagent atom by key."
+  [key]
   (or (get @!synced-atoms key)
       (let [a (r/atom nil)]
         (swap! !synced-atoms assoc key a)
         a)))
 
-;; Handle :sync/atom message from server
-(defn on-sync-message [{:keys [key value]}]
-  (when-let [a (get @!synced-atoms key)]
-    (reset! a value)))
+(defn request-resync!
+  "Request full resync from server for an atom.
+   Called when gap detected in seq numbers."
+  [key]
+  (log/log! {:level :warn :id ::resync-requested
+             :msg "Requesting resync from server" :data {:key key}})
+  (when @!client-id
+    (client/send! @!client-id [:sync/resync-request {:key key}])))
 
-;; Install watcher to push changes back to server (future Phase 2)
-(defn install-sync-watcher! [key client-id]
-  (when-not (contains? @!sync-watchers-installed key)
-    (when-let [a (get @!synced-atoms key)]
-      (add-watch a ::sync-to-server
-        (fn [_ _ old-val new-val]
-          (when (not= old-val new-val)
-            (client/send! client-id [:sync/atom-update {:key key :value new-val}]))))
-      (swap! !sync-watchers-installed conj key))))
+(defn apply-sync-op
+  "Apply a sync operation with seq validation.
+   Returns :applied, :stale, or :gap."
+  [{:keys [key seq op path value]}]
+  (let [current-seq (get-in @!sync-state [key :seq] 0)
+        expected-seq (inc current-seq)]
+    (cond
+      ;; Normal case: sequential update
+      (= seq expected-seq)
+      (do
+        (when-let [a (get-synced-atom key)]
+          (if (= path [])
+            (reset! a value)
+            (swap! a assoc-in path value)))
+        (swap! !sync-state assoc-in [key :seq] seq)
+        :applied)
+
+      ;; First sync (seq 1, no prior state)
+      (and (= seq 1) (= current-seq 0))
+      (do
+        (when-let [a (get-synced-atom key)]
+          (if (= path []) (reset! a value) (swap! a assoc-in path value)))
+        (swap! !sync-state assoc-in [key :seq] seq)
+        :applied)
+
+      ;; Gap detected: missed updates
+      (> seq expected-seq)
+      (do
+        (request-resync! key)
+        :gap)
+
+      ;; Stale/duplicate: ignore
+      :else :stale)))
+
+(defn handle-resync-response
+  "Handle resync response from server."
+  [{:keys [key ops error]}]
+  (if error
+    (log/log! {:level :error :id ::resync-error :data {:key key :error error}})
+    (do
+      (swap! !sync-state assoc-in [key :seq] 0)
+      (doseq [op ops]
+        (let [[_ op-data] op]
+          (apply-sync-op op-data))))))
+
+(defn get-sync-status
+  "Get current sync status for debugging."
+  []
+  {:atoms (keys @!synced-atoms)
+   :state @!sync-state})
 ```
 
 Handler wired up in `on-message`:
 ```clojure
-:sync/atom
-(on-sync-message data)
+:sync/op
+(apply-sync-op data)
+:sync/resync-response
+(handle-resync-response data)
 ```
 
-**Status:** Code exists but is **unused**. No server-side implementation.
+**Status:** Fully implemented with seq validation and gap detection.
 
 ---
 
-## Existing Code (Server-Side)
+## Server-Side Implementation
 
-In `modules/sente-browser/src/sente_browser/server.clj`:
+### Core Module (`atom-sync.core`)
+
+Transport-independent sync logic:
 
 ```clojure
-(defn send-to-browser! [sente-conn-id event]
-  (sente-server/send-event-to-connection! sente-conn-id event))
+;; Register an atom for sync
+(register-synced-atom! :my-state !my-atom)
 
-(defn broadcast-to-browsers! [event]
-  (let [conn-ids (keys @!browser-connections)]
-    (doseq [conn-id conn-ids]
-      (send-to-browser! conn-id event))
-    (count conn-ids)))
+;; Subscribe to receive ops (for transport layer)
+(subscribe! :my-transport
+  (fn [ops]
+    (broadcast! ops)))
+
+;; Generate ops for new clients
+(generate-all-full-sync-ops)
+
+;; Handle heartbeat from client
+(handle-heartbeat :my-state client-seq)
 ```
 
-**Status:** Transport exists. No synced-atom registry or watchers.
+### Transport Layer (`atom-sync.server`)
+
+Thin wrapper wiring core to sente-lite:
+
+```clojure
+;; Initialize with transport functions
+(init! broadcast-to-browsers-fn send-to-browser-fn)
+
+;; Called when browser connects
+(on-browser-connected! sente-conn-id)
+
+;; Handle browser events
+(dispatch-event :sync/resync-request {:key k})
+(dispatch-event :sync/heartbeat {:key k :seq n})
+```
+
+**Status:** Fully implemented. Wired into sente-browser.server.
 
 ---
 
-## Proposed Server-Side API
+## Usage
+
+### Basic Server-Side Usage
 
 ```clojure
-(ns atom-sync.server
-  "Server-side atom synchronization over sente-lite.")
+(require '[atom-sync.core :as sync])
 
-;; =============================================================================
-;; Registry
-;; =============================================================================
+;; Register an atom for sync
+(def !state (atom {:count 0 :message "Hello"}))
+(sync/register-synced-atom! :my-state !state)
 
-;; Map of key -> {:atom atom-ref, :seq n, :push-on-change? bool}
-;; Seq is maintained in registry, NOT in atom value (keeps atom interface clean)
-(defonce !synced-atoms (atom {}))
+;; Any changes to the atom are automatically synced to browsers
+(swap! !state assoc :count 1)  ; → Browser receives update
 
-(defn register-synced-atom!
-  "Register an atom for sync to browsers.
-
-   Options:
-   - :push-on-change? (default true) - auto-push on atom change
-
-   Example:
-     (def !layout (atom {:ns-width \"25%\"}))
-     (register-synced-atom! :layout !layout)
-     ;; Users work with atom normally:
-     (swap! !layout assoc :ns-width \"30%\")  ; auto-syncs to browsers"
-  [key atom-ref & {:keys [push-on-change?]
-                   :or {push-on-change? true}}]
-  (swap! !synced-atoms assoc key
-         {:atom atom-ref
-          :seq 0                       ; starts at 0, first push will be seq 1
-          :push-on-change? push-on-change?})
-  (when push-on-change?
-    (add-watch atom-ref [::sync key]
-      (fn [_ _ old-val new-val]
-        (when (not= old-val new-val)
-          (push-atom! key)))))
-  key)
-
-(defn unregister-synced-atom!
-  "Remove an atom from sync registry."
-  [key]
-  (when-let [{:keys [atom]} (get @!synced-atoms key)]
-    (remove-watch atom [::sync key]))
-  (swap! !synced-atoms dissoc key))
-
-;; =============================================================================
-;; Push Functions
-;; =============================================================================
-
-(defn push-atom!
-  "Push current value of atom to all connected browsers.
-   Increments seq and includes in message for ordering/gap detection."
-  [key]
-  (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
-    (let [new-seq (inc seq)
-          value @atom]
-      ;; Update seq in registry
-      (swap! !synced-atoms assoc-in [key :seq] new-seq)
-      ;; Broadcast with seq for reliability
-      (sente-browser.server/broadcast-to-browsers!
-        [:sync/op {:key   key
-                   :seq   new-seq
-                   :op    :assoc-in
-                   :path  []
-                   :value value}]))))
-
-(defn push-atom-to-client!
-  "Push atom value to a specific browser connection.
-   Uses current seq (doesn't increment - this is a catch-up push)."
-  [sente-conn-id key]
-  (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
-    (sente-browser.server/send-to-browser! sente-conn-id
-      [:sync/op {:key   key
-                 :seq   seq           ; current seq, not incremented
-                 :op    :assoc-in
-                 :path  []
-                 :value @atom}])))
-
-(defn push-all-atoms!
-  "Push all registered atoms to all browsers."
-  []
-  (doseq [key (keys @!synced-atoms)]
-    (push-atom! key)))
-
-(defn get-sync-status
-  "Get current sync status for debugging/introspection.
-   Returns map of atom keys to their current seq numbers."
-  []
-  (into {}
-    (map (fn [[k {:keys [seq]}]] [k seq]))
-    @!synced-atoms))
-
-(defn push-all-atoms-to-client!
-  "Push all registered atoms to a specific browser."
-  [sente-conn-id]
-  (doseq [key (keys @!synced-atoms)]
-    (push-atom-to-client! sente-conn-id key)))
-
-;; =============================================================================
-;; Integration Hook
-;; =============================================================================
-
-(defn on-browser-connected!
-  "Called when a browser completes handshake.
-   Pushes all synced atoms to the new client."
-  [sente-conn-id]
-  (push-all-atoms-to-client! sente-conn-id))
+;; Unregister when done
+(sync/unregister-synced-atom! :my-state)
 ```
 
----
-
-## Proposed Browser-Side API
-
-Existing code in bootstrap.clj is sufficient. Key functions:
+### Basic Browser-Side Usage
 
 ```clojure
-;; Get a synced atom (auto-created if not exists)
-(get-synced-atom :my-key)  ; => reagent atom
+;; In Scittle (browser)
 
-;; Usage in component
+;; Get synced atom (auto-created as Reagent atom)
+(def state (get-synced-atom :my-state))
+
+;; Use in Reagent component
 (defn my-component []
-  (let [data @(get-synced-atom :my-data)]
-    [:div (pr-str data)]))
+  [:div
+   [:p "Count: " (:count @state)]
+   [:p "Message: " (:message @state)]])
+
+;; Check sync status (debugging)
+(get-sync-status)
+;; => {:atoms [:my-state] :state {:my-state {:seq 5}}}
 ```
 
 ---
@@ -503,39 +492,24 @@ Browser-side code remains in `sente-browser/bootstrap.clj` (already exists).
 
 ---
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1A: Server-Side Core (One-Way Sync)
+### Phase 1: One-Way Sync ✓ COMPLETE
 
-| Task | Description |
-|------|-------------|
-| 1A.1 | Create `modules/atom-sync/` module structure |
-| 1A.2 | Implement `register-synced-atom!` with watch |
-| 1A.3 | Implement `push-atom!` and `push-all-atoms!` |
-| 1A.4 | Implement `push-atom-to-client!` for single browser |
-| 1A.5 | Add `on-browser-connected!` hook |
+| Phase | Status | Description |
+|-------|--------|-------------|
+| **1.4A: Core** | ✓ Complete | `deep-diff->ops`, `apply-sync-op`, registry, subscribers, heartbeat |
+| **1.4B: Server** | ✓ Complete | Transport wrapper, `init!`, `on-browser-connected!`, `dispatch-event` |
+| **1.4C: Browser** | ✓ Complete | Seq validation, gap detection, resync, trove logging |
+| **1.4D: Integration** | ✓ Complete | Wired into sente-browser.server |
 
-### Phase 1B: Integration
-
-| Task | Description |
-|------|-------------|
-| 1B.1 | Hook into `sente-browser.server/promote-to-validated!` |
-| 1B.2 | Verify browser receives `:sync/atom` on connect |
-| 1B.3 | Test: change atom on server, browser updates |
-
-### Phase 1C: Testing
-
-| Task | Description |
-|------|-------------|
-| 1C.1 | Unit tests for registry functions |
-| 1C.2 | Integration test: register → push → browser receives |
-| 1C.3 | Reconnection test: browser reconnects, gets fresh state |
+**Test Coverage:** 29 tests, 130 assertions (all passing)
 
 ### Phase 2: Bidirectional (Future)
 
 | Task | Description |
 |------|-------------|
-| 2.1 | Server handler for `:sync/atom-update` |
+| 2.1 | Server handler for `:sync/atom-update` from browser |
 | 2.2 | Conflict resolution (last-write-wins) |
 | 2.3 | Browser-writable flag per atom |
 
@@ -953,4 +927,4 @@ Send multiple ops in single message to reduce overhead:
 
 ---
 
-*Last Updated: 2026-01-11 (differ research, vector analysis, implementation options)*
+*Last Updated: 2026-01-12 (Phase 1 implementation complete)*

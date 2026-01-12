@@ -445,7 +445,8 @@
       (:require [reagent.core :as r]
                 [reagent.dom :as rdom]
                 [sente-lite.client-scittle :as client]
-                [nrepl-sente.browser-adapter :as adapter]))
+                [nrepl-sente.browser-adapter :as adapter]
+                [taoensso.trove :as log]))
 
     ;; =========================================================================
     ;; Error Boundary - Catches render errors for safe REPL development
@@ -472,11 +473,20 @@
                (into [:<>] children)))})))
 
     ;; =========================================================================
-    ;; Synced Atoms - Bidirectional state sync with server
+    ;; Synced Atoms - One-way sync from server with seq validation
     ;; =========================================================================
 
+    ;; Registry of synced Reagent atoms: {:key (r/atom value)}
     (defonce !synced-atoms (atom {}))
+
+    ;; Sync state tracking: {:key {:seq n}} for gap detection
+    (defonce !sync-state (atom {}))
+
+    ;; Watchers for future bidirectional sync (Phase 2)
     (defonce !sync-watchers-installed (atom #{}))
+
+    ;; Client ID for sending messages (forward declaration, set by init!)
+    (defonce !client-id (atom nil))
 
     (defn get-synced-atom
       \"Get or create a synced Reagent atom by key.
@@ -487,14 +497,99 @@
             (swap! !synced-atoms assoc key a)
             a)))
 
-    (defn on-sync-message
-      \"Handle :sync/atom message from server.\"
-      [{:keys [key value]}]
-      (when-let [a (get @!synced-atoms key)]
-        (reset! a value)))
+    (defn request-resync!
+      \"Request full resync from server for an atom.
+       Called when gap detected in seq numbers.\"
+      [key]
+      (log/log! {:level :warn
+                 :id ::resync-requested
+                 :msg \"Requesting resync from server\"
+                 :data {:key key}})
+      (when @!client-id
+        (client/send! @!client-id [:sync/resync-request {:key key}])))
+
+    (defn apply-sync-op
+      \"Apply a sync operation with seq validation.
+       Returns :applied, :stale, or :gap.
+
+       Protocol: [:sync/op {:key k :seq n :op :assoc-in :path [] :value v}]\"
+      [{:keys [key seq op path value]}]
+      (let [current-seq (get-in @!sync-state [key :seq] 0)
+            expected-seq (inc current-seq)]
+        (cond
+          ;; Normal case: sequential update
+          (= seq expected-seq)
+          (do
+            (when-let [a (get-synced-atom key)]
+              (if (= path [])
+                ;; Full replace (path [])
+                (reset! a value)
+                ;; Nested update
+                (swap! a assoc-in path value)))
+            (swap! !sync-state assoc-in [key :seq] seq)
+            (log/log! {:level :debug
+                       :id ::sync-applied
+                       :msg \"Sync op applied\"
+                       :data {:key key :seq seq :op op :path path}})
+            :applied)
+
+          ;; First sync (seq 1, no prior state) - always apply
+          (and (= seq 1) (= current-seq 0))
+          (do
+            (when-let [a (get-synced-atom key)]
+              (if (= path [])
+                (reset! a value)
+                (swap! a assoc-in path value)))
+            (swap! !sync-state assoc-in [key :seq] seq)
+            (log/log! {:level :info
+                       :id ::initial-sync
+                       :msg \"Initial sync received\"
+                       :data {:key key :seq seq}})
+            :applied)
+
+          ;; Gap detected: missed updates
+          (> seq expected-seq)
+          (do
+            (log/log! {:level :warn
+                       :id ::sync-gap
+                       :msg \"Sync gap detected\"
+                       :data {:key key :expected expected-seq :received seq}})
+            (request-resync! key)
+            :gap)
+
+          ;; Stale/duplicate: ignore
+          :else
+          (do
+            (log/log! {:level :debug
+                       :id ::sync-stale
+                       :msg \"Ignoring stale sync message\"
+                       :data {:key key :current-seq current-seq :received seq}})
+            :stale))))
+
+    (defn handle-resync-response
+      \"Handle resync response from server.
+       Applies all ops and resets seq tracking.\"
+      [{:keys [key ops error]}]
+      (if error
+        (log/log! {:level :error
+                   :id ::resync-error
+                   :msg \"Resync failed\"
+                   :data {:key key :error error}})
+        (do
+          (log/log! {:level :info
+                     :id ::resync-received
+                     :msg \"Resync response received\"
+                     :data {:key key :op-count (count ops)}})
+          ;; Reset seq tracking before applying
+          (swap! !sync-state assoc-in [key :seq] 0)
+          ;; Apply all ops (they should start from seq 1 or current)
+          (doseq [op ops]
+            (let [[_ op-data] op]
+              (apply-sync-op op-data))))))
 
     (defn install-sync-watcher!
-      \"Install watcher to push atom changes back to server.\"
+      \"Install watcher to push atom changes back to server.
+       (Phase 2 - bidirectional sync)\"
       [key client-id]
       (when-not (contains? @!sync-watchers-installed key)
         (when-let [a (get @!synced-atoms key)]
@@ -504,13 +599,19 @@
                 (client/send! client-id [:sync/atom-update {:key key :value new-val}]))))
           (swap! !sync-watchers-installed conj key))))
 
+    (defn get-sync-status
+      \"Get current sync status for debugging.\"
+      []
+      {:atoms (keys @!synced-atoms)
+       :state @!sync-state})
+
     ;; =========================================================================
     ;; Connection Client
     ;; =========================================================================
 
     (defonce !initialized (atom false))
     (defonce !browser-session-id (atom nil))
-    (defonce !client-id (atom nil))
+    ;; !client-id moved to sync section (forward declaration)
     (defonce !event-handlers (atom {}))
 
     (defn register-event-handler!
@@ -593,8 +694,10 @@
                                          ;; Enable the Load UI button
                                          (when-let [enable-fn (aget js/window \"enableLoadButton\")]
                                            (enable-fn)))
-                                       :sync/atom
-                                       (on-sync-message data)
+                                       :sync/op
+                                       (apply-sync-op data)
+                                       :sync/resync-response
+                                       (handle-resync-response data)
                                        :nrepl/request
                                        (log! \"eval\" (str \"eval: \" (subs (pr-str (:code data)) 0 (min 50 (count (pr-str (:code data)))))))
                                        ;; Try custom handlers for unrecognized events
