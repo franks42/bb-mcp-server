@@ -147,7 +147,115 @@ bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser
 
 **CM6 Fix (commit 28555f2):** EditorState must be imported separately from `@codemirror/state`, not from `codemirror` meta-package. Use `?deps=` for version pinning.
 
-### Phase 2: Runtime Introspection
+### Phase 1.5: Enhanced Var Classification (clj-kondo)
+
+Replace LSP's 3 generic kinds with kondo's rich `:defined-by` classification.
+
+**Design doc:** `docs/design/static-code-analysis.md`
+
+#### Phase 1.5-Pre: Migrate to Synced Atoms
+
+Refactor from request/response messaging to synced atoms for cleaner state management.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.1 | Server: Create synced atoms for code browser state | Pending |
+| 1.5-Pre.2 | Define state shape: `{:namespaces [...] :selected-ns nil :vars [...] :selected-var nil :source {...}}` | Pending |
+| 1.5-Pre.3 | Server: Update atoms instead of sending response events | Pending |
+| 1.5-Pre.4 | Browser: Subscribe to synced atoms instead of handling events | Pending |
+| 1.5-Pre.5 | Browser: UI reads from synced atoms (reagent reactive) | Pending |
+| 1.5-Pre.6 | Remove request/response event handlers | Pending |
+
+**Benefits:**
+- Server builds state → automatically syncs to browser
+- Adding fields to var maps (e.g., `:defined-by`) just works
+- Browser picks what it needs for UI, ignores the rest
+- Less boilerplate, more generic
+
+**State shape:**
+```clojure
+{:namespaces ["ns.a" "ns.b" ...]
+ :selected-ns "ns.a"
+ :vars [{:name "foo" :kind :function :line 10 :defined-by 'clojure.core/defn ...}]
+ :selected-var "foo"
+ :source {:code "..." :file "..." :start-line 1 :end-line 20}}
+```
+
+#### Phase 1.5A: On-Demand Parsing
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5A.1 | Add `analyze-file` function (shell out to clj-kondo) | Pending |
+| 1.5A.2 | Parse `:var-definitions` from kondo output | Pending |
+| 1.5A.3 | Map `:defined-by` to labels (function, macro, multimethod, etc.) | Pending |
+| 1.5A.4 | Filter by `:ns` field (handle multi-ns files correctly) | Pending |
+| 1.5A.5 | Update server handler to use kondo instead of LSP for var list | Pending |
+| 1.5A.6 | Update browser UI to display richer kind labels | Pending |
+
+#### Phase 1.5B: Caching
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5B.1 | Add atom/cache for kondo results keyed by file path | Pending |
+| 1.5B.2 | Store file mtime with cached result | Pending |
+| 1.5B.3 | Return cached result if file unchanged | Pending |
+
+#### Phase 1.5C: Cache Invalidation
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5C.1 | Check file mtime before returning cached result | Pending |
+| 1.5C.2 | Option: Wire to LSP file watcher events for proactive invalidation | Pending |
+
+#### Future: Datalog Storage (Radar)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5D.1 | Store kondo analysis in Datalevin (queryable var definitions) | Future |
+| 1.5D.2 | Store source code in Datalevin (full-text search, history) | Future |
+| 1.5D.3 | Cross-file queries: "find all usages of protocol X" | Future |
+
+**Benefits of Datalog storage:**
+- Queryable: Find all macros, all multimethods, all protocol implementations
+- Cross-file: Track usages, dependencies, call graphs
+- History: Track changes over time (if storing snapshots)
+- Unified: Same DB as other Datalevin modules (AI knowledge, etc.)
+
+**Var types to distinguish:**
+- `defn` → function
+- `defn-` → private-fn
+- `defmacro` → macro
+- `defmulti` → multimethod
+- `defmethod` → method
+- `defprotocol` → protocol
+- `deftype` → deftype
+- `defrecord` → defrecord
+- `deftest` → test
+- `def` → variable
+- `defonce` → defonce
+- `declare` → declare
+
+### Phase 1.6: Synthetic Special Forms Namespace
+
+Create a browsable `**special-forms**` pseudo-namespace for discoverability.
+
+**Design doc:** `docs/design/static-code-analysis.md`
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.6.1 | Add `**special-forms**` to namespace list (sorted first or last) | Pending |
+| 1.6.2 | Hard-code special form list per platform (CLJ/CLJS/SCI) | Pending |
+| 1.6.3 | Fetch/cache ClojureDocs content for each special form | Pending |
+| 1.6.4 | Display special form docs in source panel (no source, show docs+examples) | Pending |
+
+**Special forms to include:** `&`, `.`, `case*`, `catch`, `def`, `do`, `finally`, `fn`, `if`, `let`, `letfn`, `loop`, `new`, `quote`, `recur`, `set!`, `throw`, `try`, `var`, plus platform-specific ones.
+
+**UI Notes:**
+- Namespace panel: Show `**special-forms**` as distinct entry
+- Vars panel: List all special forms with kind = "special-form"
+- Source panel: "No source - bootstraps the language" + docs + examples
+
+### Phase 2: Runtime Introspection (Deferred)
 
 | Task | Description | Status |
 |------|-------------|--------|
@@ -155,6 +263,40 @@ bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser
 | 2.2 | Wire nREPL introspection tools | Pending |
 | 2.3 | Show REPL-defined vars | Pending |
 | 2.4 | Static vs runtime diff view | Pending |
+
+### Phase 3: Symbol-at-Point (Interactive Code Exploration)
+
+Click any symbol in CM6 source viewer → open appropriate view.
+
+**Design doc:** `docs/design/static-code-analysis.md`
+
+**Leverages Phase 1.6** - reuses special form detection and docs.
+
+#### Phase 3A: Basic Symbol-at-Point (Functions/Macros)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 3A.1 | Add click handler to CM6 editor for symbol selection | Pending |
+| 3A.2 | Get cursor position and extract symbol text | Pending |
+| 3A.3 | Call LSP `textDocument/hover` for symbol info | Pending |
+| 3A.4 | Display hover result in panel or popup | Pending |
+
+**Works immediately** for functions, macros, project vars via LSP.
+
+#### Phase 3B: Special Form Handling
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 3B.1 | Check if symbol is in special form list (from Phase 1.6) | Pending |
+| 3B.2 | Reuse special form docs from Phase 1.6 cache | Pending |
+| 3B.3 | Display: "Special Form - bootstraps the language" + docs | Pending |
+
+#### Phase 3C: Navigation
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 3C.1 | Click on symbol → navigate to its definition in source panel | Pending |
+| 3C.2 | Click on special form → open `**special-forms**` ns with that form selected | Pending |
 
 ---
 
