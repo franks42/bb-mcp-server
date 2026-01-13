@@ -4,6 +4,7 @@
     (:require [babashka.process :as p]
               [bb-mcp-server.modules.clojure-lsp.jsonrpc :as rpc]
               [clojure.java.io :as io]
+              [clojure.string :as str]
               [taoensso.trove :as trove])
     (:import [java.io BufferedReader BufferedWriter
               InputStreamReader OutputStreamWriter]))
@@ -19,6 +20,10 @@
                 :pending {}  ;; {id {:promise prom :method m :params p :retries n}}
                 :initialized? false
                 :diagnostics {}}))
+
+;; Registry for notification callbacks
+;; {key callback-fn} where callback-fn receives {:method string :params map}
+(defonce ^:private !notification-callbacks (atom {}))
 
 (defn- handle-response!
   "Handle a JSON-RPC response by delivering to the pending promise."
@@ -109,18 +114,35 @@
                    :data {:message message
                           :pending-count (count (:pending @state))}}))))
 
+(defn- run-notification-callbacks!
+  "Run all registered notification callbacks with the notification data.
+   Callbacks are called in a try/catch to prevent one from breaking others."
+  [notification]
+  (doseq [[key callback-fn] @!notification-callbacks]
+         (try
+          (callback-fn notification)
+          (catch Exception e
+                 (trove/log! {:level :warn
+                              :id :clojure-lsp/notification-callback-error
+                              :msg "Notification callback threw exception"
+                              :data {:key key :error (ex-message e)}})))))
+
 (defn- handle-notification!
-  "Handle a JSON-RPC notification from the server."
-  [{:keys [method params]}]
+  "Handle a JSON-RPC notification from the server.
+   Stores diagnostics and notifies all registered callbacks."
+  [{:keys [method params] :as notification}]
   (trove/log! {:level :debug
                :id :clojure-lsp/notification
                :msg (str "Received notification: " method)
                :data {:method method}})
   (case method
     "textDocument/publishDiagnostics"
-    (swap! state assoc-in [:diagnostics (:uri params)] (:diagnostics params))
-    ;; Default: ignore unknown notifications
-    nil))
+    (do
+     (swap! state assoc-in [:diagnostics (:uri params)] (:diagnostics params))
+     ;; Notify all registered callbacks
+     (run-notification-callbacks! notification))
+    ;; Default: ignore unknown notifications, but still notify callbacks
+    (run-notification-callbacks! notification)))
 
 (defn- stderr-loop!
   "Background reader loop for logging clojure-lsp stderr output."
@@ -465,3 +487,43 @@
   "Get the current project root path."
   []
   (:project-root @state))
+
+;; =============================================================================
+;; Notification Callback API (Phase 1.5-Watch)
+;; =============================================================================
+
+(defn on-notification!
+  "Register a callback for LSP notifications.
+   callback-fn receives {:method string :params map}.
+   Returns the key for later removal.
+
+   Example:
+     (on-notification! :my-handler
+       (fn [{:keys [method params]}]
+         (when (= method \"textDocument/publishDiagnostics\")
+           (println \"File changed:\" (:uri params)))))"
+  [key callback-fn]
+  (swap! !notification-callbacks assoc key callback-fn)
+  (trove/log! {:level :debug
+               :id :clojure-lsp/notification-callback-registered
+               :msg "Registered notification callback"
+               :data {:key key}})
+  key)
+
+(defn remove-notification-callback!
+  "Remove a previously registered notification callback by key."
+  [key]
+  (swap! !notification-callbacks dissoc key)
+  (trove/log! {:level :debug
+               :id :clojure-lsp/notification-callback-removed
+               :msg "Removed notification callback"
+               :data {:key key}})
+  nil)
+
+(defn uri->path
+  "Convert file:// URI to filesystem path."
+  [uri]
+  (when uri
+    (if (str/starts-with? uri "file://")
+      (subs uri 7)
+      uri)))

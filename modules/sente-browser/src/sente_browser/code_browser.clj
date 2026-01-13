@@ -31,9 +31,135 @@
               [atom-sync.server :as atom-sync-server]
               [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
               [bb-mcp-server.modules.clojure-lsp.server :as lsp-server]
+              [bb-mcp-server.modules.clojure-lsp.watcher :as lsp-watcher]
               [clojure.java.io :as io]
               [clojure.string :as str]
               [taoensso.trove :as log]))
+
+;; =============================================================================
+;; File Change Watching (Phase 1.5-Watch)
+;; =============================================================================
+
+;; Forward declarations for functions defined later
+(declare !code-browser-state)
+(declare handle-request-symbols)
+(declare handle-request-namespaces)
+
+(defn- path->probable-namespace
+  "Convert file path to probable namespace name.
+   e.g., /foo/bar/src/my/cool/ns.clj -> my.cool.ns
+   This is heuristic - may not always match actual ns declaration."
+  [path]
+  (when path
+    (let [;; Remove common source prefixes
+          cleaned (-> path
+                      (str/replace #".*/src/" "")
+                      (str/replace #".*/test/" "")
+                      ;; Remove file extension
+                      (str/replace #"\.(clj|cljs|cljc)$" "")
+                      ;; Convert / to .
+                      (str/replace "/" ".")
+                      ;; Convert _ to -
+                      (str/replace "_" "-"))]
+      cleaned)))
+
+(defn- handle-file-change!
+  "Handle notification that a file has changed.
+   Invalidates cached data for the affected namespace and re-fetches if needed.
+   Also detects new files (not in namespace list) and deleted files (no longer exist)."
+  [uri]
+  (let [path (lsp-client/uri->path uri)
+        probable-ns (path->probable-namespace path)
+        state @!code-browser-state
+        cached-namespaces (keys (:symbols-by-ns state))
+        known-namespaces (set (:namespaces state))
+        selected-ns (:selected-ns state)
+        file-exists? (when path (.exists (io/file path)))]
+
+    (log/log! {:level :info
+               :id ::file-change-detected
+               :msg "File change detected"
+               :data {:uri uri :probable-ns probable-ns :selected-ns selected-ns
+                      :file-exists? file-exists?}})
+
+    ;; Case 1: File was deleted - refresh namespace list
+    (when (and path (not file-exists?))
+      (log/log! {:level :info
+                 :id ::file-deleted-detected
+                 :msg "File deletion detected, refreshing namespace list"
+                 :data {:path path :probable-ns probable-ns}})
+      ;; Invalidate any cached data for this namespace
+      (when probable-ns
+        (swap! !code-browser-state update :symbols-by-ns dissoc probable-ns)
+        (swap! !code-browser-state update :source-by-var
+               (fn [source-cache]
+                 (into {}
+                       (remove (fn [[var-key _]]
+                                 (str/starts-with? var-key (str probable-ns "/")))
+                               source-cache)))))
+      ;; Refresh namespace list after delay
+      (future
+       (Thread/sleep 1500)
+       (handle-request-namespaces {})))
+
+    ;; Case 2: New file (namespace not in known list) - refresh namespace list
+    (when (and file-exists? probable-ns
+               (not (contains? known-namespaces probable-ns))
+               ;; Also check partial match
+               (not (some #(str/ends-with? % probable-ns) known-namespaces)))
+      (log/log! {:level :info
+                 :id ::new-namespace-detected
+                 :msg "New namespace detected, refreshing namespace list"
+                 :data {:probable-ns probable-ns}})
+      ;; Refresh namespace list after delay
+      (future
+       (Thread/sleep 1500)
+       (handle-request-namespaces {})))
+
+    ;; Case 3: Existing file modified - invalidate cache and re-fetch if selected
+    (when file-exists?
+      (when-let [affected-ns (or (when (contains? (:symbols-by-ns state) probable-ns)
+                                   probable-ns)
+                                 ;; Try to find a namespace that ends with probable-ns
+                                 (first (filter #(str/ends-with? % probable-ns)
+                                                cached-namespaces)))]
+
+                (log/log! {:level :info
+                           :id ::invalidating-cached-ns
+                           :msg "Invalidating cached namespace data"
+                           :data {:affected-ns affected-ns}})
+
+        ;; Invalidate the cached symbols for this namespace
+                (swap! !code-browser-state update :symbols-by-ns dissoc affected-ns)
+
+        ;; Also invalidate any cached source for vars in this namespace
+                (swap! !code-browser-state update :source-by-var
+                       (fn [source-cache]
+                         (into {}
+                               (remove (fn [[var-key _]]
+                                         (str/starts-with? var-key (str affected-ns "/")))
+                                       source-cache))))
+
+        ;; If this namespace is currently selected, re-fetch its symbols
+                (when (= affected-ns selected-ns)
+                  (log/log! {:level :info
+                             :id ::refetching-selected-ns
+                             :msg "Re-fetching symbols for currently selected namespace"
+                             :data {:ns affected-ns}})
+          ;; Re-fetch in background after a delay to let clojure-lsp finish re-indexing
+                  (future
+                   ;; Wait 1500ms for clojure-lsp to re-analyze the changed file
+                   ;; This delay accounts for clojure-lsp's incremental re-indexing time
+                   ;; and is generous enough for most file sizes
+                   (Thread/sleep 1500)
+                   (handle-request-symbols {:ns affected-ns})))))))
+
+(defn- on-lsp-notification!
+  "Callback for LSP notifications. Handles publishDiagnostics to detect file changes."
+  [{:keys [method params]}]
+  (when (= method "textDocument/publishDiagnostics")
+    (let [uri (:uri params)]
+      (handle-file-change! uri))))
 
 ;; =============================================================================
 ;; Configuration
@@ -134,15 +260,12 @@
        vec))
 
 (defn- detect-kind
-  "Detect symbol kind, distinguishing forward declarations from variables.
-   Forward declarations (declare foo) are kind 13 with single-line range."
+  "Map LSP symbol kind number to keyword.
+   Note: clojure-lsp reports both 'def' and 'declare' as kind 13 (Variable).
+   We can't reliably distinguish them without parsing, so we use :variable for all."
   [sym]
-  (let [kind-num (:kind sym)
-        start-line (get-in sym [:location :range :start :line])
-        end-line (get-in sym [:location :range :end :line])]
-    (if (and (= 13 kind-num) (= start-line end-line))
-      :declare  ; Forward declaration - single line variable
-      (get symbol-kind->name kind-num :unknown))))
+  (let [kind-num (:kind sym)]
+    (get symbol-kind->name kind-num :unknown)))
 
 (defn extract-ns-symbols
   "Extract symbols belonging to a specific namespace.
@@ -403,10 +526,13 @@
     (reset! !enabled true)
     ;; Register atom for sync - browsers will receive updates automatically
     (atom-sync/register-synced-atom! :code-browser !code-browser-state)
+    ;; Register for file change notifications (Phase 1.5-Watch)
+    (lsp-client/on-notification! :code-browser on-lsp-notification!)
     (log/log! {:level :info
                :id ::enabled
                :msg "Code browser handlers enabled"
-               :data {:synced-atom-key :code-browser}})))
+               :data {:synced-atom-key :code-browser
+                      :file-watching true}})))
 
 (defn disable!
   "Disable code browser handlers and unregister synced atom."
@@ -415,6 +541,8 @@
     (reset! !enabled false)
     ;; Unregister atom from sync
     (atom-sync/unregister-synced-atom! :code-browser)
+    ;; Unregister file change notification callback (Phase 1.5-Watch)
+    (lsp-client/remove-notification-callback! :code-browser)
     ;; Unregister on-connect callback
     (atom-sync-server/unregister-on-connect! :code-browser)
     ;; Reset state (Phase 1.5-Acc shape)
@@ -448,6 +576,17 @@
         (log/log! {:level :info
                    :id ::auto-init-lsp-complete
                    :msg "clojure-lsp auto-initialization complete"})
+        ;; Auto-start file watcher for live updates
+        (try
+         (lsp-watcher/start!)
+         (log/log! {:level :info
+                    :id ::auto-watcher-started
+                    :msg "File watcher auto-started for live updates"})
+         (catch Exception e
+                (log/log! {:level :warn
+                           :id ::auto-watcher-failed
+                           :msg "File watcher auto-start failed (non-fatal)"
+                           :data {:error (ex-message e)}})))
         (catch Exception e
                (log/log! {:level :warn
                           :id ::auto-init-lsp-error

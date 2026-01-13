@@ -4,25 +4,25 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-13
-**Version:** v1.11.8
+**Last Updated:** 2026-01-12
+**Version:** v1.11.9
 
 ---
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, and reactive auto-init. **One phase remaining:**
+Code browser with synced atoms, accumulated state, reactive auto-init, and live file watching. **All phases complete!**
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1.5-Pre | Migrate to synced atoms | **COMPLETE** |
 | 1.5-Acc | Accumulated state (instant back-nav) | **COMPLETE** |
 | 1.5-Auto | Reactive auto-initialization | **COMPLETE** |
-| 1.5-Watch | Live file watching | **NEXT** |
+| 1.5-Watch | Live file watching | **COMPLETE** |
 
 ---
 
-## NEXT: Phase 1.5-Watch (Live File Watching)
+## Phase 1.5-Watch (Live File Watching) - COMPLETE
 
 **Goal:** Edit file → browser updates automatically
 
@@ -96,6 +96,18 @@ File saved → watcher → clojure-lsp → publishDiagnostics
 The callback receives a file URI like `file:///path/to/ns_a.clj`. Need to:
 1. Convert to namespace (use clojure-lsp `textDocument/documentSymbol` or parse file)
 2. Or: invalidate ALL cached data for that file path
+
+### Implementation Complete
+
+**Key Features:**
+1. **Notification callbacks** - `lsp-client/on-notification!` for `publishDiagnostics`
+2. **File watcher auto-start** - Starts automatically with clojure-lsp
+3. **Cache invalidation** - Symbols and source cached by ns/var
+4. **Re-fetch with delay** - 1500ms delay for clojure-lsp re-indexing
+5. **New file detection** - Namespace not in list → refresh namespaces
+6. **Deleted file detection** - File no longer exists → refresh namespaces
+
+**Also fixed:** `!` character base64 encoding in `mcp_client.clj` (prevents JSON escaping issues)
 
 ### Design Doc Reference
 
@@ -181,11 +193,16 @@ fec744e feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
 
 ## Session Notes
 
+- **Phase 1.5-Watch complete** - File save → cache invalidate → re-fetch → browser updates
 - **Reactive auto-init** - Code browser and clojure-lsp auto-initialize on first browser connect
 - **On-connect callbacks** - `atom-sync.server/register-on-connect!` enables just-in-time init
 - **Synced atom access** - Browser: `(bootstrap/get-synced-atom :code-browser)`
 - **Sync fix applied** - Full state replace (path []) accepts any seq (fixed infinite loop)
-- **Data size** - ~125KB for full ns+vars+source preview (39 ns, 416 vars)
+- **New/deleted file detection** - Namespace list auto-refreshes on file create/delete
+
+**Known quirks (deferred to future phases):**
+- `declare` vs `def` both show as `:variable` (LSP reports both as kind-13)
+- Jittery updates during re-fetch (no vars → old vars → new vars)
 
 ---
 

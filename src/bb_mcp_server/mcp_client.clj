@@ -49,11 +49,19 @@
   (.encodeToString (java.util.Base64/getEncoder) (.getBytes text "UTF-8")))
 
 (defn needs-base64?
-  "Check if text needs base64 encoding"
+  "Check if text needs base64 encoding.
+
+   Characters that cause JSON escaping issues in shell/MCP pipeline:
+   - Double quotes (\") - JSON string delimiters
+   - Newlines (\\n) - Multi-line code
+   - Backslashes (\\) - Escape sequences
+   - Exclamation marks (!) - Shell history expansion + JSON escaping
+   - Long strings - Practical limit for command lines"
   [text]
   (or (str/includes? text "\"")
       (str/includes? text "\n")
       (str/includes? text "\\")
+      (str/includes? text "!")      ; Clojure atoms (!foo) and side-effect fns (foo!)
       (> (count text) 100)))
 
 (defn build-eval-request
