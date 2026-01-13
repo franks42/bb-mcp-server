@@ -11,43 +11,33 @@
 
 ## Current State
 
-Code browser working with synced atoms. Two new phases planned:
+Code browser with synced atoms and accumulated state. One phase remaining:
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1.5-Pre | Migrate to synced atoms | **COMPLETE** |
-| 1.5-Acc | Accumulated state (instant back-nav) | Planned |
+| 1.5-Acc | Accumulated state (instant back-nav) | **COMPLETE** |
 | 1.5-Watch | Live file watching | Planned |
 
 **Design doc:** `docs/design/atom-sync-design.md` (see Future Enhancements section)
 
 ---
 
-## Next Up: Phase 1.5-Acc (Accumulated State)
+## Completed: Phase 1.5-Acc (Accumulated State)
 
-**Goal:** Stop discarding fetched data. Keep symbols/source in maps keyed by ns/var.
+**Commit:** `fec744e`
 
-**Current state shape:**
-```clojure
-{:symbols [...]}           ;; REPLACED on each ns selection
-{:source {...}}            ;; REPLACED on each var selection
-```
-
-**Target state shape:**
+**State shape:**
 ```clojure
 {:symbols-by-ns {"ns.a" [...] "ns.b" [...]}}   ;; ACCUMULATED
 {:source-by-var {"ns.a/foo" {...} ...}}        ;; ACCUMULATED
 ```
 
-**Changes needed:**
-- Server: `assoc-in [:symbols-by-ns ns]` instead of `assoc :symbols`
-- Browser: `(get-in state [:symbols-by-ns selected-ns])` instead of `(:symbols state)`
-
-**Benefits:** Instant back-navigation, foundation for file-watcher invalidation.
+**Result:** Instant back-navigation - click ns.a → ns.b → ns.a shows cached data.
 
 ---
 
-## After That: Phase 1.5-Watch (Live File Watching)
+## Next Up: Phase 1.5-Watch (Live File Watching)
 
 **Goal:** Edit file → browser updates automatically.
 
@@ -111,10 +101,10 @@ bb lint && bb format
 ## Recent Commits
 
 ```
+fec744e feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
+7148200 docs: Update context.md with Phase 1.5-Acc/Watch roadmap
 5b0777c docs: Add Phase 1.5-Acc and 1.5-Watch to design and plan
 67526b3 feat(code-browser): Migrate to synced atoms (Phase 1.5-Pre)
-06f0bfd docs: Update atom-sync design with seq-per-op fix
-bd65589 fix(atom-sync): Assign unique seq per op in multi-key swap
 ```
 
 ---

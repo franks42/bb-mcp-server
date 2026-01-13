@@ -361,7 +361,7 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 [:code-browser/refresh]
 ```
 
-#### Phase 1.5-Acc: Accumulated State Structure
+#### Phase 1.5-Acc: Accumulated State Structure ✅ Complete
 
 **Goal:** Retain previously fetched data instead of replacing it. Instant back-navigation.
 
@@ -369,12 +369,14 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Acc.1 | Server: Change state shape to `{:symbols-by-ns {ns symbols}}` | Pending |
-| 1.5-Acc.2 | Server: Change state shape to `{:source-by-var {qualified-name source}}` | Pending |
-| 1.5-Acc.3 | Server: Update handlers to `assoc-in` instead of `assoc` | Pending |
-| 1.5-Acc.4 | Browser: Update reads to `(get-in state [:symbols-by-ns selected-ns])` | Pending |
-| 1.5-Acc.5 | Browser: Update source read to `(get-in state [:source-by-var key])` | Pending |
-| 1.5-Acc.6 | Test: Click ns.a → ns.b → ns.a, verify no refetch | Pending |
+| 1.5-Acc.1 | Server: Change state shape to `{:symbols-by-ns {ns symbols}}` | ✅ |
+| 1.5-Acc.2 | Server: Change state shape to `{:source-by-var {qualified-name source}}` | ✅ |
+| 1.5-Acc.3 | Server: Update handlers to `assoc-in` instead of `assoc` | ✅ |
+| 1.5-Acc.4 | Browser: Update reads to `(get-in state [:symbols-by-ns selected-ns])` | ✅ |
+| 1.5-Acc.5 | Browser: Update source read to `(get-in state [:source-by-var key])` | ✅ |
+| 1.5-Acc.6 | Test: Click ns.a → ns.b → ns.a, verify no refetch | ✅ |
+
+**Commit:** `fec744e` feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
 
 **Benefits:**
 - Instant back-navigation (no refetch)
