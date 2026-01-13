@@ -9,146 +9,123 @@
 
 ---
 
-## Completed: Phase 1.5-Pre - Migrate Code Browser to Synced Atoms
+## Current State
 
-**Goal:** Refactor code-browser from request/response messaging to reactive synced atoms.
+Code browser working with synced atoms. Two new phases planned:
 
-**Status:** COMPLETE ✓ (tested in browser)
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1.5-Pre | Migrate to synced atoms | **COMPLETE** |
+| 1.5-Acc | Accumulated state (instant back-nav) | Planned |
+| 1.5-Watch | Live file watching | Planned |
 
-### What Changed
-
-**Server-side (`modules/sente-browser/src/sente_browser/code_browser.clj`):**
-- Added `!code-browser-state` atom with shape matching target state
-- Registered atom via `atom-sync/register-synced-atom!` on `enable!`
-- All handlers now `swap!` the synced atom (auto-pushes to browsers)
-- Added `handle-clear-error` for browser dismiss action
-
-**Browser-side (`modules/sente-browser/src/browser/code_browser.cljs`):**
-- Added `get-server-state` fn to access synced atom from bootstrap
-- Added `!ui-state` atom for local-only filter state
-- All components now read from synced atom
-- Removed legacy `!state` atom and event handlers
-- Removed `register-handler!` (synced atoms handled by bootstrap)
-- Error dismiss now sends `:code-browser/clear-error` event
-
-### State Shape (Final)
-
-```clojure
-;; Server synced atom
-{:namespaces ["ns.a" "ns.b" ...]
- :selected-ns "ns.a"
- :symbols [{:name "foo" :kind :function :line 10 ...}]
- :selected-symbol "foo"
- :source {:code "..." :file "..." :start-line 1 :end-line 20}
- :loading? false
- :error nil}
-
-;; Browser local UI state
-{:ns-filter ""
- :symbol-filter ""}
-```
-
-### Files Modified
-
-| File | Changes |
-|------|---------|
-| `modules/sente-browser/src/sente_browser/code_browser.clj` | Added synced atom, updated handlers |
-| `modules/sente-browser/src/browser/code_browser.cljs` | Migrated to synced atom, removed legacy code |
-| `modules/atom-sync/src/atom_sync/core.clj` | Fixed seq-per-op bug in `on-atom-change` |
-
-### Bug Fix: Seq-Per-Op (2026-01-12)
-
-**Problem:** When `swap!` changed multiple keys, all ops got the same seq. Browser applied first op, rejected rest as "stale".
-
-**Fix:** Increment seq per op, not per swap:
-```clojure
-;; in on-atom-change
-(map-indexed
-  (fn [idx [op-type op-data]]
-    [op-type (assoc op-data :seq (+ start-seq idx 1))])
-  base-ops)
-```
+**Design doc:** `docs/design/atom-sync-design.md` (see Future Enhancements section)
 
 ---
 
-## Completed: Atom Sync Module (Phase 1.4)
+## Next Up: Phase 1.5-Acc (Accumulated State)
 
-**Module:** `modules/atom-sync/`
+**Goal:** Stop discarding fetched data. Keep symbols/source in maps keyed by ns/var.
 
-- `core.clj` - Transport-independent sync logic
-- `server.clj` - sente-lite integration
-- 29 tests, 130 assertions - all passing
-- Full docs: `modules/atom-sync/README.md`
+**Current state shape:**
+```clojure
+{:symbols [...]}           ;; REPLACED on each ns selection
+{:source {...}}            ;; REPLACED on each var selection
+```
+
+**Target state shape:**
+```clojure
+{:symbols-by-ns {"ns.a" [...] "ns.b" [...]}}   ;; ACCUMULATED
+{:source-by-var {"ns.a/foo" {...} ...}}        ;; ACCUMULATED
+```
+
+**Changes needed:**
+- Server: `assoc-in [:symbols-by-ns ns]` instead of `assoc :symbols`
+- Browser: `(get-in state [:symbols-by-ns selected-ns])` instead of `(:symbols state)`
+
+**Benefits:** Instant back-navigation, foundation for file-watcher invalidation.
+
+---
+
+## After That: Phase 1.5-Watch (Live File Watching)
+
+**Goal:** Edit file → browser updates automatically.
+
+**Leverages existing infrastructure:**
+- File watcher: `modules/clojure-lsp/.../watcher.clj` (already running)
+- clojure-lsp sends `textDocument/publishDiagnostics` on file change
+- Just need to hook callback into `handle-notification!`
+
+---
+
+## Completed: Phase 1.5-Pre (Synced Atoms)
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Server handlers
+- `modules/sente-browser/src/browser/code_browser.cljs` - Browser UI
+- `modules/atom-sync/src/atom_sync/core.clj` - Bug fix (seq-per-op)
+
+**Bug fix:** When swap! changes multiple keys, each op now gets unique seq.
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server for browser development
+# Start server
 bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
-# After editing Clojure files
-bb lint-fix <file>
+# Browser URL
+http://localhost:8091
 
-# List running servers
-bb server:list
+# Initialize clojure-lsp (required for code browser)
+bb mcp call clojure-lsp.clj-init '{}' --mcp code-browser-dev
 
-# Stop server
-bb server:stop code-browser-dev
-
-# Run atom-sync tests
+# Run tests
 bb test:atom-sync
+bb lint && bb format
 ```
 
 ---
 
 ## Key Documentation
 
-| Doc | When to Read |
-|-----|--------------|
-| `IMPLEMENTATION_PLAN.md` | Task tracking |
+| Doc | Purpose |
+|-----|---------|
+| `docs/design/atom-sync-design.md` | Sync architecture, future phases |
+| `IMPLEMENTATION_PLAN.md` | Task checklists |
 | `modules/atom-sync/README.md` | Atom-sync usage |
-| `docs/SCITTLE_DEV_ENVIRONMENT.md` | Before Scittle/browser work |
-| `docs/bb-tasks-reference.md` | Before writing curl/bash commands |
+| `docs/SCITTLE_DEV_ENVIRONMENT.md` | Browser dev setup |
 
 ---
 
 ## Session Notes
 
-Things not in CLAUDE.md or other docs:
-
-- **sente-lite on-message callback** - MUST return `nil`; truthy values get echoed to client
-- **Scittle symbol order** - Symbols must be defined before use (no forward refs)
 - **clojure-lsp must be initialized** - Call `clj-init` before code-browser works
-- **LSP Symbol Kinds** - 3=namespace, 12=function, 13=variable
-- **Reagent Form-3 gotcha** - Values in outer `let` are captured at mount time
-- **lint-fix workflow** - Use `bb lint-fix <file>` after editing Clojure
-- **Playwright/DevTools MCP** - Browser automation tools available for testing
-- **trove for logging** - Use `(log/log! {:level :info :id ::my-id :msg "..." :data {...}})`
-- **Synced atom access** - Browser uses `(bootstrap/get-synced-atom :key)` for Reagent atom
+- **Synced atom access** - Browser: `(bootstrap/get-synced-atom :code-browser)`
+- **File watcher** - Start with `clj-watch start` tool or via config
+- **Data size** - ~125KB for full ns+vars+source preview (39 ns, 416 vars)
 
 ---
 
 ## Recent Commits
 
 ```
-2811e5d docs: Update context.md for Phase 1.5-Pre handoff
-763f511 docs: Update atom-sync docs and add README user guide
-5628e4b feat: Add module-specific bb test tasks
-ad1b92f feat(atom-sync): Add server integration layer (Phase 1.4B)
-3c532d4 feat(atom-sync): Add seq validation and heartbeat mechanism
+5b0777c docs: Add Phase 1.5-Acc and 1.5-Watch to design and plan
+67526b3 feat(code-browser): Migrate to synced atoms (Phase 1.5-Pre)
+06f0bfd docs: Update atom-sync design with seq-per-op fix
+bd65589 fix(atom-sync): Assign unique seq per op in multi-key swap
 ```
 
 ---
 
-## Browser MCP Tools Available
+## Browser MCP Tools
 
-**Playwright MCP** and **Chrome DevTools MCP** are configured.
+Playwright MCP and Chrome DevTools MCP are configured for browser automation.
 
 ```
-# Playwright tools: mcp__playwright__browser_navigate, browser_click, browser_snapshot, etc.
-# Chrome DevTools: mcp__chrome-devtools__navigate_page, click, take_snapshot, etc.
+# Take snapshot, click, navigate, etc.
+mcp__chrome-devtools__take_snapshot
+mcp__chrome-devtools__click
+mcp__chrome-devtools__navigate_page
 ```
-
-Use these for browser automation instead of writing JavaScript test files.
