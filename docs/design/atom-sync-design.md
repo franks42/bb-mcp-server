@@ -161,18 +161,23 @@ Each synced atom maintains a monotonic sequence number in the **registry** (not 
 ```clojure
 ;; Registry maintains seq separate from atom value
 (defonce !synced-atoms
-  (atom {}))  ; {:key {:atom atom-ref :seq n :push-on-change? bool}}
+  (atom {}))  ; {:key {:atom atom-ref :seq n :last-value v}}
 
-;; On atom change, increment seq and include in message
-(defn push-atom! [key]
-  (let [{:keys [atom seq]} (get @!synced-atoms key)
-        new-seq (inc seq)]
-    (swap! !synced-atoms assoc-in [key :seq] new-seq)
-    (broadcast! [:sync/op {:key key
-                           :seq new-seq
-                           :op :assoc-in
-                           :path []
-                           :value @atom}])))
+;; On atom change, generate ops and assign incrementing seq to each
+;; IMPORTANT: Each op needs unique seq (not one per swap!)
+;; Otherwise browser rejects subsequent ops in multi-key swaps as "stale"
+(defn on-atom-change [key _ref old-val new-val]
+  (when (not= old-val new-val)
+    (let [base-ops (deep-diff->ops key old-val new-val)
+          start-seq (get-in @!synced-atoms [key :seq] 0)
+          ;; Each op gets its own seq: start+1, start+2, etc.
+          ops (map-indexed
+               (fn [idx [op-type op-data]]
+                 [op-type (assoc op-data :seq (+ start-seq idx 1))])
+               base-ops)
+          final-seq (+ start-seq (count base-ops))]
+      (swap! !synced-atoms update key assoc :seq final-seq :last-value new-val)
+      (notify-subscribers! ops))))
 ```
 
 **Browser-side tracking:**
