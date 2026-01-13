@@ -3,16 +3,32 @@
 
    Fetches data from clojure-lsp and sends to browser via sente-lite.
 
+   State Management:
+   - Uses atom-sync to push state to browsers (Phase 1.5-Pre)
+   - Parallel mode: updates atom AND sends events (for migration)
+
    Events from browser:
    - :code-browser/request-namespaces {}
    - :code-browser/request-symbols {:file string}
    - :code-browser/request-source {:file string :start-line int :end-line int}
+   - :code-browser/select-ns {:ns string}        ; Phase 1.5-Pre action
+   - :code-browser/select-var {:var-name string} ; Phase 1.5-Pre action
 
-   Events to browser:
+   Events to browser (legacy, kept during migration):
    - :code-browser/namespaces {:namespaces [...]}
    - :code-browser/symbols {:symbols [...]}
-   - :code-browser/source {:code string :file string :language string}"
-    (:require [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
+   - :code-browser/source {:code string :file string :language string}
+
+   Synced Atom State Shape:
+   {:namespaces [\"ns.a\" \"ns.b\" ...]
+    :selected-ns \"ns.a\"
+    :symbols [{:name \"foo\" :kind :function :line 10 ...}]
+    :selected-symbol \"foo\"
+    :source {:code \"...\" :file \"...\" :start-line 1 :end-line 20}
+    :loading? false
+    :error nil}"
+    (:require [atom-sync.core :as atom-sync]
+              [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
               [clojure.java.io :as io]
               [clojure.string :as str]
               [taoensso.trove :as log]))
@@ -24,6 +40,22 @@
 ;; Whether code browser handlers are enabled
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !enabled (atom false))
+
+;; =============================================================================
+;; Synced Atom State (Phase 1.5-Pre)
+;; =============================================================================
+
+;; The main code browser state, synced to all browsers via atom-sync.
+;; This is the canonical state - browsers observe this atom.
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !code-browser-state
+         (atom {:namespaces []
+                :selected-ns nil
+                :symbols []
+                :selected-symbol nil
+                :source nil
+                :loading? false
+                :error nil}))
 
 (def ^:private symbol-kind->name
      "LSP Symbol Kinds (from LSP spec) mapped to keywords."
@@ -166,6 +198,7 @@
 
 (defn handle-request-namespaces
   "Handle request for namespace list.
+   Updates synced atom AND returns response (parallel mode).
    Returns {:namespaces [string ...]}."
   [_data]
   (log/log! {:level :info
@@ -173,11 +206,17 @@
              :msg "Handling namespace list request"})
   (let [symbols (fetch-all-symbols)
         namespaces (extract-namespaces symbols)]
+    ;; Update synced atom (browsers will receive via atom-sync)
+    (swap! !code-browser-state assoc
+           :namespaces namespaces
+           :loading? false)
+    ;; Also return response for legacy event mechanism
     {:namespaces namespaces
      :count (count namespaces)}))
 
 (defn handle-request-symbols
   "Handle request for symbols in a namespace.
+   Updates synced atom AND returns response (parallel mode).
    data: {:ns string}
    Returns {:symbols [...] :file string}."
   [{:keys [ns]}]
@@ -188,14 +227,31 @@
   (let [symbols (fetch-all-symbols)
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
-      {:ns ns
-       :file file-uri
-       :symbols (extract-ns-symbols symbols file-uri)}
-      {:ns ns
-       :error (str "Namespace not found: " ns)})))
+      (let [ns-symbols (extract-ns-symbols symbols file-uri)]
+        ;; Update synced atom (browsers will receive via atom-sync)
+        (swap! !code-browser-state assoc
+               :selected-ns ns
+               :symbols ns-symbols
+               :selected-symbol nil
+               :source nil
+               :loading? false)
+        ;; Also return response for legacy event mechanism
+        {:ns ns
+         :file file-uri
+         :symbols ns-symbols})
+      (do
+       ;; Update synced atom with error state
+       (swap! !code-browser-state assoc
+              :selected-ns ns
+              :symbols []
+              :error (str "Namespace not found: " ns)
+              :loading? false)
+       {:ns ns
+        :error (str "Namespace not found: " ns)}))))
 
 (defn handle-request-source
   "Handle request for source code.
+   Updates synced atom AND returns response (parallel mode).
    data: {:file string :start-line int :end-line int}
    Returns {:code string :file string :language string}."
   [{:keys [file start-line end-line]}]
@@ -207,16 +263,28 @@
     (if content
       (let [code (if (and start-line end-line)
                    (extract-source-region content start-line end-line)
-                   content)]
-        {:code code
-         :file file
-         :language "clojure"
-         :start-line (or start-line 1)
-         :end-line (or end-line (count (str/split-lines content)))})
-      {:error (str "File not found: " file)})))
+                   content)
+            source-data {:code code
+                         :file file
+                         :language "clojure"
+                         :start-line (or start-line 1)
+                         :end-line (or end-line (count (str/split-lines content)))}]
+        ;; Update synced atom (browsers will receive via atom-sync)
+        (swap! !code-browser-state assoc
+               :source source-data
+               :loading? false)
+        ;; Also return response for legacy event mechanism
+        source-data)
+      (do
+       ;; Update synced atom with error state
+       (swap! !code-browser-state assoc
+              :error (str "File not found: " file)
+              :loading? false)
+       {:error (str "File not found: " file)}))))
 
 (defn handle-request-var-source
   "Handle request for source of a specific var.
+   Updates synced atom AND returns response (parallel mode).
    data: {:ns string :var-name string :kind keyword}
    Finds the var via clojure-lsp and returns its source.
    Uses :kind to disambiguate when multiple symbols have same name."
@@ -229,7 +297,12 @@
         file-uri (get-namespace-file symbols ns)
         file-path (when file-uri (str/replace file-uri "file://" ""))]
     (if-not file-path
-      {:error (str "Namespace not found: " ns)}
+      (do
+       ;; Update synced atom with error state
+       (swap! !code-browser-state assoc
+              :error (str "Namespace not found: " ns)
+              :loading? false)
+       {:error (str "Namespace not found: " ns)})
       ;; Find the var in symbols, using kind to disambiguate duplicates
       (let [matching (->> symbols
                           (filter #(and (= file-uri (get-in % [:location :uri]))
@@ -247,18 +320,40 @@
                             (first matching)))
                       (first matching))]
         (if-not var-sym
-          {:error (str "Var not found: " ns "/" var-name)}
+          (do
+           ;; Update synced atom with error state
+           (swap! !code-browser-state assoc
+                  :error (str "Var not found: " ns "/" var-name)
+                  :loading? false)
+           {:error (str "Var not found: " ns "/" var-name)})
           (let [start-line (inc (get-in var-sym [:location :range :start :line] 0))
                 end-line (inc (get-in var-sym [:location :range :end :line] 0))
                 content (fetch-file-content file-uri)
-                code (extract-source-region content start-line end-line)]
-            {:code code
-             :file file-uri
-             :ns ns
-             :var-name var-name
-             :start-line start-line
-             :end-line end-line
-             :language "clojure"}))))))
+                code (extract-source-region content start-line end-line)
+                source-data {:code code
+                             :file file-uri
+                             :ns ns
+                             :var-name var-name
+                             :start-line start-line
+                             :end-line end-line
+                             :language "clojure"}]
+            ;; Update synced atom (browsers will receive via atom-sync)
+            (swap! !code-browser-state assoc
+                   :selected-symbol var-name
+                   :source source-data
+                   :loading? false)
+            ;; Also return response for legacy event mechanism
+            source-data))))))
+
+(defn handle-clear-error
+  "Handle request to clear error state.
+   Updates synced atom to remove error."
+  [_data]
+  (log/log! {:level :info
+             :id ::clear-error
+             :msg "Clearing error state"})
+  (swap! !code-browser-state dissoc :error)
+  {:cleared true})
 
 ;; =============================================================================
 ;; Event Dispatch
@@ -282,6 +377,9 @@
       :code-browser/request-var-source
       [:code-browser/var-source (handle-request-var-source data)]
 
+      :code-browser/clear-error
+      [:code-browser/error-cleared (handle-clear-error data)]
+
       ;; Not a code-browser event
       nil)))
 
@@ -290,17 +388,31 @@
 ;; =============================================================================
 
 (defn enable!
-  "Enable code browser handlers."
+  "Enable code browser handlers and register synced atom."
   []
   (reset! !enabled true)
+  ;; Register atom for sync - browsers will receive updates automatically
+  (atom-sync/register-synced-atom! :code-browser !code-browser-state)
   (log/log! {:level :info
              :id ::enabled
-             :msg "Code browser handlers enabled"}))
+             :msg "Code browser handlers enabled"
+             :data {:synced-atom-key :code-browser}}))
 
 (defn disable!
-  "Disable code browser handlers."
+  "Disable code browser handlers and unregister synced atom."
   []
   (reset! !enabled false)
+  ;; Unregister atom from sync
+  (atom-sync/unregister-synced-atom! :code-browser)
+  ;; Reset state
+  (reset! !code-browser-state
+          {:namespaces []
+           :selected-ns nil
+           :symbols []
+           :selected-symbol nil
+           :source nil
+           :loading? false
+           :error nil})
   (log/log! {:level :info
              :id ::disabled
              :msg "Code browser handlers disabled"}))

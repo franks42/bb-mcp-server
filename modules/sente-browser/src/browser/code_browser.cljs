@@ -6,10 +6,12 @@
    - Middle: Vars list with filter
    - Right: Source viewer (CM6)
 
-   Data flow:
-   - Browser sends :code-browser/request-* events via sente
-   - Server responds with :code-browser/* data events
-   - Reagent atoms trigger re-render
+   Data flow (Phase 1.5-Pre - Synced Atoms):
+   - Server maintains !code-browser-state atom
+   - atom-sync pushes updates to browser via [:sync/op ...]
+   - Browser reads from synced atom for server data
+   - Local !ui-state for UI-only state (filters)
+   - Legacy event handlers kept temporarily (become no-ops)
 
    Usage (load via nREPL):
      (require '[code-browser :as cb])
@@ -28,17 +30,20 @@
 ;; State
 ;; =============================================================================
 
+;; Synced atom from server - contains server data
+;; Shape: {:namespaces [] :selected-ns nil :symbols [] :selected-symbol nil
+;;         :source nil :loading? false :error nil}
+(defn get-server-state
+  "Get the synced atom for code browser server data.
+   Returns a Reagent atom that auto-updates when server pushes changes."
+  []
+  (bootstrap/get-synced-atom :code-browser))
+
+;; Local UI state - filters and UI-only concerns (not synced)
 #_{:clj-kondo/ignore [:missing-docstring]}
-(defonce !state
-         (r/atom {:namespaces []
-                  :selected-ns nil
-                  :symbols []
-                  :selected-symbol nil
-                  :source nil
-                  :ns-filter ""
-                  :symbol-filter ""
-                  :loading? false
-                  :error nil}))
+(defonce !ui-state
+         (r/atom {:ns-filter ""
+                  :symbol-filter ""}))
 
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !layout
@@ -57,84 +62,37 @@
   (when-let [client-id @bootstrap/!client-id]
             (client/send! client-id [event-id data])))
 
-(defn- on-server-event
-  "Handle event from server. Called by sente adapter."
-  [[event-id data]]
-  (js/console.log (str "[code-browser] on-server-event called: " event-id))
-  (case event-id
-    :code-browser/namespaces
-    (do
-     (js/console.log (str "[code-browser] Received namespaces: " (count (:namespaces data))))
-     (swap! !state assoc
-            :namespaces (:namespaces data)
-            :loading? false))
-
-    :code-browser/symbols
-    (do
-     (js/console.log (str "[code-browser] Received symbols: " (count (:symbols data))))
-     (swap! !state assoc
-            :symbols (:symbols data)
-            :loading? false))
-
-    :code-browser/source
-    (do
-     (js/console.log "[code-browser] Received source")
-     (swap! !state assoc
-            :source data
-            :loading? false))
-
-    :code-browser/var-source
-    (do
-     (js/console.log "[code-browser] Received var-source")
-     (swap! !state assoc
-            :source data
-            :loading? false))
-
-    ;; Unknown event - ignore
-    (js/console.log (str "[code-browser] Unknown event: " event-id))))
-
-;; Register event handler (called on load)
-(defn register-handler!
-  "Register code-browser event handler with bootstrap dispatcher."
-  []
-  (js/console.log "[code-browser] Registering event handler...")
-  (bootstrap/register-event-handler! :code-browser on-server-event)
-  (js/console.log (str "[code-browser] Handlers after registration: " (pr-str (keys @bootstrap/!event-handlers)))))
+;; Legacy event handlers removed in Step 3 of Phase 1.5-Pre migration.
+;; Server now pushes state via atom-sync, handled automatically by bootstrap.
 
 ;; =============================================================================
 ;; API Functions
 ;; =============================================================================
 
 (defn request-namespaces!
-  "Request namespace list from server."
+  "Request namespace list from server.
+   Server updates synced atom with namespaces."
   []
-  (swap! !state assoc :loading? true)
   (send-event! :code-browser/request-namespaces {}))
 
 (defn request-symbols!
   "Request symbols for a namespace.
-   Clears symbols immediately to prevent stale-state clicks."
+   Server updates synced atom with symbols list."
   [ns-name]
-  (swap! !state assoc
-         :loading? true
-         :selected-ns ns-name
-         :symbols []           ; Clear to prevent clicking stale symbols
-         :selected-symbol nil
-         :source nil)
   (send-event! :code-browser/request-symbols {:ns ns-name}))
 
 (defn request-source!
-  "Request source code for a file region."
+  "Request source code for a file region.
+   Server updates synced atom with source."
   [file start-line end-line]
-  (swap! !state assoc :loading? true)
   (send-event! :code-browser/request-source
                {:file file :start-line start-line :end-line end-line}))
 
 (defn request-var-source!
   "Request source for a specific var.
-   kind is used to disambiguate when multiple symbols have same name."
+   kind is used to disambiguate when multiple symbols have same name.
+   Server updates synced atom with source."
   [ns-name var-name kind]
-  (swap! !state assoc :loading? true :selected-symbol var-name)
   (send-event! :code-browser/request-var-source
                {:ns ns-name :var-name var-name :kind kind}))
 
@@ -152,15 +110,21 @@
      (clojure.string/lower-case pattern))))
 
 (defn filtered-namespaces
-  "Get namespaces matching current filter."
+  "Get namespaces matching current filter.
+   Reads server data from synced atom, filter from local UI state."
   []
-  (let [{:keys [namespaces ns-filter]} @!state]
+  (let [server-state @(get-server-state)
+        namespaces (or (:namespaces server-state) [])
+        ns-filter (:ns-filter @!ui-state)]
     (filter #(matches-filter? % ns-filter) namespaces)))
 
 (defn filtered-symbols
-  "Get symbols matching current filter."
+  "Get symbols matching current filter.
+   Reads server data from synced atom, filter from local UI state."
   []
-  (let [{:keys [symbols symbol-filter]} @!state]
+  (let [server-state @(get-server-state)
+        symbols (or (:symbols server-state) [])
+        symbol-filter (:symbol-filter @!ui-state)]
     (filter #(matches-filter? (:name %) symbol-filter) symbols)))
 
 ;; =============================================================================
@@ -168,18 +132,21 @@
 ;; =============================================================================
 
 (defn filter-input
-  "Filter text input component."
+  "Filter text input component.
+   Uses local !ui-state for filter values (not synced to server)."
   [value-key placeholder]
   [:input.filter-input
    {:type "text"
     :placeholder placeholder
-    :value (get @!state value-key)
-    :on-change #(swap! !state assoc value-key (-> % .-target .-value))}])
+    :value (get @!ui-state value-key)
+    :on-change #(swap! !ui-state assoc value-key (-> % .-target .-value))}])
 
 (defn namespace-item
-  "Single namespace list item."
+  "Single namespace list item.
+   Reads selected-ns from synced server state."
   [ns-name]
-  (let [selected? (= ns-name (:selected-ns @!state))]
+  (let [server-state @(get-server-state)
+        selected? (= ns-name (:selected-ns server-state))]
     [:div.list-item
      {:class (when selected? "selected")
       :on-click #(request-symbols! ns-name)}
@@ -203,10 +170,12 @@
       [:span (str (count nss) " namespaces")]]]))
 
 (defn symbol-item
-  "Single symbol list item."
+  "Single symbol list item.
+   Reads selected state from synced server state."
   [{:keys [name kind]}]
-  (let [selected? (= name (:selected-symbol @!state))
-        selected-ns (:selected-ns @!state)]
+  (let [server-state @(get-server-state)
+        selected? (= name (:selected-symbol server-state))
+        selected-ns (:selected-ns server-state)]
     [:div.list-item
      {:class [(when selected? "selected")
               (clojure.core/name (or kind :unknown))]
@@ -215,19 +184,22 @@
      [:span.symbol-kind (clojure.core/name (or kind :unknown))]]))
 
 (defn symbols-panel
-  "Middle panel: symbols list."
+  "Middle panel: symbols list.
+   Reads selected-ns from synced server state."
   []
   (let [layout @!layout
+        server-state @(get-server-state)
+        selected-ns (:selected-ns server-state)
         syms (filtered-symbols)]
     [:div.panel.symbols-panel
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
-      [:h3 (if-let [ns (:selected-ns @!state)]
-                   (str ns " vars")
-                   "Vars")]]
+      [:h3 (if selected-ns
+             (str selected-ns " vars")
+             "Vars")]]
      [filter-input :symbol-filter "Filter vars..."]
      [:div.list-container
-      (if (:selected-ns @!state)
+      (if selected-ns
         (for [sym syms]
              ^{:key (:name sym)} [symbol-item sym])
         [:div.empty-message "Select a namespace"])]
@@ -236,10 +208,12 @@
 
 (defn source-panel
   "Right panel: source code viewer.
-   Uses stable editor ID to prevent flashing on source changes."
+   Uses stable editor ID to prevent flashing on source changes.
+   Reads source from synced server state."
   []
   (let [layout @!layout
-        source (:source @!state)]
+        server-state @(get-server-state)
+        source (:source server-state)]
     [:div.panel.source-panel
      {:style {:width (:source-width layout)}}
      [:div.panel-header
@@ -264,13 +238,21 @@
   ;; Could add delayed indicator for slow operations in future
   nil)
 
-(defn error-display
-  "Error message display."
+(defn- clear-error!
+  "Send clear-error event to server."
   []
-  (when-let [error (:error @!state)]
-            [:div.error-banner
-             [:span error]
-             [:button {:on-click #(swap! !state dissoc :error)} "Dismiss"]]))
+  (send-event! :code-browser/clear-error {}))
+
+(defn error-display
+  "Error message display.
+   Reads error from synced server state."
+  []
+  (let [server-state @(get-server-state)
+        error (:error server-state)]
+    (when error
+      [:div.error-banner
+       [:span error]
+       [:button {:on-click clear-error!} "Dismiss"]])))
 
 (defn main-panel
   "Main code browser component."
@@ -289,19 +271,17 @@
 
 (defn mount!
   "Mount code browser to #code-browser-root element.
-   Uses bootstrap/mount-root! which wraps rdom/render with error boundary."
+   Uses bootstrap/mount-root! which wraps rdom/render with error boundary.
+   Server state is synced via atom-sync (no legacy handler registration needed)."
   []
-  (register-handler!)
   (bootstrap/mount-root! [main-panel])
   (request-namespaces!)
   (js/console.log "[code-browser] Mounted"))
 
 (defn unmount!
-  "Unmount code browser."
+  "Unmount code browser.
+   Clears local UI state. Server state is managed by synced atom."
   []
-  ;; Note: unmount requires rdom directly, so we leave container mounted
-  ;; and just clear state for now
-  (reset! !state {:namespaces [] :selected-ns nil :symbols []
-                  :selected-symbol nil :source nil :ns-filter ""
-                  :symbol-filter "" :loading? false :error nil})
-  (js/console.log "[code-browser] State reset"))
+  ;; Clear local filter state
+  (reset! !ui-state {:ns-filter "" :symbol-filter ""})
+  (js/console.log "[code-browser] UI state reset"))
