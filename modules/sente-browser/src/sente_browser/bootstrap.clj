@@ -484,6 +484,10 @@
     ;; Watchers for future bidirectional sync (Phase 2)
     (defonce !sync-watchers-installed (atom #{}))
 
+    ;; Track pending resync requests to prevent flooding
+    ;; Set of keys with outstanding resync requests
+    (defonce !resync-pending (atom #{}))
+
     ;; Client ID for sending messages (forward declaration, set by init!)
     (defonce !client-id (atom nil))
 
@@ -498,14 +502,24 @@
 
     (defn request-resync!
       \"Request full resync from server for an atom.
-       Called when gap detected in seq numbers.\"
+       Called when gap detected in seq numbers.
+       Prevents flooding by tracking pending requests.\"
       [key]
-      (log/log! {:level :warn
-                 :id ::resync-requested
-                 :msg \"Requesting resync from server\"
-                 :data {:key key}})
-      (when @!client-id
-        (client/send! @!client-id [:sync/resync-request {:key key}])))
+      (if (contains? @!resync-pending key)
+        ;; Already have a pending resync for this key - don't flood
+        (log/log! {:level :debug
+                   :id ::resync-already-pending
+                   :msg \"Resync already pending, skipping duplicate request\"
+                   :data {:key key}})
+        ;; No pending resync - send request and mark as pending
+        (do
+          (swap! !resync-pending conj key)
+          (log/log! {:level :warn
+                     :id ::resync-requested
+                     :msg \"Requesting resync from server\"
+                     :data {:key key}})
+          (when @!client-id
+            (client/send! @!client-id [:sync/resync-request {:key key}])))))
 
     (defn apply-sync-op
       \"Apply a sync operation with seq validation.
@@ -528,6 +542,8 @@
             (when-let [a (get-synced-atom key)]
               (reset! a value))
             (swap! !sync-state assoc-in [key :seq] seq)
+            ;; Clear pending resync flag - we've received full state
+            (swap! !resync-pending disj key)
             (log/log! {:level :info
                        :id ::full-sync-applied
                        :msg \"Full state sync applied\"
@@ -567,8 +583,11 @@
 
     (defn handle-resync-response
       \"Handle resync response from server.
-       Applies all ops and resets seq tracking.\"
+       Applies all ops and resets seq tracking.
+       Clears pending resync flag to allow future requests.\"
       [{:keys [key ops error]}]
+      ;; Always clear pending flag - response received (success or error)
+      (swap! !resync-pending disj key)
       (if error
         (log/log! {:level :error
                    :id ::resync-error
