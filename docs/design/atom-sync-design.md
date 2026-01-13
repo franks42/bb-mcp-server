@@ -924,12 +924,189 @@ Send multiple ops in single message to reduce overhead:
 
 ---
 
+## Future Enhancements
+
+### Phase 1.6: Live File Watching
+
+**Goal:** When source files change on disk, automatically update synced atoms and push to browsers.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Live File Watching Architecture                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  File System                                                        │
+│      │                                                              │
+│      ▼                                                              │
+│  ┌─────────────────────┐    workspace/didChangeWatchedFiles        │
+│  │ watcher.clj         │──────────────────────────────────────┐    │
+│  │ (pod-fswatcher)     │                                      │    │
+│  └─────────────────────┘                                      ▼    │
+│                                                         ┌──────────┐│
+│                                                         │clojure-  ││
+│                                                         │lsp       ││
+│                                                         │subprocess││
+│                                                         └────┬─────┘│
+│                                                              │      │
+│                              textDocument/publishDiagnostics │      │
+│                                                              ▼      │
+│  ┌─────────────────────┐                              ┌───────────┐ │
+│  │ handle-notification!│◄─────────────────────────────│reader loop│ │
+│  │ (client.clj)        │                              └───────────┘ │
+│  └─────────┬───────────┘                                            │
+│            │                                                        │
+│            ▼                                                        │
+│  ┌─────────────────────┐                                            │
+│  │ notification        │ NEW: callback registry for file changes    │
+│  │ callbacks           │                                            │
+│  └─────────┬───────────┘                                            │
+│            │                                                        │
+│            ▼                                                        │
+│  ┌─────────────────────┐                                            │
+│  │ code-browser        │ Re-query affected ns/vars/source           │
+│  │ on-file-change      │                                            │
+│  └─────────┬───────────┘                                            │
+│            │                                                        │
+│            ▼                                                        │
+│  ┌─────────────────────┐                                            │
+│  │ !code-browser-state │ swap! with new data                        │
+│  │ synced atom         │                                            │
+│  └─────────┬───────────┘                                            │
+│            │                                                        │
+│            ▼                                                        │
+│       atom-sync ──────────────────────────────────────► browser     │
+│                      auto-push via [:sync/op ...]                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Extension Points:**
+
+```clojure
+;; In client.clj - add notification callback registry
+(defonce !notification-callbacks (atom {}))
+
+(defn on-notification! [key callback-fn]
+  (swap! !notification-callbacks assoc key callback-fn))
+
+(defn- handle-notification!
+  [{:keys [method params] :as notification}]
+  (case method
+    "textDocument/publishDiagnostics"
+    (do
+      (swap! state assoc-in [:diagnostics (:uri params)] (:diagnostics params))
+      ;; NEW: Notify all callbacks
+      (doseq [[_ cb] @!notification-callbacks]
+        (cb notification)))
+    nil))
+
+;; In code_browser.clj - subscribe to file changes
+(defn enable! []
+  (client/on-notification! :code-browser
+    (fn [{:keys [method params]}]
+      (when (= method "textDocument/publishDiagnostics")
+        (let [uri (:uri params)
+              affected-ns (uri->namespace uri)]
+          ;; Invalidate and refresh affected namespace
+          (when (get-in @!code-browser-state [:symbols-by-ns affected-ns])
+            (refresh-namespace! affected-ns)))))))
+```
+
+**Existing Infrastructure:**
+- File watcher: `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/watcher.clj`
+- Notification handler: `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/client.clj` (lines 112-123)
+- clojure-lsp sends `textDocument/publishDiagnostics` when files change
+
+---
+
+### Phase 1.7: Accumulated State Structure
+
+**Goal:** Retain previously fetched data instead of replacing it. Browser automatically has all browsed content cached via synced atom.
+
+**Current Structure (Replace):**
+
+```clojure
+;; Each selection REPLACES the previous data
+{:namespaces ["ns.a" "ns.b" ...]
+ :selected-ns "ns.a"
+ :symbols [...]            ;; Replaced when selecting new ns
+ :selected-symbol "foo"
+ :source {...}             ;; Replaced when selecting new var
+ :loading? false
+ :error nil}
+```
+
+**Proposed Structure (Accumulate):**
+
+```clojure
+;; Data ACCUMULATES as user browses
+{:namespaces ["ns.a" "ns.b" ...]
+ :selected-ns "ns.a"
+ :symbols-by-ns {"ns.a" [{:name "foo" ...} {:name "bar" ...}]
+                 "ns.b" [{:name "baz" ...}]}  ;; Accumulated
+ :selected-symbol "foo"
+ :source-by-var {"ns.a/foo" {:code "..." :file "..." ...}
+                 "ns.a/bar" {:code "..." :file "..." ...}
+                 "ns.b/baz" {:code "..." :file "..." ...}} ;; Accumulated
+ :loading? false
+ :error nil}
+```
+
+**Benefits:**
+
+1. **Instant back-navigation** - Click ns.a → ns.b → ns.a: no refetch needed
+2. **Progressive loading** - Browse around, synced atom grows with cached data
+3. **File watcher friendly** - Invalidate specific `[:symbols-by-ns "changed.ns"]`
+4. **Natural prefetch path** - Can bulk-load all symbols into same structure
+5. **Zero extra transfer** - We already fetch this data, we just stop discarding it
+
+**Server Changes:**
+
+```clojure
+;; Before: replace
+(swap! !code-browser-state assoc
+       :selected-ns ns
+       :symbols ns-symbols)
+
+;; After: accumulate
+(swap! !code-browser-state
+       (fn [state]
+         (-> state
+             (assoc :selected-ns ns)
+             (assoc-in [:symbols-by-ns ns] ns-symbols))))
+```
+
+**Browser Changes:**
+
+```clojure
+;; Before: read flat
+(let [symbols (:symbols @(get-server-state))]
+  ...)
+
+;; After: read by selected ns
+(let [state @(get-server-state)
+      symbols (get-in state [:symbols-by-ns (:selected-ns state)])]
+  ...)
+```
+
+**atom-sync impact:** None! The module just syncs whatever is in the atom. Accumulated maps sync the same as replaced maps.
+
+**Data size estimate:**
+- 39 namespaces × ~10 vars each × ~3KB source = ~1.2MB fully loaded
+- Progressive: only ~125KB for typical browsing session (measured)
+- Acceptable for localhost development tool
+
+---
+
 ## References
 
 - Original design: `docs/design/bb-scittle-code-browser-design.md` (Bidirectional Atom Sync section)
 - Implementation plan: `IMPLEMENTATION_PLAN.md` (Phase 1.4)
 - sente-browser module: `modules/sente-browser/`
+- clojure-lsp file watcher: `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/watcher.clj`
 
 ---
 
-*Last Updated: 2026-01-12 (Phase 1 implementation complete)*
+*Last Updated: 2026-01-12 (Added Phase 1.6 File Watching, Phase 1.7 Accumulated State)*

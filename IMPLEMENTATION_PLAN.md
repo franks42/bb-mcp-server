@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser Phase 1 (Static Browsing)
-**Version:** v1.11.2
+**Status:** Code Browser Phase 1.5-Pre Complete + Future Phases Designed
+**Version:** v1.11.7
 **Last Updated:** 2026-01-12
 
 ---
@@ -294,7 +294,7 @@ Wire core sync logic to sente-lite WebSocket transport.
 
 ---
 
-#### Phase 1.5-Pre: Migrate Code Browser to Synced Atoms
+#### Phase 1.5-Pre: Migrate Code Browser to Synced Atoms ✅ Complete (v1.11.7)
 
 Refactor from request/response messaging to synced atoms for cleaner state management.
 
@@ -302,40 +302,42 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 
 **Approach:** Parallel migration - keep messaging working, add synced atoms alongside, verify, then switch over.
 
-##### Step 1: Register Synced Atom (Parallel to Existing)
+##### Step 1: Register Synced Atom (Parallel to Existing) ✅
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Pre.1a | Server: Create `!code-browser-state` atom with state shape | Pending |
-| 1.5-Pre.1b | Server: Call `(atom-sync/register-synced-atom! :code-browser !code-browser-state)` | Pending |
-| 1.5-Pre.1c | Server: Update atom IN ADDITION to sending response events | Pending |
-| 1.5-Pre.1d | Verify: Browser receives [:sync/op {:key :code-browser ...}] | Pending |
+| 1.5-Pre.1a | Server: Create `!code-browser-state` atom with state shape | ✅ |
+| 1.5-Pre.1b | Server: Call `(atom-sync/register-synced-atom! :code-browser !code-browser-state)` | ✅ |
+| 1.5-Pre.1c | Server: Update atom IN ADDITION to sending response events | ✅ |
+| 1.5-Pre.1d | Verify: Browser receives [:sync/op {:key :code-browser ...}] | ✅ |
 
-##### Step 2: Browser Reads from Synced Atom
-
-| Task | Description | Status |
-|------|-------------|--------|
-| 1.5-Pre.2a | Browser: Get synced atom via `(get-synced-atom :code-browser)` | Pending |
-| 1.5-Pre.2b | Browser: UI components deref synced atom instead of local state | Pending |
-| 1.5-Pre.2c | Verify: UI updates when server pushes [:sync/op ...] | Pending |
-| 1.5-Pre.2d | Browser: Keep old event handlers temporarily (become no-ops) | Pending |
-
-##### Step 3: Remove Old Messaging
+##### Step 2: Browser Reads from Synced Atom ✅
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Pre.3a | Server: Stop sending response events (only atom updates) | Pending |
-| 1.5-Pre.3b | Browser: Remove old event handlers | Pending |
-| 1.5-Pre.3c | Clean up: Remove dead code from both sides | Pending |
+| 1.5-Pre.2a | Browser: Get synced atom via `(get-synced-atom :code-browser)` | ✅ |
+| 1.5-Pre.2b | Browser: UI components deref synced atom instead of local state | ✅ |
+| 1.5-Pre.2c | Verify: UI updates when server pushes [:sync/op ...] | ✅ |
+| 1.5-Pre.2d | Browser: Keep old event handlers temporarily (become no-ops) | ✅ |
 
-##### Step 4: Browser → Server Actions (One-Way Pattern)
+##### Step 3: Remove Old Messaging ✅
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Pre.4a | Browser: User clicks ns → send [:code-browser/select-ns {:ns "..."}] | Pending |
-| 1.5-Pre.4b | Server: Handle action, `(swap! !code-browser-state ...)` | Pending |
-| 1.5-Pre.4c | Server: Watcher auto-pushes update to all browsers | Pending |
-| 1.5-Pre.4d | Verify: Click → server update → all browsers see change | Pending |
+| 1.5-Pre.3a | Server: Stop sending response events (only atom updates) | ✅ |
+| 1.5-Pre.3b | Browser: Remove old event handlers | ✅ |
+| 1.5-Pre.3c | Clean up: Remove dead code from both sides | ✅ |
+
+##### Step 4: Browser → Server Actions (One-Way Pattern) ✅
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Pre.4a | Browser: User clicks ns → send [:code-browser/select-ns {:ns "..."}] | ✅ |
+| 1.5-Pre.4b | Server: Handle action, `(swap! !code-browser-state ...)` | ✅ |
+| 1.5-Pre.4c | Server: Watcher auto-pushes update to all browsers | ✅ |
+| 1.5-Pre.4d | Verify: Click → server update → all browsers see change | ✅ |
+
+**Bug Fix (2026-01-12):** Fixed seq-per-op in `atom-sync/core.clj` - each op now gets unique seq number when single swap changes multiple keys.
 
 **Benefits:**
 - Server builds state → automatically syncs to browser
@@ -358,6 +360,57 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 [:code-browser/select-var {:var "my-fn"}]
 [:code-browser/refresh]
 ```
+
+#### Phase 1.5-Acc: Accumulated State Structure
+
+**Goal:** Retain previously fetched data instead of replacing it. Instant back-navigation.
+
+**Design doc:** `docs/design/atom-sync-design.md` (Phase 1.7 section)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Acc.1 | Server: Change state shape to `{:symbols-by-ns {ns symbols}}` | Pending |
+| 1.5-Acc.2 | Server: Change state shape to `{:source-by-var {qualified-name source}}` | Pending |
+| 1.5-Acc.3 | Server: Update handlers to `assoc-in` instead of `assoc` | Pending |
+| 1.5-Acc.4 | Browser: Update reads to `(get-in state [:symbols-by-ns selected-ns])` | Pending |
+| 1.5-Acc.5 | Browser: Update source read to `(get-in state [:source-by-var key])` | Pending |
+| 1.5-Acc.6 | Test: Click ns.a → ns.b → ns.a, verify no refetch | Pending |
+
+**Benefits:**
+- Instant back-navigation (no refetch)
+- Progressive caching via browsing
+- File watcher friendly (can invalidate specific entries)
+- Zero extra data transfer
+
+---
+
+#### Phase 1.5-Watch: Live File Watching
+
+**Goal:** Auto-update browser when source files change on disk.
+
+**Design doc:** `docs/design/atom-sync-design.md` (Phase 1.6 section)
+
+**Depends on:** Phase 1.5-Acc (accumulated state makes invalidation cleaner)
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Watch.1 | Add `!notification-callbacks` registry to clojure-lsp client | Pending |
+| 1.5-Watch.2 | Add `on-notification!` / `remove-notification-callback!` API | Pending |
+| 1.5-Watch.3 | Extend `handle-notification!` to call registered callbacks | Pending |
+| 1.5-Watch.4 | Add `uri->namespace` helper (extract ns from file URI) | Pending |
+| 1.5-Watch.5 | code-browser: Subscribe to diagnostics notifications | Pending |
+| 1.5-Watch.6 | code-browser: On file change, invalidate `[:symbols-by-ns ns]` | Pending |
+| 1.5-Watch.7 | code-browser: Re-fetch invalidated ns if currently selected | Pending |
+| 1.5-Watch.8 | Test: Edit file, verify browser updates automatically | Pending |
+
+**Flow:**
+```
+File change → watcher.clj → clojure-lsp → publishDiagnostics
+           → handle-notification! → callback → code-browser
+           → invalidate cache → refetch if visible → atom-sync → browser
+```
+
+---
 
 #### Phase 1.5A: On-Demand Parsing
 
