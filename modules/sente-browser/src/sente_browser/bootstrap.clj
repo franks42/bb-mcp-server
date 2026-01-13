@@ -414,20 +414,19 @@
   <!-- 6. CodeMirror 6 via ES modules -->
   <!-- Import codemirror (EditorView, basicSetup) + @codemirror/state (EditorState) separately -->
   <!-- The codemirror meta-package does NOT export EditorState - must import from @codemirror/state -->
+  <!-- Only pin state version to avoid multiple-instances error; let view resolve naturally -->
   <script>window.CM6_READY = false;</script>
   <script type=\"module\">
-    // Pin @codemirror/state version and use ?deps to ensure all packages use the same version
-    const STATE_VERSION = '6.5.2';
-    const VIEW_VERSION = '6.36.4';
+    const STATE_VERSION = '6.4.1';
 
     // Import EditorState from @codemirror/state (not included in codemirror meta-package)
     const { EditorState } = await import(`https://esm.sh/@codemirror/state@${STATE_VERSION}`);
 
-    // Import EditorView and basicSetup from codemirror, forcing same state version
-    const { EditorView, basicSetup } = await import(`https://esm.sh/codemirror@6.0.1?deps=@codemirror/state@${STATE_VERSION},@codemirror/view@${VIEW_VERSION}`);
+    // Import EditorView and basicSetup - pin state version only, let view resolve naturally
+    const { EditorView, basicSetup } = await import(`https://esm.sh/codemirror?deps=@codemirror/state@${STATE_VERSION}`);
 
-    // Import Clojure language support with matching deps
-    const { clojure } = await import(`https://esm.sh/@nextjournal/lang-clojure@1.0.0?deps=@codemirror/state@${STATE_VERSION},@codemirror/view@${VIEW_VERSION}`);
+    // Import Clojure language support with same state version
+    const { clojure } = await import(`https://esm.sh/@nextjournal/lang-clojure?deps=@codemirror/state@${STATE_VERSION}`);
 
     globalThis.CM = { EditorView, EditorState, basicSetup, clojure };
     window.CM6_READY = true;
