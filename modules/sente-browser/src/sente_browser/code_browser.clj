@@ -88,15 +88,18 @@
                  :id ::file-deleted-detected
                  :msg "File deletion detected, refreshing namespace list"
                  :data {:path path :probable-ns probable-ns}})
-      ;; Invalidate any cached data for this namespace
+      ;; Invalidate any cached data for this namespace (single atomic update)
       (when probable-ns
-        (swap! !code-browser-state update :symbols-by-ns dissoc probable-ns)
-        (swap! !code-browser-state update :source-by-var
-               (fn [source-cache]
-                 (into {}
-                       (remove (fn [[var-key _]]
-                                 (str/starts-with? var-key (str probable-ns "/")))
-                               source-cache)))))
+        (swap! !code-browser-state
+               (fn [state]
+                 (-> state
+                     (update :symbols-by-ns dissoc probable-ns)
+                     (update :source-by-var
+                             (fn [source-cache]
+                               (into {}
+                                     (remove (fn [[var-key _]]
+                                               (str/starts-with? var-key (str probable-ns "/")))
+                                             source-cache))))))))
       ;; Refresh namespace list after delay
       (future
        (Thread/sleep 1500)
@@ -129,16 +132,17 @@
                            :msg "Invalidating cached namespace data"
                            :data {:affected-ns affected-ns}})
 
-        ;; Invalidate the cached symbols for this namespace
-                (swap! !code-browser-state update :symbols-by-ns dissoc affected-ns)
-
-        ;; Also invalidate any cached source for vars in this namespace
-                (swap! !code-browser-state update :source-by-var
-                       (fn [source-cache]
-                         (into {}
-                               (remove (fn [[var-key _]]
-                                         (str/starts-with? var-key (str affected-ns "/")))
-                                       source-cache))))
+        ;; Invalidate cached symbols and source in single atomic update (prevents jitter)
+                (swap! !code-browser-state
+                       (fn [state]
+                         (-> state
+                             (update :symbols-by-ns dissoc affected-ns)
+                             (update :source-by-var
+                                     (fn [source-cache]
+                                       (into {}
+                                             (remove (fn [[var-key _]]
+                                                       (str/starts-with? var-key (str affected-ns "/")))
+                                                     source-cache)))))))
 
         ;; If this namespace is currently selected, re-fetch its symbols
                 (when (= affected-ns selected-ns)
