@@ -512,20 +512,34 @@
       \"Apply a sync operation with seq validation.
        Returns :applied, :stale, or :gap.
 
-       Protocol: [:sync/op {:key k :seq n :op :assoc-in :path [] :value v}]\"
+       Protocol: [:sync/op {:key k :seq n :op :assoc-in :path [] :value v}]
+
+       Special case: Full state replace (path []) accepts any seq and resets
+       local tracking. This handles both initial sync and resync recovery.\"
       [{:keys [key seq op path value]}]
       (let [current-seq (get-in @!sync-state [key :seq] 0)
-            expected-seq (inc current-seq)]
+            expected-seq (inc current-seq)
+            is-full-replace? (= path [])]
         (cond
+          ;; Full state replace: accept any seq, reset tracking
+          ;; This handles initial sync (server at seq 12, client at 0)
+          ;; and resync responses (recovery from gaps)
+          is-full-replace?
+          (do
+            (when-let [a (get-synced-atom key)]
+              (reset! a value))
+            (swap! !sync-state assoc-in [key :seq] seq)
+            (log/log! {:level :info
+                       :id ::full-sync-applied
+                       :msg \"Full state sync applied\"
+                       :data {:key key :seq seq :prev-seq current-seq}})
+            :applied)
+
           ;; Normal case: sequential update
           (= seq expected-seq)
           (do
             (when-let [a (get-synced-atom key)]
-              (if (= path [])
-                ;; Full replace (path [])
-                (reset! a value)
-                ;; Nested update
-                (swap! a assoc-in path value)))
+              (swap! a assoc-in path value))
             (swap! !sync-state assoc-in [key :seq] seq)
             (log/log! {:level :debug
                        :id ::sync-applied
@@ -533,21 +547,7 @@
                        :data {:key key :seq seq :op op :path path}})
             :applied)
 
-          ;; First sync (seq 1, no prior state) - always apply
-          (and (= seq 1) (= current-seq 0))
-          (do
-            (when-let [a (get-synced-atom key)]
-              (if (= path [])
-                (reset! a value)
-                (swap! a assoc-in path value)))
-            (swap! !sync-state assoc-in [key :seq] seq)
-            (log/log! {:level :info
-                       :id ::initial-sync
-                       :msg \"Initial sync received\"
-                       :data {:key key :seq seq}})
-            :applied)
-
-          ;; Gap detected: missed updates
+          ;; Gap detected: missed updates - request resync
           (> seq expected-seq)
           (do
             (log/log! {:level :warn

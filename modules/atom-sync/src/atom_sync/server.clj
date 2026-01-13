@@ -27,6 +27,11 @@
 (def ^:private broadcast-fn (atom nil))
 (def ^:private send-fn (atom nil))
 
+;; On-connect callbacks - run before initial sync to allow just-in-time registration
+;; Map of key -> callback-fn. Callbacks receive sente-conn-id and should be idempotent.
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !on-connect-callbacks (atom {}))
+
 ;; =============================================================================
 ;; Configuration
 ;; =============================================================================
@@ -41,33 +46,96 @@
   "Broadcast sync op to all connected browsers."
   [event]
   (when-let [f @broadcast-fn]
-    (let [count (f event)]
-      (log/log! {:level :debug
-                 :id ::broadcast
-                 :msg "Broadcast sync op"
-                 :data {:event-id (first event)
-                        :browser-count count}})
-      count)))
+            (let [count (f event)]
+              (log/log! {:level :debug
+                         :id ::broadcast
+                         :msg "Broadcast sync op"
+                         :data {:event-id (first event)
+                                :browser-count count}})
+              count)))
 
 (defn- send-to-browser!
   "Send sync op to specific browser."
   [sente-conn-id event]
   (when-let [f @send-fn]
-    (f sente-conn-id event)))
+            (f sente-conn-id event)))
+
+;; =============================================================================
+;; On-Connect Callback Registry
+;; =============================================================================
+
+(defn register-on-connect!
+  "Register a callback to run when a browser connects.
+   Callbacks run BEFORE initial sync, allowing just-in-time atom registration.
+
+   Use case: Module auto-initialization when first browser connects.
+   Callbacks should be idempotent (may be called multiple times).
+
+   Args:
+     key         - unique identifier for this callback
+     callback-fn - (fn [sente-conn-id] ...) called on each browser connect
+
+   Returns: key
+
+   Example:
+     (register-on-connect! :my-module
+       (fn [_conn-id]
+         (when-not @!initialized
+           (initialize!))))"
+  [key callback-fn]
+  (swap! !on-connect-callbacks assoc key callback-fn)
+  (log/log! {:level :debug
+             :id ::on-connect-registered
+             :msg "Registered on-connect callback"
+             :data {:key key}})
+  key)
+
+(defn unregister-on-connect!
+  "Remove an on-connect callback.
+
+   Args:
+     key - the callback's key
+
+   Returns: key"
+  [key]
+  (swap! !on-connect-callbacks dissoc key)
+  (log/log! {:level :debug
+             :id ::on-connect-unregistered
+             :msg "Unregistered on-connect callback"
+             :data {:key key}})
+  key)
 
 ;; =============================================================================
 ;; Browser Connection Lifecycle
 ;; =============================================================================
 
+(defn- run-on-connect-callbacks!
+  "Run all registered on-connect callbacks.
+   Errors in callbacks are logged but don't stop other callbacks."
+  [sente-conn-id]
+  (doseq [[key callback-fn] @!on-connect-callbacks]
+         (try
+          (callback-fn sente-conn-id)
+          (catch Exception e
+                 (log/log! {:level :warn
+                            :id ::on-connect-callback-error
+                            :msg "On-connect callback failed"
+                            :data {:key key
+                                   :error (ex-message e)}})))))
+
 (defn on-browser-connected!
   "Called when a browser completes handshake.
-   Pushes all synced atoms to the new client for initial state.
+   First runs on-connect callbacks (for just-in-time module init),
+   then pushes all synced atoms to the new client for initial state.
 
    Args:
      sente-conn-id - the sente connection ID for the new browser
 
    Returns: count of ops sent"
   [sente-conn-id]
+  ;; Run callbacks first - allows modules to register atoms just-in-time
+  (run-on-connect-callbacks! sente-conn-id)
+  ;; Now push all registered atoms (including just-registered ones)
   (let [ops (core/generate-all-full-sync-ops)]
     (when (seq ops)
       (log/log! {:level :info
@@ -77,7 +145,7 @@
                         :op-count (count ops)
                         :keys (map #(get-in % [1 :key]) ops)}})
       (doseq [op ops]
-        (send-to-browser! sente-conn-id op)))
+             (send-to-browser! sente-conn-id op)))
     (count ops)))
 
 ;; =============================================================================
@@ -139,7 +207,7 @@
   (core/subscribe! subscriber-key
                    (fn [ops]
                      (doseq [op ops]
-                       (broadcast! op))))
+                            (broadcast! op))))
 
   (log/log! {:level :info
              :id ::initialized
@@ -150,11 +218,12 @@
 
 (defn stop!
   "Stop atom-sync server integration.
-   Unsubscribes from core and clears transport functions."
+   Unsubscribes from core, clears transport functions, and clears callbacks."
   []
   (core/unsubscribe! subscriber-key)
   (reset! broadcast-fn nil)
   (reset! send-fn nil)
+  (reset! !on-connect-callbacks {})
   (log/log! {:level :info
              :id ::stopped
              :msg "Atom-sync server integration stopped"})
@@ -165,12 +234,12 @@
 ;; =============================================================================
 
 (def module
-  "Module lifecycle map for bb-mcp-server module system."
-  {:start (fn [config]
+     "Module lifecycle map for bb-mcp-server module system."
+     {:start (fn [config]
             ;; Transport functions will be injected via init!
             ;; after sente-browser is available
-            {:status :started
-             :config config})
-   :stop (fn [_instance]
-           (stop!)
-           nil)})
+               {:status :started
+                :config config})
+      :stop (fn [_instance]
+              (stop!)
+              nil)})

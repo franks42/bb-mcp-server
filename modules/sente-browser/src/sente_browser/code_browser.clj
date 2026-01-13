@@ -28,7 +28,9 @@
     :loading? false
     :error nil}"
     (:require [atom-sync.core :as atom-sync]
+              [atom-sync.server :as atom-sync-server]
               [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
+              [bb-mcp-server.modules.clojure-lsp.server :as lsp-server]
               [clojure.java.io :as io]
               [clojure.string :as str]
               [taoensso.trove :as log]))
@@ -394,31 +396,88 @@
 ;; =============================================================================
 
 (defn enable!
-  "Enable code browser handlers and register synced atom."
+  "Enable code browser handlers and register synced atom.
+   Idempotent - safe to call multiple times."
   []
-  (reset! !enabled true)
-  ;; Register atom for sync - browsers will receive updates automatically
-  (atom-sync/register-synced-atom! :code-browser !code-browser-state)
-  (log/log! {:level :info
-             :id ::enabled
-             :msg "Code browser handlers enabled"
-             :data {:synced-atom-key :code-browser}}))
+  (when-not @!enabled
+    (reset! !enabled true)
+    ;; Register atom for sync - browsers will receive updates automatically
+    (atom-sync/register-synced-atom! :code-browser !code-browser-state)
+    (log/log! {:level :info
+               :id ::enabled
+               :msg "Code browser handlers enabled"
+               :data {:synced-atom-key :code-browser}})))
 
 (defn disable!
   "Disable code browser handlers and unregister synced atom."
   []
-  (reset! !enabled false)
-  ;; Unregister atom from sync
-  (atom-sync/unregister-synced-atom! :code-browser)
-  ;; Reset state (Phase 1.5-Acc shape)
-  (reset! !code-browser-state
-          {:namespaces []
-           :selected-ns nil
-           :symbols-by-ns {}
-           :selected-symbol nil
-           :source-by-var {}
-           :loading? false
-           :error nil})
+  (when @!enabled
+    (reset! !enabled false)
+    ;; Unregister atom from sync
+    (atom-sync/unregister-synced-atom! :code-browser)
+    ;; Unregister on-connect callback
+    (atom-sync-server/unregister-on-connect! :code-browser)
+    ;; Reset state (Phase 1.5-Acc shape)
+    (reset! !code-browser-state
+            {:namespaces []
+             :selected-ns nil
+             :symbols-by-ns {}
+             :selected-symbol nil
+             :source-by-var {}
+             :loading? false
+             :error nil})
+    (log/log! {:level :info
+               :id ::disabled
+               :msg "Code browser handlers disabled"})))
+
+(defn- ensure-lsp-initialized!
+  "Ensure clojure-lsp is initialized. If not, start initialization in background.
+   Non-blocking - returns immediately, init happens async.
+   Uses current working directory as project root."
+  []
+  (when-not (lsp-server/initialized?)
+    (let [project-root (System/getProperty "user.dir")]
+      (log/log! {:level :info
+                 :id ::auto-init-lsp
+                 :msg "Auto-initializing clojure-lsp for code browser"
+                 :data {:project-root project-root}})
+      ;; Run in background thread to avoid blocking browser connection
+      (future
+       (try
+        (lsp-server/init! {:project-root project-root})
+        (log/log! {:level :info
+                   :id ::auto-init-lsp-complete
+                   :msg "clojure-lsp auto-initialization complete"})
+        (catch Exception e
+               (log/log! {:level :warn
+                          :id ::auto-init-lsp-error
+                          :msg "clojure-lsp auto-initialization failed"
+                          :data {:error (ex-message e)}})))))))
+
+(defn- auto-enable-on-connect!
+  "On-connect callback that auto-enables code browser.
+   Called when a browser connects, before initial sync.
+   Also ensures clojure-lsp is initialized (async, non-blocking)."
+  [_sente-conn-id]
+  (enable!)
+  (ensure-lsp-initialized!))
+
+(defn register-auto-enable!
+  "Register the on-connect callback for automatic code browser initialization.
+   When any browser connects, code browser will be auto-enabled.
+   Call this once at module load time."
+  []
+  (atom-sync-server/register-on-connect! :code-browser auto-enable-on-connect!)
   (log/log! {:level :info
-             :id ::disabled
-             :msg "Code browser handlers disabled"}))
+             :id ::auto-enable-registered
+             :msg "Code browser auto-enable registered"
+             :data {:callback-key :code-browser}}))
+
+;; =============================================================================
+;; Auto-Registration at Load Time
+;; =============================================================================
+
+;; Register the on-connect callback when this namespace is loaded.
+;; This enables reactive auto-initialization: first browser connect triggers
+;; code browser enable + clojure-lsp init automatically.
+(register-auto-enable!)

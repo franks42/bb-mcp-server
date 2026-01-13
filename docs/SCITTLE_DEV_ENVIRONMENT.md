@@ -31,9 +31,12 @@ lsof -ti:8091 | xargs kill -9 2>/dev/null   # Bootstrap HTTP
 
 # 3. Start fresh (waits for health automatically)
 bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
+
+# 4. Open browser - code browser auto-initializes on first connect!
+open http://localhost:8091   # Or use Playwright
 ```
 
-**Note:** `server:start-wait` handles health checking automatically - no need to manually verify ports or add sleep commands.
+**Note:** `server:start-wait` handles health checking automatically. Code browser and clojure-lsp now **auto-initialize** when the first browser connects (reactive initialization).
 
 ---
 
@@ -62,6 +65,30 @@ This keeps the terminal attached so you can see server logs.
 
 **To stop the server:** `bb server:stop code-browser-dev`
 **To list servers:** `bb server:list`
+
+---
+
+## Step 1.5: Initialize Code Browser Backend (Optional - Now Auto-Initializes!)
+
+> ✅ **AUTO-INITIALIZATION:** As of Phase 1.5-Watch, the code browser now **auto-initializes** when the first browser connects. You typically don't need to run these commands manually.
+
+**When auto-init happens:**
+1. Browser connects via WebSocket
+2. `on-browser-connected!` triggers registered callbacks
+3. Code browser auto-enables and registers synced atom
+4. clojure-lsp auto-starts in background (if not already running)
+5. Browser receives initial state
+
+**Manual initialization (if needed for debugging):**
+```bash
+# Force clojure-lsp init
+bb mcp call clojure-lsp.clj-init '{}' --mcp code-browser-dev
+
+# Force code-browser enable
+bb mcp-eval "(require '[sente-browser.code-browser :as cb]) (cb/enable!)" --nickname code-browser-dev
+```
+
+**Note:** The first namespace list may take a few seconds while clojure-lsp initializes. Click "Refresh" if the list is empty after a few seconds.
 
 ---
 
@@ -245,9 +272,19 @@ bb nrepl vars user --connection browser-6 --mcp code-browser-dev
 **Fix:** Use `bootstrap/mount-root!` instead of `rdom/render`
 
 ### 5. Empty Namespaces in Code Browser
-**Symptom:** Code browser shows 0 namespaces
-**Cause:** clojure-lsp not initialized
-**Fix:** Run `bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Development/bb-mcp-server"}' --mcp code-browser-dev`
+**Symptom:** Code browser shows 0 namespaces (empty panels)
+**Causes:**
+- clojure-lsp still initializing (wait a few seconds, click Refresh)
+- clojure-lsp failed to start (check server logs)
+
+**Fix:**
+```bash
+# Wait a few seconds and click Refresh in the browser
+# Or force clojure-lsp init manually:
+bb mcp call clojure-lsp.clj-init '{}' --mcp code-browser-dev
+```
+
+**Note:** Since Phase 1.5-Watch, code browser auto-initializes on browser connect. The timing issue (browser connecting before enable) is now handled automatically via reactive callbacks.
 
 ---
 

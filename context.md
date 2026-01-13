@@ -4,22 +4,42 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-12
-**Version:** v1.11.7
+**Last Updated:** 2026-01-13
+**Version:** v1.11.8
 
 ---
 
 ## Current State
 
-Code browser with synced atoms and accumulated state. One phase remaining:
+Code browser with synced atoms, accumulated state, and reactive auto-init. One phase remaining:
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1.5-Pre | Migrate to synced atoms | **COMPLETE** |
 | 1.5-Acc | Accumulated state (instant back-nav) | **COMPLETE** |
+| 1.5-Auto | Reactive auto-initialization | **COMPLETE** |
 | 1.5-Watch | Live file watching | Planned |
 
 **Design doc:** `docs/design/atom-sync-design.md` (see Future Enhancements section)
+
+---
+
+## Completed: Phase 1.5-Auto (Reactive Auto-Init)
+
+**Files modified:**
+- `modules/atom-sync/src/atom_sync/server.clj` - On-connect callback registry
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Auto-enable on connect
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Sync fix for initial state
+
+**How it works:**
+1. Browser connects → `on-browser-connected!` triggers
+2. Registered callbacks run (just-in-time atom registration)
+3. `code-browser/enable!` called automatically
+4. clojure-lsp auto-starts with `user.dir` as project root
+5. Browser receives initial sync (any seq accepted for full state)
+
+**Sync fix:** Full state replace (path []) now accepts any seq and resets local tracking.
+This handles both initial sync (server at seq N, client at 0) and resync recovery.
 
 ---
 
@@ -65,16 +85,15 @@ Code browser with synced atoms and accumulated state. One phase remaining:
 # Start server
 bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
-# Browser URL
-http://localhost:8091
-
-# Initialize clojure-lsp (required for code browser)
-bb mcp call clojure-lsp.clj-init '{}' --mcp code-browser-dev
+# Open browser - auto-init happens on first connect!
+open http://localhost:8091
 
 # Run tests
 bb test:atom-sync
 bb lint && bb format
 ```
+
+**Note:** Code browser and clojure-lsp now auto-initialize reactively when the first browser connects.
 
 ---
 
@@ -91,10 +110,12 @@ bb lint && bb format
 
 ## Session Notes
 
-- **clojure-lsp must be initialized** - Call `clj-init` before code-browser works
+- **Reactive auto-init** - Code browser and clojure-lsp auto-initialize on first browser connect
+- **On-connect callbacks** - `atom-sync.server/register-on-connect!` enables just-in-time init
 - **Synced atom access** - Browser: `(bootstrap/get-synced-atom :code-browser)`
 - **File watcher** - Start with `clj-watch start` tool or via config
 - **Data size** - ~125KB for full ns+vars+source preview (39 ns, 416 vars)
+- **First load delay** - clojure-lsp takes a few seconds to init; click Refresh if needed
 
 ---
 
