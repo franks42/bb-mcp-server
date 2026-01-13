@@ -42,18 +42,21 @@
 (defonce !enabled (atom false))
 
 ;; =============================================================================
-;; Synced Atom State (Phase 1.5-Pre)
+;; Synced Atom State (Phase 1.5-Acc)
 ;; =============================================================================
 
 ;; The main code browser state, synced to all browsers via atom-sync.
 ;; This is the canonical state - browsers observe this atom.
+;; Uses accumulated maps for instant back-navigation:
+;;   :symbols-by-ns  {ns-name [symbols...]}
+;;   :source-by-var  {"ns/var-name" {:code ... :file ...}}
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !code-browser-state
          (atom {:namespaces []
                 :selected-ns nil
-                :symbols []
+                :symbols-by-ns {}      ;; Accumulated: {ns [symbols...]}
                 :selected-symbol nil
-                :source nil
+                :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
                 :loading? false
                 :error nil}))
 
@@ -228,13 +231,14 @@
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
       (let [ns-symbols (extract-ns-symbols symbols file-uri)]
-        ;; Update synced atom (browsers will receive via atom-sync)
-        (swap! !code-browser-state assoc
-               :selected-ns ns
-               :symbols ns-symbols
-               :selected-symbol nil
-               :source nil
-               :loading? false)
+        ;; Update synced atom - ACCUMULATE symbols by namespace
+        (swap! !code-browser-state
+               (fn [state]
+                 (-> state
+                     (assoc :selected-ns ns
+                            :selected-symbol nil
+                            :loading? false)
+                     (assoc-in [:symbols-by-ns ns] ns-symbols))))
         ;; Also return response for legacy event mechanism
         {:ns ns
          :file file-uri
@@ -243,7 +247,6 @@
        ;; Update synced atom with error state
        (swap! !code-browser-state assoc
               :selected-ns ns
-              :symbols []
               :error (str "Namespace not found: " ns)
               :loading? false)
        {:ns ns
@@ -330,6 +333,7 @@
                 end-line (inc (get-in var-sym [:location :range :end :line] 0))
                 content (fetch-file-content file-uri)
                 code (extract-source-region content start-line end-line)
+                var-key (str ns "/" var-name)
                 source-data {:code code
                              :file file-uri
                              :ns ns
@@ -337,11 +341,13 @@
                              :start-line start-line
                              :end-line end-line
                              :language "clojure"}]
-            ;; Update synced atom (browsers will receive via atom-sync)
-            (swap! !code-browser-state assoc
-                   :selected-symbol var-name
-                   :source source-data
-                   :loading? false)
+            ;; Update synced atom - ACCUMULATE source by qualified var name
+            (swap! !code-browser-state
+                   (fn [state]
+                     (-> state
+                         (assoc :selected-symbol var-name
+                                :loading? false)
+                         (assoc-in [:source-by-var var-key] source-data))))
             ;; Also return response for legacy event mechanism
             source-data))))))
 
@@ -404,13 +410,13 @@
   (reset! !enabled false)
   ;; Unregister atom from sync
   (atom-sync/unregister-synced-atom! :code-browser)
-  ;; Reset state
+  ;; Reset state (Phase 1.5-Acc shape)
   (reset! !code-browser-state
           {:namespaces []
            :selected-ns nil
-           :symbols []
+           :symbols-by-ns {}
            :selected-symbol nil
-           :source nil
+           :source-by-var {}
            :loading? false
            :error nil})
   (log/log! {:level :info

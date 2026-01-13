@@ -56,6 +56,77 @@ Synchronize Clojure atoms between bb-mcp-server and browser (Scittle) over sente
 
 ---
 
+## Complete System Flow (Code Browser Example)
+
+This diagram shows how all the pieces work together for the code browser use case:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Complete Code Browser Architecture                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  USER ACTION                    SERVER                         BROWSER      │
+│  ───────────                    ──────                         ───────      │
+│                                                                             │
+│  Click ns.a ─────────────────► fetch symbols                               │
+│                                     │                                       │
+│                                     ▼                                       │
+│                            !code-browser-state                              │
+│                            {:symbols-by-ns                                  │
+│                              {"ns.a" [...]}} ─────────────────► Panel shows │
+│                                     │                           ns.a vars   │
+│                                atom-sync                                    │
+│                                                                             │
+│  Click ns.b ─────────────────► fetch symbols                               │
+│                                     │                                       │
+│                                     ▼                                       │
+│                            {:symbols-by-ns                                  │
+│                              {"ns.a" [...]   ─────────────────► Panel shows │
+│                               "ns.b" [...]}}                    ns.b vars   │
+│                                                                             │
+│  Click ns.a again            NO FETCH NEEDED                   Instant!     │
+│       │                            │                              │         │
+│       └────────────────────────────┴──────────────────────────────┘         │
+│                         Data already in synced atom                         │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  FILE CHANGE (Live Update)                                                  │
+│  ─────────────────────────                                                  │
+│                                                                             │
+│  Save ns_a.clj ──► watcher ──► clojure-lsp ──► publishDiagnostics          │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                               callback triggered            │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                        invalidate [:symbols-by-ns "ns.a"]   │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                               re-fetch ns.a symbols         │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                            swap! synced atom                │
+│                                                        │                    │
+│                                                   atom-sync                 │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                               Browser auto-updates!         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Properties:**
+
+| Feature | Mechanism | Benefit |
+|---------|-----------|---------|
+| **Reactive UI** | atom-sync pushes on swap! | No polling, instant updates |
+| **Instant back-nav** | Accumulated state in maps | Click ns.a → ns.b → ns.a: no refetch |
+| **Live updates** | File watcher + LSP notifications | Edit code → browser updates |
+| **Single source of truth** | Server owns atom | No sync conflicts |
+
+---
+
 ## Design Decisions
 
 ### 1. Sync Direction (Phase 1)

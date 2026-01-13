@@ -120,10 +120,11 @@
 
 (defn filtered-symbols
   "Get symbols matching current filter.
-   Reads server data from synced atom, filter from local UI state."
+   Reads from accumulated symbols-by-ns map keyed by selected namespace."
   []
   (let [server-state @(get-server-state)
-        symbols (or (:symbols server-state) [])
+        selected-ns (:selected-ns server-state)
+        symbols (get-in server-state [:symbols-by-ns selected-ns] [])
         symbol-filter (:symbol-filter @!ui-state)]
     (filter #(matches-filter? (:name %) symbol-filter) symbols)))
 
@@ -209,11 +210,16 @@
 (defn source-panel
   "Right panel: source code viewer.
    Uses stable editor ID to prevent flashing on source changes.
-   Reads source from synced server state."
+   Reads from accumulated source-by-var map keyed by ns/var-name."
   []
   (let [layout @!layout
         server-state @(get-server-state)
-        source (:source server-state)]
+        selected-ns (:selected-ns server-state)
+        selected-symbol (:selected-symbol server-state)
+        var-key (when (and selected-ns selected-symbol)
+                  (str selected-ns "/" selected-symbol))
+        source (when var-key
+                 (get-in server-state [:source-by-var var-key]))]
     [:div.panel.source-panel
      {:style {:width (:source-width layout)}}
      [:div.panel-header
