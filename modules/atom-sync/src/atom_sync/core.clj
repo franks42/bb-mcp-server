@@ -145,19 +145,22 @@
 
 (defn- on-atom-change
   "Watcher callback when registered atom changes.
-   Generates ops, updates seq, notifies subscribers."
+   Generates ops, updates seq, notifies subscribers.
+   Each op gets its own seq number to ensure browser applies all."
   [key _ref old-val new-val]
   (when (not= old-val new-val)
-    (let [{:keys [seq]} (get @!synced-atoms key)
-          new-seq (inc (or seq 0))
-          ;; Generate ops with new seq
-          ops (mapv
-               (fn [[op-type op-data]]
-                 [op-type (assoc op-data :seq new-seq)])
-               (deep-diff->ops key old-val new-val))]
-      ;; Update registry
+    (let [base-ops (deep-diff->ops key old-val new-val)
+          start-seq (get-in @!synced-atoms [key :seq] 0)
+          ;; Assign incrementing seq to each op
+          ops (vec
+               (map-indexed
+                (fn [idx [op-type op-data]]
+                  [op-type (assoc op-data :seq (+ start-seq idx 1))])
+                base-ops))
+          final-seq (+ start-seq (count base-ops))]
+      ;; Update registry with final seq
       (swap! !synced-atoms update key assoc
-             :seq new-seq
+             :seq final-seq
              :last-value new-val)
       ;; Notify subscribers
       (notify-subscribers! ops))))
