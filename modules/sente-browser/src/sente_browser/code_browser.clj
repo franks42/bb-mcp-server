@@ -45,6 +45,55 @@
 (declare handle-request-symbols)
 (declare handle-request-namespaces)
 
+;; -----------------------------------------------------------------------------
+;; Debounced Re-fetch (Reactive Pattern)
+;; -----------------------------------------------------------------------------
+;; Instead of fixed delays, we debounce re-fetch actions. Each publishDiagnostics
+;; notification resets the timer. We only execute when clojure-lsp goes "quiet"
+;; for debounce-delay-ms, indicating it's done re-indexing.
+
+(def debounce-delay-ms
+     "Debounce delay in ms. After last notification, wait this long before re-fetching.
+   500ms is aggressive but works well for small file changes.
+   For large refactors, notifications will keep resetting the timer."
+     500)
+
+;; Pending debounced actions: {action-key {:timer future}}
+;; action-key is :refresh-namespaces or a namespace name string
+(defonce ^:private !pending-actions (atom {}))
+
+(defn- cancel-pending-action!
+  "Cancel any pending action for the given key."
+  [action-key]
+  (when-let [{:keys [timer]} (get @!pending-actions action-key)]
+            (future-cancel timer))
+  (swap! !pending-actions dissoc action-key))
+
+(defn- schedule-debounced-action!
+  "Schedule a debounced action. Cancels any pending action with same key.
+   If more notifications arrive before delay expires, timer resets.
+   This creates 'quiet period' detection - action runs when notifications stop."
+  [action-key action-fn]
+  ;; Cancel existing timer if any
+  (cancel-pending-action! action-key)
+
+  ;; Schedule new timer
+  (let [timer (future
+               (Thread/sleep debounce-delay-ms)
+               ;; Only execute if still pending (wasn't cancelled by newer notification)
+               (when (contains? @!pending-actions action-key)
+                 (swap! !pending-actions dissoc action-key)
+                 (log/log! {:level :info
+                            :id ::debounce-triggered
+                            :msg "Debounce period elapsed, executing action"
+                            :data {:action-key action-key}})
+                 (action-fn)))]
+    (swap! !pending-actions assoc action-key {:timer timer})
+    (log/log! {:level :debug
+               :id ::debounce-scheduled
+               :msg "Scheduled debounced action"
+               :data {:action-key action-key :delay-ms debounce-delay-ms}})))
+
 (defn- path->probable-namespace
   "Convert file path to probable namespace name.
    e.g., /foo/bar/src/my/cool/ns.clj -> my.cool.ns
@@ -71,7 +120,6 @@
   (let [path (lsp-client/uri->path uri)
         probable-ns (path->probable-namespace path)
         state @!code-browser-state
-        cached-namespaces (keys (:symbols-by-ns state))
         known-namespaces (set (:namespaces state))
         selected-ns (:selected-ns state)
         file-exists? (when path (.exists (io/file path)))]
@@ -100,10 +148,9 @@
                                      (remove (fn [[var-key _]]
                                                (str/starts-with? var-key (str probable-ns "/")))
                                              source-cache))))))))
-      ;; Refresh namespace list after delay
-      (future
-       (Thread/sleep 1500)
-       (handle-request-namespaces {})))
+      ;; Refresh namespace list with debounce (reactive - waits for quiet period)
+      (schedule-debounced-action! :refresh-namespaces
+                                  #(handle-request-namespaces {})))
 
     ;; Case 2: New file (namespace not in known list) - refresh namespace list
     (when (and file-exists? probable-ns
@@ -114,49 +161,22 @@
                  :id ::new-namespace-detected
                  :msg "New namespace detected, refreshing namespace list"
                  :data {:probable-ns probable-ns}})
-      ;; Refresh namespace list after delay
-      (future
-       (Thread/sleep 1500)
-       (handle-request-namespaces {})))
+      ;; Refresh namespace list with debounce (reactive - waits for quiet period)
+      (schedule-debounced-action! :refresh-namespaces
+                                  #(handle-request-namespaces {})))
 
-    ;; Case 3: Existing file modified - invalidate cache and re-fetch if selected
-    (when file-exists?
-      (when-let [affected-ns (or (when (contains? (:symbols-by-ns state) probable-ns)
-                                   probable-ns)
-                                 ;; Try to find a namespace that ends with probable-ns
-                                 (first (filter #(str/ends-with? % probable-ns)
-                                                cached-namespaces)))]
-
-                (log/log! {:level :info
-                           :id ::invalidating-cached-ns
-                           :msg "Invalidating cached namespace data"
-                           :data {:affected-ns affected-ns}})
-
-        ;; Invalidate cached symbols and source in single atomic update (prevents jitter)
-                (swap! !code-browser-state
-                       (fn [state]
-                         (-> state
-                             (update :symbols-by-ns dissoc affected-ns)
-                             (update :source-by-var
-                                     (fn [source-cache]
-                                       (into {}
-                                             (remove (fn [[var-key _]]
-                                                       (str/starts-with? var-key (str affected-ns "/")))
-                                                     source-cache)))))))
-
-        ;; If this namespace is currently selected, re-fetch its symbols
-                (when (= affected-ns selected-ns)
-                  (log/log! {:level :info
-                             :id ::refetching-selected-ns
-                             :msg "Re-fetching symbols for currently selected namespace"
-                             :data {:ns affected-ns}})
-          ;; Re-fetch in background after a delay to let clojure-lsp finish re-indexing
-                  (future
-                   ;; Wait 1500ms for clojure-lsp to re-analyze the changed file
-                   ;; This delay accounts for clojure-lsp's incremental re-indexing time
-                   ;; and is generous enough for most file sizes
-                   (Thread/sleep 1500)
-                   (handle-request-symbols {:ns affected-ns})))))))
+    ;; Case 3: Existing file modified - re-fetch if this is the selected namespace
+    ;; NOTE: We don't invalidate cache here to prevent jitter (0 vars → N vars).
+    ;; Instead, handle-request-symbols will atomically replace the cached data.
+    (when (and file-exists? (= probable-ns selected-ns))
+      (log/log! {:level :info
+                 :id ::refetching-selected-ns
+                 :msg "Re-fetching symbols for currently selected namespace"
+                 :data {:ns selected-ns}})
+      ;; Re-fetch with debounce (reactive - waits for quiet period)
+      ;; Uses namespace as key so multiple changes to same ns only trigger one re-fetch
+      (schedule-debounced-action! selected-ns
+                                  #(handle-request-symbols {:ns selected-ns})))))
 
 (defn- on-lsp-notification!
   "Callback for LSP notifications. Handles publishDiagnostics to detect file changes."

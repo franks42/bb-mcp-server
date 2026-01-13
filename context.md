@@ -103,9 +103,13 @@ The callback receives a file URI like `file:///path/to/ns_a.clj`. Need to:
 1. **Notification callbacks** - `lsp-client/on-notification!` for `publishDiagnostics`
 2. **File watcher auto-start** - Starts automatically with clojure-lsp
 3. **Cache invalidation** - Symbols and source cached by ns/var
-4. **Re-fetch with delay** - 1500ms delay for clojure-lsp re-indexing
+4. **Reactive debounce** - Waits for clojure-lsp "quiet period" (500ms) instead of fixed delay
 5. **New file detection** - Namespace not in list → refresh namespaces
 6. **Deleted file detection** - File no longer exists → refresh namespaces
+7. **Jitter fix** - Single atomic `swap!` for cache invalidation (prevents UI flicker)
+
+**Debounce pattern:** Each `publishDiagnostics` resets a timer. Re-fetch only fires when
+clojure-lsp goes quiet for 500ms, indicating indexing is complete.
 
 **Also fixed:** `!` character base64 encoding in `mcp_client.clj` (prevents JSON escaping issues)
 
@@ -202,7 +206,6 @@ fec744e feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
 
 **Known quirks (deferred to future phases):**
 - `declare` vs `def` both show as `:variable` (LSP reports both as kind-13)
-- Jittery updates during re-fetch (no vars → old vars → new vars)
 
 ---
 
