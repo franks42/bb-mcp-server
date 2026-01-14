@@ -284,10 +284,36 @@
        [:span error]
        [:button {:on-click clear-error!} "Dismiss"]])))
 
+(defn- project-basename
+  "Extract project name from full path."
+  [path]
+  (when path
+    (last (clojure.string/split path #"/"))))
+
+(defn git-status-bar
+  "Header bar showing project path, git branch, and dirty status.
+   Reads from synced server state :git field."
+  []
+  (let [server-state @(get-server-state)
+        git-info (:git server-state)]
+    (when git-info
+      (let [{:keys [project-root branch dirty? upstream]} git-info
+            project-name (project-basename project-root)]
+        [:div.git-status-bar
+         [:span.project-name {:title project-root} project-name]
+         (when branch
+           [:span.branch-info
+            [:span.branch-icon "\uD83C\uDF3F"] ;; 🌿
+            [:span.branch-name branch]
+            (when dirty? [:span.dirty-indicator "*"])])
+         (when upstream
+           [:span.upstream-info {:title (str "tracking " upstream)} "↑"])]))))
+
 (defn main-panel
   "Main code browser component."
   []
   [:div.code-browser
+   [git-status-bar]
    [error-display]
    [loading-indicator]
    [:div.panels-container

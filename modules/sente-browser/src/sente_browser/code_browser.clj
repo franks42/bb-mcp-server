@@ -29,6 +29,7 @@
     :selected-symbol \"foo\"
     :source {:code \"...\" :file \"...\" :start-line 1 :end-line 20}
     :sort-mode :file-order  ; :alpha or :file-order (Phase 1.5E.1)
+    :git {:project-root \"/path\" :branch \"main\" :dirty? false :upstream \"origin/main\"}
     :loading? false
     :error nil}"
     (:require [atom-sync.core :as atom-sync]
@@ -52,6 +53,7 @@
 (declare handle-request-symbols)
 (declare handle-request-namespaces)
 (declare handle-request-var-source)
+(declare refresh-git-info!)
 
 ;; -----------------------------------------------------------------------------
 ;; Debounced Re-fetch (Reactive Pattern)
@@ -196,7 +198,11 @@
                                                          :msg "Re-fetching source for selected symbol"
                                                          :data {:ns selected-ns :var current-symbol}})
                                               (handle-request-var-source {:ns selected-ns
-                                                                          :var-name current-symbol})))))))
+                                                                          :var-name current-symbol})))))
+
+    ;; Always refresh git status on file changes (Phase 1.5E.2)
+    ;; Debounced to avoid excessive calls during rapid saves
+    (schedule-debounced-action! :refresh-git-info refresh-git-info!)))
 
 (defn- on-lsp-notification!
   "Callback for LSP notifications. Handles publishDiagnostics to detect file changes."
@@ -230,6 +236,7 @@
                 :selected-symbol nil
                 :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
                 :sort-mode :file-order ;; :alpha or :file-order (Phase 1.5E.1)
+                :git nil               ;; Git info: {:project-root :branch :dirty? :upstream}
                 :loading? false
                 :error nil}))
 
@@ -351,6 +358,53 @@
     :alpha (sort-by :name symbols)
     ;; Default to file-order
     (sort-by :line symbols)))
+
+;; =============================================================================
+;; Git Status (Phase 1.5E.2)
+;; =============================================================================
+
+(defn- shell-git
+  "Run a git command and return trimmed stdout, or nil if it fails.
+   args is a string of space-separated arguments (e.g., \"rev-parse --show-toplevel\").
+   Runs in project-root directory if provided, otherwise current directory."
+  ([args] (shell-git args nil))
+  ([args project-root]
+   (try
+     (let [opts (cond-> {:out :string :err :string :continue true}
+                  project-root (assoc :dir project-root))
+           ;; Split args string into individual arguments for shell
+           git-args (str/split args #"\s+")
+           result (apply shell opts "git" git-args)]
+       (when (zero? (:exit result))
+         (str/trim (:out result))))
+     (catch Exception _
+       nil))))
+
+(defn get-git-info
+  "Get git repository information for current project.
+   Returns map with :project-root, :branch, :dirty?, :upstream, or nil if not a git repo."
+  []
+  (when-let [project-root (shell-git "rev-parse --show-toplevel")]
+    (let [branch (shell-git "rev-parse --abbrev-ref HEAD" project-root)
+          status-output (shell-git "status --porcelain" project-root)
+          dirty? (and status-output (not (str/blank? status-output)))
+          upstream (shell-git "rev-parse --abbrev-ref @{u}" project-root)]
+      {:project-root project-root
+       :branch branch
+       :dirty? dirty?
+       :upstream upstream})))
+
+(defn- refresh-git-info!
+  "Refresh git info in state atom.
+   Called on enable! and after file changes."
+  []
+  (let [git-info (get-git-info)]
+    (swap! !code-browser-state assoc :git git-info)
+    (log/log! {:level :debug
+               :id ::git-info-refreshed
+               :msg "Git info refreshed"
+               :data {:branch (:branch git-info)
+                      :dirty? (:dirty? git-info)}})))
 
 (defn- extract-ns-symbols-kondo
   "Extract symbols for a namespace using clj-kondo analysis.
@@ -801,6 +855,8 @@
     (atom-sync/register-synced-atom! :code-browser !code-browser-state)
     ;; Register for file change notifications (Phase 1.5-Watch)
     (lsp-client/on-notification! :code-browser on-lsp-notification!)
+    ;; Fetch initial git info (Phase 1.5E.2)
+    (refresh-git-info!)
     (log/log! {:level :info
                :id ::enabled
                :msg "Code browser handlers enabled"
@@ -826,6 +882,7 @@
              :selected-symbol nil
              :source-by-var {}
              :sort-mode :file-order
+             :git nil
              :loading? false
              :error nil})
     (log/log! {:level :info
