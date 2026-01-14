@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser Phase 1.5-Pre Complete + Future Phases Designed
-**Version:** v1.11.7
-**Last Updated:** 2026-01-12
+**Status:** Code Browser Phase 1.5A Complete (clj-kondo) + Enhancements Planned
+**Version:** v1.13.0
+**Last Updated:** 2026-01-14
 
 ---
 
@@ -414,16 +414,25 @@ File change → watcher.clj → clojure-lsp → publishDiagnostics
 
 ---
 
-#### Phase 1.5A: On-Demand Parsing
+#### Phase 1.5A: On-Demand Parsing ✅ Complete
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5A.1 | Add `analyze-file` function (shell out to clj-kondo) | Pending |
-| 1.5A.2 | Parse `:var-definitions` from kondo output | Pending |
-| 1.5A.3 | Map `:defined-by` to labels (function, macro, multimethod, etc.) | Pending |
-| 1.5A.4 | Filter by `:ns` field (handle multi-ns files correctly) | Pending |
-| 1.5A.5 | Update server handler to use kondo instead of LSP for var list | Pending |
-| 1.5A.6 | Update browser UI to display richer kind labels | Pending |
+| 1.5A.1 | Add `analyze-file` function (shell out to clj-kondo) | ✅ |
+| 1.5A.2 | Parse `:var-definitions` from kondo output | ✅ |
+| 1.5A.3 | Map `:defined-by` to labels (function, macro, multimethod, etc.) | ✅ |
+| 1.5A.4 | Filter by `:ns` field (handle multi-ns files correctly) | ✅ |
+| 1.5A.5 | Update server handler to use kondo instead of LSP for var list | ✅ |
+| 1.5A.6 | Update browser UI to display richer kind labels | ✅ |
+| 1.5A.7 | Fix: Handle non-zero exit codes from clj-kondo (exit 2 = warnings) | ✅ |
+
+**Commits:**
+- `6c06c7b` feat(code-browser): Add clj-kondo analysis for rich var classification
+- `7deb52d` fix(code-browser): Handle clj-kondo non-zero exit codes gracefully
+
+**Kind labels implemented:** function, private-fn, variable, defonce, declare, macro, multimethod, method, protocol, deftype, defrecord, test
+
+**Showcase file:** `test/bb_mcp_server/kondo_types_showcase.clj`
 
 #### Phase 1.5B: Caching
 
@@ -467,6 +476,104 @@ File change → watcher.clj → clojure-lsp → publishDiagnostics
 - `def` → variable
 - `defonce` → defonce
 - `declare` → declare
+
+---
+
+### Phase 1.5E: Code Browser Enhancements
+
+User-requested improvements for better code navigation and project awareness.
+
+#### Phase 1.5E.1: File-Order Symbol Sorting (Quick Win)
+
+**Goal:** Show symbols in file order (by line number) instead of alphabetically, to understand eval dependencies.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.1.1 | Add sort-mode toggle to browser state (`:alpha` or `:file-order`) | Pending |
+| 1.5E.1.2 | Server: Sort by `:line` instead of `:name` when file-order selected | Pending |
+| 1.5E.1.3 | Browser: Add toggle button in vars panel header | Pending |
+| 1.5E.1.4 | Persist sort preference (or default to file-order) | Pending |
+
+**Implementation notes:**
+- clj-kondo already provides `:row` (line number) for each symbol
+- Change `(sort-by :name)` to `(sort-by :line)` based on mode
+- UI: Toggle button or dropdown in vars panel
+
+#### Phase 1.5E.2: Git Status Display (Moderate)
+
+**Goal:** Show project directory and git branch/status for context awareness.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.2.1 | Backend: Add `get-git-info` function (shell out to git) | Pending |
+| 1.5E.2.2 | Return: branch name, clean/dirty status, remote tracking | Pending |
+| 1.5E.2.3 | Add git info to code-browser state atom | Pending |
+| 1.5E.2.4 | Browser: Display project path + branch in header | Pending |
+| 1.5E.2.5 | Browser: Show dirty indicator (e.g., "*" or icon) | Pending |
+| 1.5E.2.6 | Auto-refresh git status on file changes (piggyback on watcher) | Pending |
+
+**Git commands needed:**
+```bash
+git rev-parse --show-toplevel        # Project root
+git rev-parse --abbrev-ref HEAD      # Current branch
+git status --porcelain               # Clean/dirty (empty = clean)
+git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
+```
+
+**State addition:**
+```clojure
+{:git {:project-root "/path/to/project"
+       :branch "main"
+       :dirty? false
+       :upstream "origin/main"}}
+```
+
+#### Phase 1.5E.3: Project Directory Selector (Larger Feature)
+
+**Goal:** Allow user to select different project directories for browsing.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.3.1 | Backend: Add `list-directories` function | Pending |
+| 1.5E.3.2 | Backend: Add `is-project-root?` validator (look for deps.edn/bb.edn/project.clj) | Pending |
+| 1.5E.3.3 | Backend: Add `set-project-root!` action handler | Pending |
+| 1.5E.3.4 | Backend: Reinitialize LSP when project changes | Pending |
+| 1.5E.3.5 | Browser: Add project selector UI (dropdown or tree) | Pending |
+| 1.5E.3.6 | Browser: Show current project path prominently | Pending |
+| 1.5E.3.7 | Persist recent projects list | Pending |
+
+**Design questions:**
+- Tree browser vs dropdown of recent/configured projects?
+- How to handle LSP reinitialization (async, loading indicator)?
+- Session persistence (remember last project)?
+
+#### Phase 1.5E.4: Branch Switching (Complex, Potential Footguns)
+
+**Goal:** Allow switching git branches from the browser.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.4.1 | Backend: Add `list-branches` function | Pending |
+| 1.5E.4.2 | Backend: Add `checkout-branch!` action with safety checks | Pending |
+| 1.5E.4.3 | Safety: Check for uncommitted changes before switching | Pending |
+| 1.5E.4.4 | Safety: Warn if switching would lose state | Pending |
+| 1.5E.4.5 | Browser: Add branch dropdown in git status area | Pending |
+| 1.5E.4.6 | Invalidate all caches after branch switch | Pending |
+| 1.5E.4.7 | Refresh namespace list after switch | Pending |
+
+**Safety considerations:**
+- Never switch with uncommitted changes (or require confirmation)
+- File changes invalidate LSP cache
+- May need to reinitialize clojure-lsp after switch
+- Consider read-only mode first (just display, no switch)
+
+**Priority order:**
+1. **1.5E.1** - File-order sorting (quick, high value)
+2. **1.5E.2** - Git status display (moderate, useful context)
+3. **1.5E.3** - Project selector (larger, architectural)
+4. **1.5E.4** - Branch switching (complex, defer)
+
+---
 
 ### Phase 1.6: Synthetic Special Forms Namespace
 
@@ -762,4 +869,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2026-01-10*
+*Last Updated: 2026-01-14*

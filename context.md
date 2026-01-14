@@ -53,11 +53,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+7deb52d fix(code-browser): Handle clj-kondo non-zero exit codes gracefully
 6c06c7b feat(code-browser): Add clj-kondo analysis for rich var classification (Phase 1.5A)
 6c85a81 feat(code-browser): Preserve selection on file changes
 7d771a6 fix(atom-sync): Prevent resync request flooding
 2cbd0e2 fix(code-browser): Remove CM6 view version pinning
-59e6243 feat(code-browser): Implement reactive debounce for file watching (Phase 1.5-Watch)
 ```
 
 ---
@@ -134,6 +134,8 @@ bb lint && bb format
 ## Session Notes
 
 - **Phase 1.5A complete** - clj-kondo integration working
+- **Exit code fix** - clj-kondo returns exit code 2 for warnings; added `:continue true` to shell
+- **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` demonstrates all kind labels
 - **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools!
 - **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
 
