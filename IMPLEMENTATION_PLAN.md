@@ -634,14 +634,55 @@ MyProtocol           protocol
     → MyType         impl
 ```
 
+#### Phase 1.5E.9: Top-Level Forms Display
+
+**Goal:** Show non-defining top-level forms (side effects, comments, config).
+
+**Discovery:** Filter `:var-usages` for forms NOT inside var-definitions AND at column 1:
+```clojure
+;; Top-level forms detected:
+Line 5      println    (side effect at load time)
+Lines 7-9   comment    (comment block with examples)
+Line 11     set!       (dynamic var config)
+Lines 15-17 do         (do block)
+Line 19     require    (require outside ns)
+```
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.9.1 | Extend analysis: get var-usages, filter by col=1, outside defs | Pending |
+| 1.5E.9.2 | Categorize forms: comment, side-effect, config, require, do | Pending |
+| 1.5E.9.3 | Generate display name from form type + line range | Pending |
+| 1.5E.9.4 | **Only show in file-order view** (not alphabetical) | Pending |
+| 1.5E.9.5 | Visual distinction (different color/icon for non-def forms) | Pending |
+
+**Display decision:**
+- **Alphabetical view:** Hide top-level forms (no meaningful name to sort)
+- **File-order view:** Show them inline where they occur (reveals load sequence)
+
+**Example file-order display:**
+```
+my-variable          variable      line 13
+(println ...)        side-effect   line 15
+(comment ...)        comment       lines 17-25
+my-function          function      line 27
+(set! *warn...*)     config        line 30
+```
+
+**Useful for:**
+- Finding `(comment ...)` blocks with examples/experiments
+- Understanding load-time side effects
+- Spotting `(require ...)` outside ns form (sometimes a smell)
+
 **Priority order:**
-1. **1.5E.1** - File-order sorting (quick, high value)
+1. **1.5E.1** - File-order sorting (quick, high value) ← prerequisite for 1.5E.9
 2. **1.5E.2** - Git status display (moderate, useful context)
 3. **1.5E.6** - Multimethod implementations (good data available)
 4. **1.5E.7** - Protocol implementations (good data available)
-5. **1.5E.3** - Project selector (larger, architectural)
-6. **1.5E.8** - Enhanced protocol display (nice-to-have)
-7. **1.5E.4** - Branch switching (complex, defer)
+5. **1.5E.9** - Top-level forms (only in file-order view)
+6. **1.5E.3** - Project selector (larger, architectural)
+7. **1.5E.8** - Enhanced protocol display (nice-to-have)
+8. **1.5E.4** - Branch switching (complex, defer)
 
 #### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
 
