@@ -279,17 +279,31 @@
 
 (defn- analyze-file-with-kondo
   "Run clj-kondo on a file and return var-definitions.
-   Returns nil if analysis fails."
+   Returns nil if analysis fails.
+   Note: clj-kondo returns exit code 2 for warnings, 3 for errors.
+   We accept exit codes 0 (clean), 2 (warnings), 3 (errors with partial output)
+   since we only need the :analysis data which is still provided."
   [file-path]
   (log/log! {:level :debug
              :id ::kondo-analyze
              :msg "Analyzing file with clj-kondo"
              :data {:file file-path}})
   (try
-   (let [result (shell {:out :string :err :string}
+   ;; Use :continue true to prevent throwing on non-zero exit codes
+   ;; clj-kondo returns 2 for warnings, 3 for errors, but still outputs analysis
+   (let [result (shell {:out :string :err :string :continue true}
                        "clj-kondo" "--lint" file-path
                        "--config" "{:output {:analysis {:var-definitions true} :format :edn}}")
-         output (:out result)]
+         output (:out result)
+         exit-code (:exit result)]
+     ;; Log warnings if exit code indicates issues
+     (when (and (pos? exit-code) (seq (:err result)))
+       (log/log! {:level :debug
+                  :id ::kondo-warnings
+                  :msg "clj-kondo reported warnings/errors"
+                  :data {:file file-path
+                         :exit-code exit-code
+                         :stderr (subs (:err result) 0 (min 200 (count (:err result))))}}))
      (when (seq output)
        (let [analysis (edn/read-string output)
              var-defs (get-in analysis [:analysis :var-definitions])]
@@ -297,7 +311,8 @@
                     :id ::kondo-result
                     :msg "clj-kondo analysis complete"
                     :data {:file file-path
-                           :var-count (count var-defs)}})
+                           :var-count (count var-defs)
+                           :exit-code exit-code}})
          var-defs)))
    (catch Exception e
           (log/log! {:level :warn
