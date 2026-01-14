@@ -251,27 +251,45 @@ bb nrepl vars user --connection browser-6 --mcp code-browser-dev
 
 ## Common Pitfalls
 
-### 1. Wrong Connection Nickname
+### 1. Server-Side Code Changes Not Picked Up
+**Symptom:** Browser still shows old behavior after editing server-side Clojure files
+**Cause:** Server-side code (`code_browser.clj`, handlers, etc.) is loaded at startup. Hot-reload via nREPL is unreliable.
+**Fix:** **Restart the server** to pick up server-side changes:
+```bash
+bb server:stop code-browser-dev
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
+```
+
+**What requires restart:**
+- Any `.clj` file under `modules/sente-browser/src/sente_browser/`
+- Handler code, protocol code, registry changes
+- Any server-side logic
+
+**What does NOT require restart:**
+- Browser-side `.cljs` files - reload via nREPL `load-file` or refresh browser
+- Static HTML/CSS - just refresh browser
+
+### 2. Wrong Connection Nickname
 **Symptom:** Timeout on eval
 **Cause:** Using stale nickname (browser-3) when new connection is active (browser-4)
 **Fix:** Run `nrepl.nrepl-connection op=list` BEFORE every debugging session
 
-### 2. Browser Disconnected
+### 3. Browser Disconnected
 **Symptom:** No browser connections in list
 **Cause:** Browser tab closed, or Playwright process ended
 **Fix:** Restart Step 2
 
-### 3. Server Not Running
+### 4. Server Not Running
 **Symptom:** Connection refused
 **Cause:** Server crashed or wasn't started
 **Fix:** Restart Step 1
 
-### 4. reagent.dom Not Available
+### 5. reagent.dom Not Available
 **Symptom:** "Unable to resolve symbol: rdom" when loading code_browser.cljs
 **Cause:** Scittle nREPL eval doesn't load reagent.dom as separate namespace
 **Fix:** Use `bootstrap/mount-root!` instead of `rdom/render`
 
-### 5. Empty Namespaces in Code Browser
+### 6. Empty Namespaces in Code Browser
 **Symptom:** Code browser shows 0 namespaces (empty panels)
 **Causes:**
 - clojure-lsp still initializing (wait a few seconds, click Refresh)
