@@ -666,16 +666,26 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 - `protocol-method (MyRecord)` with kind `protocol-impl`
 - `protocol-method (MyType)` with kind `protocol-impl`
 
-#### Phase 1.5E.8: Enhanced Protocol Display
+#### Phase 1.5E.8: Enhanced Protocol & Multimethod Navigation
 
-**Goal:** Enrich protocol definitions with implementation info.
+**Goal:** Navigate between definitions and implementations for protocols and multimethods.
+
+**Protocol tasks:**
 
 | Task | Description | Status |
 |------|-------------|--------|
 | 1.5E.8.1 | Show protocol methods as children of protocol | Pending |
 | 1.5E.8.2 | For each method, show count of implementations | Pending |
 | 1.5E.8.3 | Click protocol method → see all implementations | Pending |
-| 1.5E.8.4 | Click implementation → jump to source in defrecord/deftype | Pending |
+| 1.5E.8.4 | Click implementation → jump to protocol definition | Pending |
+
+**Multimethod tasks:**
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.8.5 | Click defmulti → list all defmethod implementations | Pending |
+| 1.5E.8.6 | Click defmethod → jump to defmulti definition | Pending |
+| 1.5E.8.7 | Show defmethod count next to defmulti | Pending |
 
 **Example display:**
 ```
@@ -683,6 +693,11 @@ MyProtocol           protocol
   protocol-method    protocol-method  (2 impls)
     → MyRecord       impl
     → MyType         impl
+
+my-dispatch          multimethod  (3 methods)
+  :default           method
+  :type-a            method
+  :type-b            method
 ```
 
 #### Phase 1.5E.9: Top-Level Forms Display ✅ Complete (2026-01-14)
