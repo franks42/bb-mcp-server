@@ -383,8 +383,8 @@
 
 ;; Forms that indicate side-effects or non-defining top-level code
 (def ^:private top-level-form-names
-  #{'comment 'println 'prn 'print 'set! 'require 'import 'use 'do 'when 'if 'let
-    'binding 'alter-var-root 'reset! 'swap!})
+     #{'comment 'println 'prn 'print 'set! 'require 'import 'use 'do 'when 'if 'let
+       'binding 'alter-var-root 'reset! 'swap!})
 
 (defn- extract-top-level-forms
   "Extract non-defining top-level forms from var-usages.
@@ -438,19 +438,19 @@
                   (> (:_orig-col sym 1) 1))  ; Protocol method, not protocol itself
            ;; Find parent protocol and use its line range
            (if-let [parent (find-parent-protocol var-definitions (:line sym))]
-             (-> sym
-                 (assoc :line (:row parent)
-                        :end-line (:end-row parent)
-                        :parent-protocol (str (:name parent)))
-                 (dissoc :_orig-col))
-             (dissoc sym :_orig-col))
+                   (-> sym
+                       (assoc :line (:row parent)
+                              :end-line (:end-row parent)
+                              :parent-protocol (str (:name parent)))
+                       (dissoc :_orig-col))
+                   (dissoc sym :_orig-col))
            ;; Not a protocol method - just remove internal field
            (dissoc sym :_orig-col)))
        symbols))
 
-(defn- find-containing-type
-  "Find the defrecord/deftype that contains a given line.
-   Returns the type name or nil if not found."
+(defn- find-containing-type-var
+  "Find the defrecord/deftype var-definition that contains a given line.
+   Returns the full var-definition map or nil if not found."
   [var-definitions line]
   (->> var-definitions
        ;; Only defrecord/deftype, not the generated ->Type and map->Type fns
@@ -464,26 +464,28 @@
        (filter (fn [v]
                  (and (<= (:row v) line)
                       (>= (:end-row v) line))))
-       first
-       :name))
+       first))
 
 (defn- extract-protocol-impls
   "Extract protocol method implementations from protocol-impls analysis.
    Creates symbols like 'protocol-method (MyRecord)' with kind :protocol-impl.
-   Requires var-definitions to determine the implementing type name."
+   Uses containing defrecord/deftype's line range for source display.
+   Requires var-definitions to determine the implementing type name and bounds."
   [protocol-impls var-definitions]
   (->> protocol-impls
        (map (fn [impl]
-              (let [type-name (find-containing-type var-definitions (:row impl))
+              (let [type-var (find-containing-type-var var-definitions (:row impl))
+                    type-name (when type-var (:name type-var))
                     method-name (str (:method-name impl))
                     display-name (if type-name
                                    (str method-name " (" type-name ")")
                                    method-name)]
                 {:name display-name
                  :kind :protocol-impl
-                 :line (:row impl)
+                 ;; Use containing type's line range so source shows full defrecord/deftype
+                 :line (if type-var (:row type-var) (:row impl))
                  :column (:col impl)
-                 :end-line (:end-row impl)
+                 :end-line (if type-var (:end-row type-var) (:end-row impl))
                  :end-column (:end-col impl)
                  :protocol (str (:protocol-name impl))
                  :protocol-ns (str (:protocol-ns impl))
@@ -513,29 +515,29 @@
   ([args] (shell-git args nil))
   ([args project-root]
    (try
-     (let [opts (cond-> {:out :string :err :string :continue true}
-                  project-root (assoc :dir project-root))
+    (let [opts (cond-> {:out :string :err :string :continue true}
+                       project-root (assoc :dir project-root))
            ;; Split args string into individual arguments for shell
-           git-args (str/split args #"\s+")
-           result (apply shell opts "git" git-args)]
-       (when (zero? (:exit result))
-         (str/trim (:out result))))
-     (catch Exception _
-       nil))))
+          git-args (str/split args #"\s+")
+          result (apply shell opts "git" git-args)]
+      (when (zero? (:exit result))
+        (str/trim (:out result))))
+    (catch Exception _
+           nil))))
 
 (defn get-git-info
   "Get git repository information for current project.
    Returns map with :project-root, :branch, :dirty?, :upstream, or nil if not a git repo."
   []
   (when-let [project-root (shell-git "rev-parse --show-toplevel")]
-    (let [branch (shell-git "rev-parse --abbrev-ref HEAD" project-root)
-          status-output (shell-git "status --porcelain" project-root)
-          dirty? (and status-output (not (str/blank? status-output)))
-          upstream (shell-git "rev-parse --abbrev-ref @{u}" project-root)]
-      {:project-root project-root
-       :branch branch
-       :dirty? dirty?
-       :upstream upstream})))
+            (let [branch (shell-git "rev-parse --abbrev-ref HEAD" project-root)
+                  status-output (shell-git "status --porcelain" project-root)
+                  dirty? (and status-output (not (str/blank? status-output)))
+                  upstream (shell-git "rev-parse --abbrev-ref @{u}" project-root)]
+              {:project-root project-root
+               :branch branch
+               :dirty? dirty?
+               :upstream upstream})))
 
 (defn- refresh-git-info!
   "Refresh git info in state atom.
@@ -564,57 +566,57 @@
         sort-mode (:sort-mode @!code-browser-state :file-order)]
     (if-let [analysis (analyze-file-with-kondo file-path)]
       ;; Extract all symbol types from analysis
-      (let [ns-sym (symbol ns-name)
-            {:keys [var-definitions var-usages protocol-impls]} analysis
+            (let [ns-sym (symbol ns-name)
+                  {:keys [var-definitions var-usages protocol-impls]} analysis
 
             ;; 1. Var definitions (defn, def, etc.)
             ;; Filter to this namespace, then fix protocol method line ranges
-            ns-var-defs (filter #(= ns-sym (:ns %)) var-definitions)
-            var-symbols (->> ns-var-defs
-                             (map kondo-var->symbol)
-                             (#(fix-protocol-method-lines % var-definitions)))
+                  ns-var-defs (filter #(= ns-sym (:ns %)) var-definitions)
+                  var-symbols (->> ns-var-defs
+                                   (map kondo-var->symbol)
+                                   (#(fix-protocol-method-lines % var-definitions)))
 
             ;; 2. defmethod implementations (Phase 1.5E.6)
             ;; Filter to usages from this namespace
-            defmethod-symbols (->> var-usages
-                                   (filter #(= ns-sym (:from %)))
-                                   extract-defmethods)
+                  defmethod-symbols (->> var-usages
+                                         (filter #(= ns-sym (:from %)))
+                                         extract-defmethods)
 
             ;; 3. Protocol implementations (Phase 1.5E.7)
             ;; Filter to impls in this namespace, pass var-definitions for type lookup
-            ns-protocol-impls (filter #(= ns-sym (:impl-ns %)) protocol-impls)
-            protocol-impl-symbols (extract-protocol-impls ns-protocol-impls var-definitions)
+                  ns-protocol-impls (filter #(= ns-sym (:impl-ns %)) protocol-impls)
+                  protocol-impl-symbols (extract-protocol-impls ns-protocol-impls var-definitions)
 
             ;; 4. Top-level forms (Phase 1.5E.9)
             ;; Always include - browser filters in :alpha mode
             ;; Marked with :top-level? true for browser-side filtering
-            top-level-symbols (->> var-usages
-                                   (filter #(= ns-sym (:from %)))
-                                   extract-top-level-forms)
+                  top-level-symbols (->> var-usages
+                                         (filter #(= ns-sym (:from %)))
+                                         extract-top-level-forms)
 
             ;; Combine all symbols and sort
-            all-symbols (->> (concat var-symbols defmethod-symbols
-                                     protocol-impl-symbols top-level-symbols)
-                             (sort-symbols sort-mode)
-                             vec)]
-        (log/log! {:level :info
-                   :id ::kondo-symbols-extracted
-                   :msg "Extracted symbols with clj-kondo"
-                   :data {:ns ns-name
-                          :var-count (count var-symbols)
-                          :defmethod-count (count defmethod-symbols)
-                          :protocol-impl-count (count protocol-impl-symbols)
-                          :top-level-count (count top-level-symbols)
-                          :total (count all-symbols)
-                          :sort-mode sort-mode}})
-        all-symbols)
+                  all-symbols (->> (concat var-symbols defmethod-symbols
+                                           protocol-impl-symbols top-level-symbols)
+                                   (sort-symbols sort-mode)
+                                   vec)]
+              (log/log! {:level :info
+                         :id ::kondo-symbols-extracted
+                         :msg "Extracted symbols with clj-kondo"
+                         :data {:ns ns-name
+                                :var-count (count var-symbols)
+                                :defmethod-count (count defmethod-symbols)
+                                :protocol-impl-count (count protocol-impl-symbols)
+                                :top-level-count (count top-level-symbols)
+                                :total (count all-symbols)
+                                :sort-mode sort-mode}})
+              all-symbols)
       ;; Fallback - return nil to signal caller should use LSP
-      (do
-        (log/log! {:level :info
-                   :id ::kondo-fallback
-                   :msg "Falling back to LSP for symbols"
-                   :data {:ns ns-name}})
-        nil))))
+            (do
+             (log/log! {:level :info
+                        :id ::kondo-fallback
+                        :msg "Falling back to LSP for symbols"
+                        :data {:ns ns-name}})
+             nil))))
 
 ;; =============================================================================
 ;; Data Fetching from clojure-lsp
@@ -733,19 +735,19 @@
       (loop [line-idx start-idx
              depth 0
              seen-open? false]
-        (if (>= line-idx (count lines))
+            (if (>= line-idx (count lines))
           ;; Ran off end - return last line
-          (count lines)
-          (let [line (nth lines line-idx)
+              (count lines)
+              (let [line (nth lines line-idx)
                 ;; Count parens on this line (simple - doesn't handle strings/comments)
-                open-count (count (filter #(= \( %) line))
-                close-count (count (filter #(= \) %) line))
-                new-depth (+ depth open-count (- close-count))
-                saw-open? (or seen-open? (pos? open-count))]
-            (if (and saw-open? (<= new-depth 0))
+                    open-count (count (filter #(= \( %) line))
+                    close-count (count (filter #(= \) %) line))
+                    new-depth (+ depth open-count (- close-count))
+                    saw-open? (or seen-open? (pos? open-count))]
+                (if (and saw-open? (<= new-depth 0))
               ;; Found balanced end - return 1-indexed line number
-              (inc line-idx)
-              (recur (inc line-idx) new-depth saw-open?))))))))
+                  (inc line-idx)
+                  (recur (inc line-idx) new-depth saw-open?))))))))
 
 ;; =============================================================================
 ;; Handler Functions

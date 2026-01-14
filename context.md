@@ -59,11 +59,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+05c6f87 fix(code-browser): Show full protocol for protocol methods
+6cc679f docs(showcase): Enhance kondo-types-showcase with extensive examples
+983ad9a feat(code-browser): Add protocol implementation display (Phase 1.5E.7)
 e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 03b46d5 fix(code-browser): Show complete defmethod source code
-31c70df feat(code-browser): Add defmethod and top-level forms display
-37fd04d feat(code-browser): Add git status display (Phase 1.5E.2)
-7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
 ```
 
 ---
@@ -153,6 +153,11 @@ bb lint && bb format
 
 ## Session Notes
 
+- **Symbol filter fix** - Filter was showing wrong item count due to duplicate React keys; fixed by using `name-line` as key instead of just `name`
+- **Protocol impl source fix** - Clicking protocol impls (like `add (RichRecord)`) now shows full `defrecord`/`deftype` form, not just the method implementation
+- **Protocol method source fix** - Clicking protocol methods (like `add`) now shows full `defprotocol` form, not just method signature
+- **Phase 1.5E.7 complete** - Protocol implementations show as `method-name (TypeName)` with kind `protocol-impl`
+- **Enhanced showcase file** - `kondo_types_showcase.clj` now has 64 vars demonstrating all features (60 in alphabetical, 4 top-level filtered)
 - **Server epoch complete** - Server generates unique epoch on start; browser detects restart and resets local sync state
 - **Phase 1.5E.6 complete** - defmethod implementations show as `my-multimethod :dispatch-val` with kind `method`
 - **Phase 1.5E.9 complete** - top-level forms like `(comment ...)` shown only in file-order view

@@ -117,23 +117,23 @@
 
 (defn filtered-namespaces
   "Get namespaces matching current filter.
-   Reads server data from synced atom, filter from local UI state."
-  []
+   Reads server data from synced atom.
+   Takes ns-filter as parameter for proper Reagent reactivity."
+  [ns-filter]
   (let [server-state @(get-server-state)
-        namespaces (or (:namespaces server-state) [])
-        ns-filter (:ns-filter @!ui-state)]
+        namespaces (or (:namespaces server-state) [])]
     (filter #(matches-filter? % ns-filter) namespaces)))
 
 (defn filtered-symbols
   "Get symbols matching current filter.
    Reads from accumulated symbols-by-ns map keyed by selected namespace.
-   Top-level forms (Phase 1.5E.9) are hidden in :alpha mode."
-  []
+   Top-level forms (Phase 1.5E.9) are hidden in :alpha mode.
+   Takes symbol-filter as parameter for proper Reagent reactivity."
+  [symbol-filter]
   (let [server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
         sort-mode (or (:sort-mode server-state) :file-order)
         symbols (get-in server-state [:symbols-by-ns selected-ns] [])
-        symbol-filter (:symbol-filter @!ui-state)
         ;; Hide top-level forms in :alpha mode (Phase 1.5E.9)
         mode-filtered (if (= sort-mode :alpha)
                         (remove :top-level? symbols)
@@ -166,10 +166,13 @@
      ns-name]))
 
 (defn namespace-panel
-  "Left panel: namespace list."
+  "Left panel: namespace list.
+   Dereferences !ui-state here for proper Reagent reactivity."
   []
   (let [layout @!layout
-        nss (filtered-namespaces)]
+        ;; Dereference !ui-state HERE so Reagent tracks the dependency
+        ns-filter (:ns-filter @!ui-state)
+        nss (filtered-namespaces ns-filter)]
     [:div.panel.namespace-panel
      {:style {:width (:ns-width layout)}}
      [:div.panel-header
@@ -212,13 +215,16 @@
 
 (defn symbols-panel
   "Middle panel: symbols list.
-   Reads selected-ns from synced server state."
+   Reads selected-ns from synced server state.
+   Dereferences !ui-state here for proper Reagent reactivity."
   []
   (let [layout @!layout
         server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
         sort-mode (or (:sort-mode server-state) :file-order)
-        syms (filtered-symbols)]
+        ;; Dereference !ui-state HERE so Reagent tracks the dependency
+        symbol-filter (:symbol-filter @!ui-state)
+        syms (filtered-symbols symbol-filter)]
     [:div.panel.symbols-panel
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
@@ -229,8 +235,10 @@
      [filter-input :symbol-filter "Filter vars..."]
      [:div.list-container
       (if selected-ns
-        (for [sym syms]
-             ^{:key (:name sym)} [symbol-item sym])
+        (doall
+         (for [sym syms]
+           ;; Key must be unique - use name+line since same name can appear multiple times
+              ^{:key (str (:name sym) "-" (:line sym))} [symbol-item sym]))
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
       [:span (str (count syms) " vars")]
