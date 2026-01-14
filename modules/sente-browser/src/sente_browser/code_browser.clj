@@ -626,6 +626,32 @@
           end-idx (min (count lines) end-line)]
       (str/join "\n" (subvec (vec lines) start-idx end-idx)))))
 
+(defn- find-form-end-line
+  "Find the end line of a form by scanning for balanced parentheses.
+   Starts at start-line (1-indexed) and scans forward until parens balance.
+   Returns the line number (1-indexed) where the form ends.
+   This handles cases where kondo only gives start position (e.g., defmethod)."
+  [content start-line]
+  (when content
+    (let [lines (vec (str/split-lines content))
+          start-idx (dec start-line)]
+      (loop [line-idx start-idx
+             depth 0
+             seen-open? false]
+        (if (>= line-idx (count lines))
+          ;; Ran off end - return last line
+          (count lines)
+          (let [line (nth lines line-idx)
+                ;; Count parens on this line (simple - doesn't handle strings/comments)
+                open-count (count (filter #(= \( %) line))
+                close-count (count (filter #(= \) %) line))
+                new-depth (+ depth open-count (- close-count))
+                saw-open? (or seen-open? (pos? open-count))]
+            (if (and saw-open? (<= new-depth 0))
+              ;; Found balanced end - return 1-indexed line number
+              (inc line-idx)
+              (recur (inc line-idx) new-depth saw-open?))))))))
+
 ;; =============================================================================
 ;; Handler Functions
 ;; =============================================================================
@@ -758,11 +784,23 @@
               :loading? false)
        {:error (str "File not found: " file)}))))
 
+(defn- find-cached-symbol
+  "Find symbol in cached symbols-by-ns.
+   Returns symbol map with :line/:end-line if found, nil otherwise.
+   This is preferred over LSP lookup for kondo-derived symbols (defmethod, etc.)."
+  [ns-name var-name kind]
+  (let [cached-symbols (get-in @!code-browser-state [:symbols-by-ns ns-name] [])]
+    (->> cached-symbols
+         (filter #(and (= var-name (:name %))
+                       (or (nil? kind) (= kind (:kind %)))))
+         first)))
+
 (defn handle-request-var-source
   "Handle request for source of a specific var.
    Updates synced atom AND returns response (parallel mode).
    data: {:ns string :var-name string :kind keyword}
-   Finds the var via clojure-lsp and returns its source.
+   First checks cached symbols (kondo data with accurate line ranges),
+   falls back to clojure-lsp lookup if not found.
    Uses :kind to disambiguate when multiple symbols have same name."
   [{:keys [ns var-name kind]}]
   (log/log! {:level :info
@@ -771,7 +809,9 @@
              :data {:ns ns :var-name var-name :kind kind}})
   (let [symbols (fetch-all-symbols)
         file-uri (get-namespace-file symbols ns)
-        file-path (when file-uri (str/replace file-uri "file://" ""))]
+        file-path (when file-uri (str/replace file-uri "file://" ""))
+        ;; First check cached symbol data (kondo-derived, has accurate line ranges)
+        cached-sym (find-cached-symbol ns var-name kind)]
     (if-not file-path
       (do
        ;; Update synced atom with error state
@@ -779,40 +819,53 @@
               :error (str "Namespace not found: " ns)
               :loading? false)
        {:error (str "Namespace not found: " ns)})
-      ;; Find the var in symbols, using kind to disambiguate duplicates
-      (let [matching (->> symbols
-                          (filter #(and (= file-uri (get-in % [:location :uri]))
-                                        (= var-name (:name %)))))
-            ;; If kind provided, filter by it; otherwise take first
-            var-sym (if kind
-                      (let [kind-num (case kind
-                                       :declare 13
-                                       :function 12
-                                       :variable 13
-                                       nil)]
-                        (or (->> matching
-                                 (filter #(= kind-num (:kind %)))
-                                 first)
-                            (first matching)))
-                      (first matching))]
-        (if-not var-sym
+      ;; Use cached symbol if available, otherwise fall back to LSP lookup
+      (let [;; If we have cached symbol with line info, use it
+            ;; Otherwise fall back to LSP lookup
+            [start-line end-line]
+            (if (and cached-sym (:line cached-sym) (:end-line cached-sym))
+              ;; Use cached kondo data (already 1-based)
+              [(:line cached-sym) (:end-line cached-sym)]
+              ;; Fall back to LSP lookup
+              (let [matching (->> symbols
+                                  (filter #(and (= file-uri (get-in % [:location :uri]))
+                                                (= var-name (:name %)))))
+                    var-sym (if kind
+                              (let [kind-num (case kind
+                                               :declare 13
+                                               :function 12
+                                               :variable 13
+                                               nil)]
+                                (or (->> matching
+                                         (filter #(= kind-num (:kind %)))
+                                         first)
+                                    (first matching)))
+                              (first matching))]
+                (when var-sym
+                  ;; LSP lines are 0-based, convert to 1-based
+                  [(inc (get-in var-sym [:location :range :start :line] 0))
+                   (inc (get-in var-sym [:location :range :end :line] 0))])))]
+        (if-not (and start-line end-line)
           (do
            ;; Update synced atom with error state
            (swap! !code-browser-state assoc
                   :error (str "Var not found: " ns "/" var-name)
                   :loading? false)
            {:error (str "Var not found: " ns "/" var-name)})
-          (let [start-line (inc (get-in var-sym [:location :range :start :line] 0))
-                end-line (inc (get-in var-sym [:location :range :end :line] 0))
-                content (fetch-file-content file-uri)
-                code (extract-source-region content start-line end-line)
+          (let [content (fetch-file-content file-uri)
+                ;; For defmethod/top-level-forms, end-line from kondo only covers the name.
+                ;; If end-line == start-line, scan for balanced parens to find actual end.
+                actual-end-line (if (= start-line end-line)
+                                  (find-form-end-line content start-line)
+                                  end-line)
+                code (extract-source-region content start-line actual-end-line)
                 var-key (str ns "/" var-name)
                 source-data {:code code
                              :file file-uri
                              :ns ns
                              :var-name var-name
                              :start-line start-line
-                             :end-line end-line
+                             :end-line actual-end-line
                              :language "clojure"}
                 ;; Get cached source to compare
                 cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
