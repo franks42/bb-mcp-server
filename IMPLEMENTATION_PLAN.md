@@ -736,6 +736,48 @@ my-function          function      line 27
 7. **1.5E.3** - Project selector (larger, architectural)
 8. **1.5E.8** - Enhanced protocol display (nice-to-have)
 9. **1.5E.4** - Branch switching (complex, defer)
+10. **1.5E.11** - Multi-file namespace handling
+
+#### Phase 1.5E.11: Multi-File Namespace Handling
+
+**Goal:** Handle namespaces that span multiple files (via `in-ns` or split definitions).
+
+**Context:** While uncommon, some codebases split a namespace across multiple files. This affects:
+- Symbol aggregation (which symbols belong together)
+- File-order view (order within file + order of files)
+- Source navigation (which file to show)
+
+**Detection:** `(> (count (distinct (map :filename symbols-for-ns))) 1)`
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.11.1 | Detect multi-file namespaces from kondo analysis | Pending |
+| 1.5E.11.2 | Show file grouping or badge when ns spans files | Pending |
+| 1.5E.11.3 | Research: Can we determine file load order? | Pending |
+| 1.5E.11.4 | File-order view: Show files in load order, symbols within each | Pending |
+| 1.5E.11.5 | Visual indicator for multi-file namespaces in ns list | Pending |
+
+**Open questions:**
+- How to determine file load order? (require chain analysis, deps.edn paths order, or unknown?)
+- Display: Nested (ns → file → symbols) vs flat with file badge?
+- Should we warn about `in-ns` usage as potential code smell?
+
+**Load order complexity:**
+```
+my.namespace (3 files)
+├── core.clj        [loaded 1st via require]
+│   └── symbols in file order...
+├── impl.clj        [loaded 2nd via require in core.clj]
+│   └── symbols in file order...
+└── extra.clj       [loaded 3rd via in-ns]
+    └── symbols in file order...
+```
+
+**Possible data sources for load order:**
+- `:namespace-usages` in kondo (shows require dependencies)
+- Static analysis of require chains
+- deps.edn `:paths` order (first path wins for same-named files)
+- May be unknowable statically in some cases
 
 #### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
 
