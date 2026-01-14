@@ -765,12 +765,12 @@ my-function          function      line 27
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.10.1 | Add view selector UI (tabs or dropdown) | Pending |
-| 1.5E.10.2 | Docstring view: Extract and format `:doc` | Pending |
+| 1.5E.10.1 | Add view selector UI (tabs or dropdown) | ✓ Done |
+| 1.5E.10.2 | Docstring view: Extract and format `:doc` | ✓ Done |
 | 1.5E.10.3 | Examples view: Fetch from ClojureDocs for `clojure.core/*` | Pending |
 | 1.5E.10.4 | Examples view: Find nearby `(comment ...)` blocks in same file | Pending |
-| 1.5E.10.5 | Dependents view: Query var-usages for refs to this symbol | Pending |
-| 1.5E.10.6 | Dependencies view: Query var-usages within symbol's source range | Pending |
+| 1.5E.10.5 | Dependents view: Query var-usages for refs to this symbol | ✓ Done |
+| 1.5E.10.6 | Dependencies view: Query var-usages within symbol's source range | ✓ Done |
 | 1.5E.10.7 | Click on dependent/dependency → navigate to that symbol | Pending |
 | 1.5E.10.8 | Metadata view: Show arglists, type hints, private?, deprecated? | Pending |
 
