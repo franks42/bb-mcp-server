@@ -573,6 +573,29 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 3. **1.5E.3** - Project selector (larger, architectural)
 4. **1.5E.4** - Branch switching (complex, defer)
 
+#### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
+
+**Goal:** Support both shared (collaborative) and independent (per-client) browsing modes.
+
+**Context:** Current architecture uses shared server-side state - all browsers see the same selection. This is intentional for pair programming/teaching but may not suit all use cases.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.5.1 | Add `:sync-mode` to state (`:shared` or `:independent`) | Future |
+| 1.5E.5.2 | Independent mode: Move selection state to client-side | Future |
+| 1.5E.5.3 | Independent mode: Use RPC for data fetch, signals for invalidation | Future |
+| 1.5E.5.4 | Shared mode: Keep current behavior (all browsers synced) | Future |
+| 1.5E.5.5 | Browser: Add mode toggle in UI header | Future |
+| 1.5E.5.6 | Consider per-client state accumulation limits (LRU cache) | Future |
+
+**Trade-offs:**
+- **Shared mode:** Collaborative, instant back-nav for all, simpler server logic
+- **Independent mode:** Per-user browsing, less bandwidth, more client complexity
+
+**Trigger:** Implement when multi-user independence becomes a real requirement.
+
+**Reference:** See `docs/atom-sync-review-gemini.md` for architectural discussion.
+
 ---
 
 ### Phase 1.6: Synthetic Special Forms Namespace
