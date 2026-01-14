@@ -501,18 +501,20 @@ User-requested improvements for better code navigation and project awareness.
 - Change `(sort-by :name)` to `(sort-by :line)` based on mode
 - UI: Toggle button or dropdown in vars panel
 
-#### Phase 1.5E.2: Git Status Display (Moderate)
+#### Phase 1.5E.2: Git Status Display ✅ Complete (2026-01-14)
 
 **Goal:** Show project directory and git branch/status for context awareness.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.2.1 | Backend: Add `get-git-info` function (shell out to git) | Pending |
-| 1.5E.2.2 | Return: branch name, clean/dirty status, remote tracking | Pending |
-| 1.5E.2.3 | Add git info to code-browser state atom | Pending |
-| 1.5E.2.4 | Browser: Display project path + branch in header | Pending |
-| 1.5E.2.5 | Browser: Show dirty indicator (e.g., "*" or icon) | Pending |
-| 1.5E.2.6 | Auto-refresh git status on file changes (piggyback on watcher) | Pending |
+| 1.5E.2.1 | Backend: Add `get-git-info` function (shell out to git) | ✅ |
+| 1.5E.2.2 | Return: branch name, clean/dirty status, remote tracking | ✅ |
+| 1.5E.2.3 | Add git info to code-browser state atom | ✅ |
+| 1.5E.2.4 | Browser: Display project path + branch in header | ✅ |
+| 1.5E.2.5 | Browser: Show dirty indicator (e.g., "*" or icon) | ✅ |
+| 1.5E.2.6 | Auto-refresh git status on file changes (piggyback on watcher) | ✅ |
+
+**Commit:** `37fd04d` feat(code-browser): Add git status display (Phase 1.5E.2)
 
 **Git commands needed:**
 ```bash

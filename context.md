@@ -21,6 +21,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5-Watch | Live file watching | **COMPLETE** |
 | 1.5A | clj-kondo rich var classification | **COMPLETE** |
 | 1.5E.1 | File-order symbol sorting | **COMPLETE** |
+| 1.5E.2 | Git status display | **COMPLETE** |
 
 ---
 
@@ -54,12 +55,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+37fd04d feat(code-browser): Add git status display (Phase 1.5E.2)
 7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
 8c55349 docs: Expand Phase 2 with comprehensive live mode plan
 84bd11f docs: Add Phase 1.5E.10 symbol inspector (multi-view details)
 f13129a docs: Add Phase 1.5E.9 top-level forms display to plan
-c7a4b1c docs: Add defmethod and protocol implementation phases to plan
-1a4002f docs: Add Phase 1.5E.5 sync mode toggle to plan
 ```
 
 ---
