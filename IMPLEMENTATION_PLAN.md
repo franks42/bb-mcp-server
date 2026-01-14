@@ -782,14 +782,110 @@ Create a browsable `**special-forms**` pseudo-namespace for discoverability.
 - Vars panel: List all special forms with kind = "special-form"
 - Source panel: "No source - bootstraps the language" + docs + examples
 
-### Phase 2: Runtime Introspection (Deferred)
+### Phase 2: Live System Mode (clj-ns-browser-Inspired)
+
+**Goal:** Add a "Live Mode" that connects to a running nREPL and introspects the live system, inspired by [clj-ns-browser](https://github.com/franks42/clj-ns-browser).
+
+**Key Insight:** Static analysis (Phase 1.x) and live introspection are complementary:
+- **Static:** Source files on disk via LSP + clj-kondo
+- **Live:** Running process via nREPL introspection
+
+**Reuse:** Same UI components (namespace list, symbol list, source panel), different data source.
+
+**Reference:** `../clj-ns-browser` for feature inspiration.
+
+#### Phase 2.0: Architecture
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 2.1 | Mode toggle (Static/Runtime) | Pending |
-| 2.2 | Wire nREPL introspection tools | Pending |
-| 2.3 | Show REPL-defined vars | Pending |
-| 2.4 | Static vs runtime diff view | Pending |
+| 2.0.1 | Design data abstraction layer (static vs live providers) | Pending |
+| 2.0.2 | Define common data shapes for namespaces/vars | Pending |
+| 2.0.3 | Document in `docs/design/live-mode-design.md` | Pending |
+
+#### Phase 2.1: Mode Toggle & nREPL Connection
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.1.1 | Add mode toggle UI: Static / Live | Pending |
+| 2.1.2 | Show nREPL connection selector (use existing nrepl module) | Pending |
+| 2.1.3 | Connection status indicator in UI | Pending |
+| 2.1.4 | Handle connection loss gracefully | Pending |
+
+#### Phase 2.2: Live Namespace List
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.2.1 | Fetch loaded namespaces via `(all-ns)` | Pending |
+| 2.2.2 | Show loaded vs unloaded distinction | Pending |
+| 2.2.3 | One-click `require` for unloaded namespaces | Pending |
+| 2.2.4 | Live updates when namespaces are loaded/created | Pending |
+
+#### Phase 2.3: Live Var List
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.3.1 | Fetch vars via `(ns-publics 'ns)` / `(ns-interns 'ns)` | Pending |
+| 2.3.2 | Get var metadata via `(meta #'var)` | Pending |
+| 2.3.3 | Classify vars from metadata (`:macro`, `:dynamic`, etc.) | Pending |
+| 2.3.4 | Show private vars toggle (`ns-interns` vs `ns-publics`) | Pending |
+| 2.3.5 | Highlight REPL-defined vars (no source file) | Pending |
+
+#### Phase 2.4: Live Value Inspection
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.4.1 | Show var value via `@#'var` or `(var-get #'var)` | Pending |
+| 2.4.2 | Show value type | Pending |
+| 2.4.3 | Pretty-print complex values (truncated) | Pending |
+| 2.4.4 | Show atom/ref current value with deref | Pending |
+| 2.4.5 | Live value updates (polling or watch) | Pending |
+
+#### Phase 2.5: Enhanced Live Features
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.5.1 | **Predefined filters:** macros, functions, protocols, multimethods, dynamic vars | Pending |
+| 2.5.2 | **Regex filter:** Filter vars by regex pattern | Pending |
+| 2.5.3 | **Docstring search:** Match regex within docstrings | Pending |
+| 2.5.4 | **Color coding:** Visual distinction by var type | Pending |
+
+#### Phase 2.6: tools.trace Integration
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.6.1 | Add trace button to var display | Pending |
+| 2.6.2 | Call `(trace-vars #'var)` via nREPL | Pending |
+| 2.6.3 | Show trace status indicator | Pending |
+| 2.6.4 | Remove trace with `(untrace-vars #'var)` | Pending |
+| 2.6.5 | Display trace output in console panel | Pending |
+
+#### Phase 2.7: ClojureDocs Integration
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.7.1 | Fetch examples from ClojureDocs API | Pending |
+| 2.7.2 | Fetch comments and see-alsos | Pending |
+| 2.7.3 | Cache with TTL (1 hour) | Pending |
+| 2.7.4 | Offline fallback with cached data | Pending |
+
+#### Phase 2.8: Static vs Live Diff View
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 2.8.1 | Compare static analysis with live state | Pending |
+| 2.8.2 | Highlight vars that exist only at runtime | Pending |
+| 2.8.3 | Highlight vars in source but not loaded | Pending |
+| 2.8.4 | Show redefined vars (source differs from loaded) | Pending |
+
+**clj-ns-browser features for reference:**
+- Loaded/unloaded namespace distinction with one-click require
+- Var type filters (macros, functions, protocols, multimethods, dynamic, deftypes, defrecords)
+- Regex filter on var names and docstrings
+- tools.trace integration
+- ClojureDocs examples, comments, see-alsos
+- Var value and @var inspection with metadata
+- Live updates as vars are defined at REPL
+- Color coding by var type
 
 ### Phase 3: Symbol-at-Point (Interactive Code Exploration)
 
