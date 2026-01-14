@@ -353,7 +353,9 @@
      :end-line (:end-row var-def)
      :end-column (:end-col var-def)
      :doc (:doc var-def)
-     :defined-by (str defined-by)}))
+     :defined-by (str defined-by)
+     ;; Preserve original column for protocol method detection
+     :_orig-col (:col var-def)}))
 
 ;; -----------------------------------------------------------------------------
 ;; Phase 1.5E.6: defmethod extraction
@@ -412,6 +414,39 @@
 ;; -----------------------------------------------------------------------------
 ;; Phase 1.5E.7: protocol implementation extraction
 ;; -----------------------------------------------------------------------------
+
+(defn- find-parent-protocol
+  "Find the defprotocol that contains a protocol method.
+   Protocol methods have col > 1, parent protocols have col = 1.
+   Returns the parent protocol var-definition or nil if not found."
+  [var-definitions method-row]
+  (->> var-definitions
+       (filter (fn [v]
+                 (and (= 'clojure.core/defprotocol (:defined-by v))
+                      (= 1 (:col v))  ; Protocol definition at column 1
+                      (<= (:row v) method-row)
+                      (>= (:end-row v) method-row))))
+       first))
+
+(defn- fix-protocol-method-lines
+  "Update protocol methods to use parent protocol's line range.
+   Protocol methods (col > 1) should show the entire defprotocol form.
+   Returns updated symbols with parent protocol's row/end-row for methods."
+  [symbols var-definitions]
+  (map (fn [sym]
+         (if (and (= :protocol (:kind sym))
+                  (> (:_orig-col sym 1) 1))  ; Protocol method, not protocol itself
+           ;; Find parent protocol and use its line range
+           (if-let [parent (find-parent-protocol var-definitions (:line sym))]
+             (-> sym
+                 (assoc :line (:row parent)
+                        :end-line (:end-row parent)
+                        :parent-protocol (str (:name parent)))
+                 (dissoc :_orig-col))
+             (dissoc sym :_orig-col))
+           ;; Not a protocol method - just remove internal field
+           (dissoc sym :_orig-col)))
+       symbols))
 
 (defn- find-containing-type
   "Find the defrecord/deftype that contains a given line.
@@ -533,9 +568,11 @@
             {:keys [var-definitions var-usages protocol-impls]} analysis
 
             ;; 1. Var definitions (defn, def, etc.)
-            var-symbols (->> var-definitions
-                             (filter #(= ns-sym (:ns %)))
-                             (map kondo-var->symbol))
+            ;; Filter to this namespace, then fix protocol method line ranges
+            ns-var-defs (filter #(= ns-sym (:ns %)) var-definitions)
+            var-symbols (->> ns-var-defs
+                             (map kondo-var->symbol)
+                             (#(fix-protocol-method-lines % var-definitions)))
 
             ;; 2. defmethod implementations (Phase 1.5E.6)
             ;; Filter to usages from this namespace
