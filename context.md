@@ -4,14 +4,14 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-12
-**Version:** v1.11.9
+**Last Updated:** 2026-01-14
+**Version:** v1.13.0
 
 ---
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, and live file watching. **All phases complete!**
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, and **clj-kondo rich var classification**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -19,110 +19,56 @@ Code browser with synced atoms, accumulated state, reactive auto-init, and live 
 | 1.5-Acc | Accumulated state (instant back-nav) | **COMPLETE** |
 | 1.5-Auto | Reactive auto-initialization | **COMPLETE** |
 | 1.5-Watch | Live file watching | **COMPLETE** |
+| 1.5A | clj-kondo rich var classification | **COMPLETE** |
 
 ---
 
-## Phase 1.5-Watch (Live File Watching) - COMPLETE
+## Phase 1.5A Summary (2026-01-14)
 
-**Goal:** Edit file → browser updates automatically
+**Goal:** Replace LSP's generic 3 kinds with clj-kondo's rich `:defined-by` classification.
 
-### Existing Infrastructure (Already Working!)
+**Implementation:**
+- `analyze-file-with-kondo` - shells out to clj-kondo for on-demand analysis
+- `defined-by->label` mapping - converts kondo symbols to human-readable labels
+- Falls back to LSP if kondo analysis fails
 
-1. **File watcher** - `modules/clojure-lsp/.../watcher.clj`
-   - Uses pod-babashka-fswatcher
-   - Watches .clj/.cljs/.cljc/.edn files
-   - Calls `client/notify-did-change!` on file changes
+**New kind labels:**
+| Label | From |
+|-------|------|
+| `defonce` | `clojure.core/defonce` |
+| `private-fn` | `clojure.core/defn-` |
+| `macro` | `clojure.core/defmacro` |
+| `multimethod` | `clojure.core/defmulti` |
+| `method` | `clojure.core/defmethod` |
+| `protocol` | `clojure.core/defprotocol` |
+| `deftype` | `clojure.core/deftype` |
+| `defrecord` | `clojure.core/defrecord` |
+| `test` | `clojure.test/deftest` |
+| `declare` | `clojure.core/declare` |
 
-2. **clojure-lsp notifications** - `modules/clojure-lsp/.../client.clj:112`
-   ```clojure
-   (defn- handle-notification!
-     [{:keys [method params]}]
-     (case method
-       "textDocument/publishDiagnostics"
-       (swap! state assoc-in [:diagnostics (:uri params)] (:diagnostics params))
-       nil))  ;; <-- HOOK POINT: Add callback here
-   ```
+**File:** `modules/sente-browser/src/sente_browser/code_browser.clj` lines 260-350
 
-3. **Synced atom** - Already pushing updates to browser
-   ```clojure
-   {:symbols-by-ns {"ns.a" [...] "ns.b" [...]}}  ;; Accumulated
-   {:source-by-var {"ns.a/foo" {...} ...}}       ;; Accumulated
-   ```
+---
 
-### Implementation Approach
+## Recent Commits
 
 ```
-File saved → watcher → clojure-lsp → publishDiagnostics
-                                            ↓
-                                    callback triggered
-                                            ↓
-                          invalidate [:symbols-by-ns "ns.a"]
-                                            ↓
-                                    re-fetch symbols
-                                            ↓
-                                  swap! synced atom
-                                            ↓
-                               Browser auto-updates!
+6c06c7b feat(code-browser): Add clj-kondo analysis for rich var classification (Phase 1.5A)
+6c85a81 feat(code-browser): Preserve selection on file changes
+7d771a6 fix(atom-sync): Prevent resync request flooding
+2cbd0e2 fix(code-browser): Remove CM6 view version pinning
+59e6243 feat(code-browser): Implement reactive debounce for file watching (Phase 1.5-Watch)
 ```
-
-**Option A: Callback in clojure-lsp client** (similar to on-connect callbacks)
-```clojure
-;; In client.clj - add callback registry
-(defonce !on-diagnostics-callbacks (atom {}))
-
-(defn register-on-diagnostics! [key callback-fn] ...)
-
-;; In handle-notification!
-"textDocument/publishDiagnostics"
-(do
-  (swap! state assoc-in [:diagnostics (:uri params)] (:diagnostics params))
-  (run-diagnostics-callbacks! (:uri params)))  ;; NEW
-```
-
-**Option B: Add watcher in code-browser** (poll-based, simpler)
-
-### Key Files to Modify
-
-1. `modules/clojure-lsp/src/bb_mcp_server/modules/clojure_lsp/client.clj`
-   - Add callback registry for `publishDiagnostics`
-   - Call callbacks in `handle-notification!`
-
-2. `modules/sente-browser/src/sente_browser/code_browser.clj`
-   - Register callback to invalidate cached symbols/source
-   - Re-fetch affected namespace data
-
-### URI → Namespace Mapping
-
-The callback receives a file URI like `file:///path/to/ns_a.clj`. Need to:
-1. Convert to namespace (use clojure-lsp `textDocument/documentSymbol` or parse file)
-2. Or: invalidate ALL cached data for that file path
-
-### Implementation Complete
-
-**Key Features:**
-1. **Notification callbacks** - `lsp-client/on-notification!` for `publishDiagnostics`
-2. **File watcher auto-start** - Starts automatically with clojure-lsp
-3. **Cache invalidation** - Symbols and source cached by ns/var
-4. **Reactive debounce** - Waits for clojure-lsp "quiet period" (500ms) instead of fixed delay
-5. **New file detection** - Namespace not in list → refresh namespaces
-6. **Deleted file detection** - File no longer exists → refresh namespaces
-7. **Jitter fix** - Single atomic `swap!` for cache invalidation (prevents UI flicker)
-
-**Debounce pattern:** Each `publishDiagnostics` resets a timer. Re-fetch only fires when
-clojure-lsp goes quiet for 500ms, indicating indexing is complete.
-
-**Also fixed:** `!` character base64 encoding in `mcp_client.clj` (prevents JSON escaping issues)
-
-### Design Doc Reference
-
-See `docs/design/atom-sync-design.md` lines 94-116 for complete flow diagram.
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Start server
+# Check if server running
+bb server:list
+
+# Start server if needed
 bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
 # Open browser - auto-init happens on first connect!
@@ -132,8 +78,6 @@ open http://localhost:8091
 bb test:atom-sync
 bb lint && bb format
 ```
-
-**Note:** Code browser and clojure-lsp now auto-initialize reactively when the first browser connects.
 
 ---
 
@@ -153,7 +97,7 @@ bb lint && bb format
 │     ↓                                                            │
 │ Synced atom pushed to browser (any seq accepted for path=[])     │
 │     ↓                                                            │
-│ User clicks namespace → symbols fetched → accumulated in atom    │
+│ User clicks namespace → clj-kondo analysis → symbols fetched     │
 │     ↓                                                            │
 │ atom-sync pushes incremental updates                             │
 │     ↓                                                            │
@@ -170,6 +114,7 @@ bb lint && bb format
 | `atom-sync.server` | `register-on-connect!` | Run callback when browser connects |
 | `atom-sync.server` | `on-browser-connected!` | Trigger callbacks + initial sync |
 | `atom-sync.core` | `register-synced-atom!` | Register atom for sync |
+| `code-browser` | `analyze-file-with-kondo` | Rich var classification |
 | `bootstrap` (browser) | `get-synced-atom` | Get Reagent atom by key |
 
 ---
@@ -179,33 +124,18 @@ bb lint && bb format
 | Doc | Purpose |
 |-----|---------|
 | `docs/design/atom-sync-design.md` | Sync architecture, Phase 1.5-Watch diagram |
+| `docs/design/static-code-analysis.md` | Phase 1.5A kondo design |
 | `IMPLEMENTATION_PLAN.md` | Task checklists |
 | `modules/atom-sync/README.md` | Atom-sync API reference |
 | `docs/SCITTLE_DEV_ENVIRONMENT.md` | Browser dev setup |
 
 ---
 
-## Recent Commits
-
-```
-fa9aec1 feat(code-browser): Add reactive auto-initialization (Phase 1.5-Auto)
-fec744e feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
-67526b3 feat(code-browser): Migrate to synced atoms (Phase 1.5-Pre)
-```
-
----
-
 ## Session Notes
 
-- **Phase 1.5-Watch complete** - File save → cache invalidate → re-fetch → browser updates
-- **Reactive auto-init** - Code browser and clojure-lsp auto-initialize on first browser connect
-- **On-connect callbacks** - `atom-sync.server/register-on-connect!` enables just-in-time init
-- **Synced atom access** - Browser: `(bootstrap/get-synced-atom :code-browser)`
-- **Sync fix applied** - Full state replace (path []) accepts any seq (fixed infinite loop)
-- **New/deleted file detection** - Namespace list auto-refreshes on file create/delete
-
-**Known quirks (deferred to future phases):**
-- `declare` vs `def` both show as `:variable` (LSP reports both as kind-13)
+- **Phase 1.5A complete** - clj-kondo integration working
+- **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools!
+- **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
 
 ---
 
@@ -214,8 +144,14 @@ fec744e feat(code-browser): Implement accumulated state (Phase 1.5-Acc)
 Playwright MCP and Chrome DevTools MCP are configured for browser automation.
 
 ```bash
-# Take snapshot, click, navigate, etc.
+# Navigate and snapshot
+mcp__chrome-devtools__navigate_page
 mcp__chrome-devtools__take_snapshot
-mcp__chrome-devtools__click
+mcp__playwright__browser_navigate
 mcp__playwright__browser_snapshot
+
+# Interact
+mcp__chrome-devtools__click
+mcp__chrome-devtools__fill
+mcp__playwright__browser_click
 ```
