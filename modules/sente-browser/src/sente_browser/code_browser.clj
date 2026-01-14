@@ -33,6 +33,7 @@
               [bb-mcp-server.modules.clojure-lsp.server :as lsp-server]
               [bb-mcp-server.modules.clojure-lsp.watcher :as lsp-watcher]
               [clojure.java.io :as io]
+              [clojure.set :as set]
               [clojure.string :as str]
               [taoensso.trove :as log]))
 
@@ -44,6 +45,7 @@
 (declare !code-browser-state)
 (declare handle-request-symbols)
 (declare handle-request-namespaces)
+(declare handle-request-var-source)
 
 ;; -----------------------------------------------------------------------------
 ;; Debounced Re-fetch (Reactive Pattern)
@@ -172,11 +174,23 @@
       (log/log! {:level :info
                  :id ::refetching-selected-ns
                  :msg "Re-fetching symbols for currently selected namespace"
-                 :data {:ns selected-ns}})
+                 :data {:ns selected-ns :selected-symbol (:selected-symbol state)}})
       ;; Re-fetch with debounce (reactive - waits for quiet period)
       ;; Uses namespace as key so multiple changes to same ns only trigger one re-fetch
+      ;; preserve-selection?: true keeps selected-symbol intact IF it still exists
       (schedule-debounced-action! selected-ns
-                                  #(handle-request-symbols {:ns selected-ns})))))
+                                  #(do
+                                    (handle-request-symbols {:ns selected-ns
+                                                             :preserve-selection? true})
+                                     ;; Re-fetch source for selected symbol if any STILL EXISTS
+                                     ;; (check current state, not captured state - symbol may have been cleared)
+                                    (when-let [current-symbol (:selected-symbol @!code-browser-state)]
+                                              (log/log! {:level :info
+                                                         :id ::refetching-selected-source
+                                                         :msg "Re-fetching source for selected symbol"
+                                                         :data {:ns selected-ns :var current-symbol}})
+                                              (handle-request-var-source {:ns selected-ns
+                                                                          :var-name current-symbol})))))))
 
 (defn- on-lsp-notification!
   "Callback for LSP notifications. Handles publishDiagnostics to detect file changes."
@@ -351,17 +365,38 @@
 (defn handle-request-namespaces
   "Handle request for namespace list.
    Updates synced atom AND returns response (parallel mode).
+   Also cleans up stale cached data for namespaces that no longer exist.
    Returns {:namespaces [string ...]}."
   [_data]
   (log/log! {:level :info
              :id ::request-namespaces
              :msg "Handling namespace list request"})
   (let [symbols (fetch-all-symbols)
-        namespaces (extract-namespaces symbols)]
-    ;; Update synced atom (browsers will receive via atom-sync)
-    (swap! !code-browser-state assoc
-           :namespaces namespaces
-           :loading? false)
+        namespaces (extract-namespaces symbols)
+        namespace-set (set namespaces)]
+    ;; Update synced atom and clean up stale cached data
+    (swap! !code-browser-state
+           (fn [state]
+             (let [cached-ns-keys (set (keys (:symbols-by-ns state)))
+                   stale-namespaces (set/difference cached-ns-keys namespace-set)]
+               (when (seq stale-namespaces)
+                 (log/log! {:level :info
+                            :id ::removing-stale-namespaces
+                            :msg "Removing stale namespace caches"
+                            :data {:stale stale-namespaces}}))
+               (-> state
+                   (assoc :namespaces namespaces
+                          :loading? false)
+                   ;; Remove symbols cache for stale namespaces
+                   (update :symbols-by-ns #(apply dissoc % stale-namespaces))
+                   ;; Remove source cache for vars in stale namespaces
+                   (update :source-by-var
+                           (fn [source-cache]
+                             (into {}
+                                   (remove (fn [[var-key _]]
+                                             (some #(str/starts-with? var-key (str % "/"))
+                                                   stale-namespaces))
+                                           source-cache))))))))
     ;; Also return response for legacy event mechanism
     {:namespaces namespaces
      :count (count namespaces)}))
@@ -369,25 +404,44 @@
 (defn handle-request-symbols
   "Handle request for symbols in a namespace.
    Updates synced atom AND returns response (parallel mode).
-   data: {:ns string}
+   data: {:ns string, :preserve-selection? bool}
+   When :preserve-selection? is true, keeps :selected-symbol intact (for file-change re-fetches).
    Returns {:symbols [...] :file string}."
-  [{:keys [ns]}]
+  [{:keys [ns preserve-selection?]}]
   (log/log! {:level :info
              :id ::request-symbols
              :msg "Handling symbols request"
-             :data {:ns ns}})
+             :data {:ns ns :preserve-selection? preserve-selection?}})
   (let [symbols (fetch-all-symbols)
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
-      (let [ns-symbols (extract-ns-symbols symbols file-uri)]
+      (let [ns-symbols (extract-ns-symbols symbols file-uri)
+            symbol-names (set (map :name ns-symbols))]
         ;; Update synced atom - ACCUMULATE symbols by namespace
         (swap! !code-browser-state
                (fn [state]
-                 (-> state
-                     (assoc :selected-ns ns
-                            :selected-symbol nil
-                            :loading? false)
-                     (assoc-in [:symbols-by-ns ns] ns-symbols))))
+                 (let [selected (:selected-symbol state)
+                       selected-ns-for-var (:selected-ns state)
+                       ;; Check if selected symbol still exists in new symbol list
+                       symbol-still-exists? (and selected (contains? symbol-names selected))
+                       ;; Keep selection only if: preserving AND symbol still exists
+                       keep-selection? (and preserve-selection? symbol-still-exists?)
+                       ;; Build var-key for source cache cleanup
+                       var-key (when selected (str selected-ns-for-var "/" selected))]
+                   (when (and preserve-selection? selected (not symbol-still-exists?))
+                     (log/log! {:level :info
+                                :id ::selected-symbol-removed
+                                :msg "Selected symbol no longer exists, clearing selection and source"
+                                :data {:selected selected :ns ns :var-key var-key}}))
+                   (-> state
+                       (assoc :selected-ns ns
+                              :loading? false)
+                       ;; Clear selection if: switching ns, OR symbol was deleted/renamed
+                       (cond-> (not keep-selection?)
+                               (-> (assoc :selected-symbol nil)
+                                   ;; Also clear the cached source for removed symbol
+                                   (update :source-by-var dissoc var-key)))
+                       (assoc-in [:symbols-by-ns ns] ns-symbols)))))
         ;; Also return response for legacy event mechanism
         {:ns ns
          :file file-uri
@@ -489,14 +543,25 @@
                              :var-name var-name
                              :start-line start-line
                              :end-line end-line
-                             :language "clojure"}]
+                             :language "clojure"}
+                ;; Get cached source to compare
+                cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
+                source-changed? (not= code cached-code)]
             ;; Update synced atom - ACCUMULATE source by qualified var name
+            ;; Only update if source actually changed to prevent unnecessary UI updates
             (swap! !code-browser-state
                    (fn [state]
                      (-> state
                          (assoc :selected-symbol var-name
                                 :loading? false)
-                         (assoc-in [:source-by-var var-key] source-data))))
+                         ;; Only update source-by-var if code changed
+                         (cond-> source-changed?
+                                 (assoc-in [:source-by-var var-key] source-data)))))
+            (when source-changed?
+              (log/log! {:level :info
+                         :id ::source-changed
+                         :msg "Source code changed, updating cache"
+                         :data {:var-key var-key}}))
             ;; Also return response for legacy event mechanism
             source-data))))))
 
