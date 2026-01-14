@@ -567,11 +567,81 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 - May need to reinitialize clojure-lsp after switch
 - Consider read-only mode first (just display, no switch)
 
+#### Phase 1.5E.6: Multimethod Implementations (defmethod)
+
+**Goal:** Show `defmethod` implementations linked to their `defmulti`.
+
+**Discovery:** clj-kondo `:var-usages` includes defmethod data:
+```clojure
+{:name my-multimethod
+ :defmethod true              ; Flag identifying method impl
+ :dispatch-val-str ":default" ; Dispatch value as string!
+ :row 59}
+```
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.6.1 | Extend kondo analysis to fetch `:var-usages` | Pending |
+| 1.5E.6.2 | Filter var-usages for `:defmethod true` | Pending |
+| 1.5E.6.3 | Create method entries with dispatch value in name | Pending |
+| 1.5E.6.4 | Link methods to parent multimethod (group or indent) | Pending |
+| 1.5E.6.5 | Browser: Display as `my-multimethod :default` with kind `method` | Pending |
+
+**Display options:**
+- Flat: `my-multimethod :default   method   (line 59)`
+- Grouped under multimethod (tree view)
+
+#### Phase 1.5E.7: Protocol Implementations
+
+**Goal:** Show protocol method implementations from `defrecord`/`deftype`.
+
+**Discovery:** clj-kondo `:protocol-impls` provides rich data:
+```clojure
+{:method-name protocol-method
+ :protocol-name MyProtocol
+ :defined-by clojure.core/defrecord  ; or deftype
+ :impl-ns bb-mcp-server.kondo-types-showcase
+ :row 79}
+```
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.7.1 | Extend kondo analysis to fetch `:protocol-impls` | Pending |
+| 1.5E.7.2 | Create impl entries showing implementing type | Pending |
+| 1.5E.7.3 | Link impls to protocol definition | Pending |
+| 1.5E.7.4 | Browser: Display as `protocol-method (MyRecord)` with kind `impl` | Pending |
+
+**Display options:**
+- Under protocol: Show impls grouped by protocol method
+- Under type: Show which protocols a defrecord/deftype implements
+
+#### Phase 1.5E.8: Enhanced Protocol Display
+
+**Goal:** Enrich protocol definitions with implementation info.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.8.1 | Show protocol methods as children of protocol | Pending |
+| 1.5E.8.2 | For each method, show count of implementations | Pending |
+| 1.5E.8.3 | Click protocol method → see all implementations | Pending |
+| 1.5E.8.4 | Click implementation → jump to source in defrecord/deftype | Pending |
+
+**Example display:**
+```
+MyProtocol           protocol
+  protocol-method    protocol-method  (2 impls)
+    → MyRecord       impl
+    → MyType         impl
+```
+
 **Priority order:**
 1. **1.5E.1** - File-order sorting (quick, high value)
 2. **1.5E.2** - Git status display (moderate, useful context)
-3. **1.5E.3** - Project selector (larger, architectural)
-4. **1.5E.4** - Branch switching (complex, defer)
+3. **1.5E.6** - Multimethod implementations (good data available)
+4. **1.5E.7** - Protocol implementations (good data available)
+5. **1.5E.3** - Project selector (larger, architectural)
+6. **1.5E.8** - Enhanced protocol display (nice-to-have)
+7. **1.5E.4** - Branch switching (complex, defer)
 
 #### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
 
