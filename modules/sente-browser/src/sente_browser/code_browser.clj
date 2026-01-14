@@ -304,9 +304,10 @@
    ;; Use :continue true to prevent throwing on non-zero exit codes
    ;; clj-kondo returns 2 for warnings, 3 for errors, but still outputs analysis
    ;; Include :var-usages for defmethod detection (Phase 1.5E.6)
+   ;; Include :protocol-impls for protocol implementation detection (Phase 1.5E.7)
    (let [result (shell {:out :string :err :string :continue true}
                        "clj-kondo" "--lint" file-path
-                       "--config" "{:output {:analysis {:var-definitions true :var-usages true} :format :edn}}")
+                       "--config" "{:output {:analysis {:var-definitions true :var-usages true :protocol-impls true} :format :edn}}")
          output (:out result)
          exit-code (:exit result)]
      ;; Log warnings if exit code indicates issues
@@ -320,16 +321,19 @@
      (when (seq output)
        (let [analysis (edn/read-string output)
              var-defs (get-in analysis [:analysis :var-definitions])
-             var-usages (get-in analysis [:analysis :var-usages])]
+             var-usages (get-in analysis [:analysis :var-usages])
+             protocol-impls (get-in analysis [:analysis :protocol-impls])]
          (log/log! {:level :debug
                     :id ::kondo-result
                     :msg "clj-kondo analysis complete"
                     :data {:file file-path
                            :var-count (count var-defs)
                            :usage-count (count var-usages)
+                           :protocol-impl-count (count protocol-impls)
                            :exit-code exit-code}})
          {:var-definitions var-defs
-          :var-usages var-usages})))
+          :var-usages var-usages
+          :protocol-impls protocol-impls})))
    (catch Exception e
           (log/log! {:level :warn
                      :id ::kondo-error
@@ -405,6 +409,52 @@
                  :form-type form-name
                  :top-level? true})))))
 
+;; -----------------------------------------------------------------------------
+;; Phase 1.5E.7: protocol implementation extraction
+;; -----------------------------------------------------------------------------
+
+(defn- find-containing-type
+  "Find the defrecord/deftype that contains a given line.
+   Returns the type name or nil if not found."
+  [var-definitions line]
+  (->> var-definitions
+       ;; Only defrecord/deftype, not the generated ->Type and map->Type fns
+       (filter (fn [v]
+                 (and (contains? #{'clojure.core/defrecord 'clojure.core/deftype}
+                                 (:defined-by v))
+                      ;; Exclude generated constructor functions
+                      (not (str/starts-with? (str (:name v)) "->"))
+                      (not (str/starts-with? (str (:name v)) "map->")))))
+       ;; Find the one containing this line
+       (filter (fn [v]
+                 (and (<= (:row v) line)
+                      (>= (:end-row v) line))))
+       first
+       :name))
+
+(defn- extract-protocol-impls
+  "Extract protocol method implementations from protocol-impls analysis.
+   Creates symbols like 'protocol-method (MyRecord)' with kind :protocol-impl.
+   Requires var-definitions to determine the implementing type name."
+  [protocol-impls var-definitions]
+  (->> protocol-impls
+       (map (fn [impl]
+              (let [type-name (find-containing-type var-definitions (:row impl))
+                    method-name (str (:method-name impl))
+                    display-name (if type-name
+                                   (str method-name " (" type-name ")")
+                                   method-name)]
+                {:name display-name
+                 :kind :protocol-impl
+                 :line (:row impl)
+                 :column (:col impl)
+                 :end-line (:end-row impl)
+                 :end-column (:end-col impl)
+                 :protocol (str (:protocol-name impl))
+                 :protocol-ns (str (:protocol-ns impl))
+                 :method-name method-name
+                 :implementing-type (when type-name (str type-name))})))))
+
 (defn- sort-symbols
   "Sort symbols based on current sort mode.
    :file-order sorts by line number (eval order)
@@ -471,6 +521,7 @@
    Includes:
    - var-definitions (defn, def, defmacro, etc.)
    - defmethod implementations (Phase 1.5E.6)
+   - protocol implementations (Phase 1.5E.7)
    - top-level forms like comment, println (Phase 1.5E.9, marked with :top-level?)
    Note: Top-level forms are always included; browser filters them in :alpha mode."
   [file-uri ns-name]
@@ -479,7 +530,7 @@
     (if-let [analysis (analyze-file-with-kondo file-path)]
       ;; Extract all symbol types from analysis
       (let [ns-sym (symbol ns-name)
-            {:keys [var-definitions var-usages]} analysis
+            {:keys [var-definitions var-usages protocol-impls]} analysis
 
             ;; 1. Var definitions (defn, def, etc.)
             var-symbols (->> var-definitions
@@ -492,7 +543,12 @@
                                    (filter #(= ns-sym (:from %)))
                                    extract-defmethods)
 
-            ;; 3. Top-level forms (Phase 1.5E.9)
+            ;; 3. Protocol implementations (Phase 1.5E.7)
+            ;; Filter to impls in this namespace, pass var-definitions for type lookup
+            ns-protocol-impls (filter #(= ns-sym (:impl-ns %)) protocol-impls)
+            protocol-impl-symbols (extract-protocol-impls ns-protocol-impls var-definitions)
+
+            ;; 4. Top-level forms (Phase 1.5E.9)
             ;; Always include - browser filters in :alpha mode
             ;; Marked with :top-level? true for browser-side filtering
             top-level-symbols (->> var-usages
@@ -500,7 +556,8 @@
                                    extract-top-level-forms)
 
             ;; Combine all symbols and sort
-            all-symbols (->> (concat var-symbols defmethod-symbols top-level-symbols)
+            all-symbols (->> (concat var-symbols defmethod-symbols
+                                     protocol-impl-symbols top-level-symbols)
                              (sort-symbols sort-mode)
                              vec)]
         (log/log! {:level :info
@@ -509,6 +566,7 @@
                    :data {:ns ns-name
                           :var-count (count var-symbols)
                           :defmethod-count (count defmethod-symbols)
+                          :protocol-impl-count (count protocol-impl-symbols)
                           :top-level-count (count top-level-symbols)
                           :total (count all-symbols)
                           :sort-mode sort-mode}})

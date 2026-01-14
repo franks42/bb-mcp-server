@@ -23,6 +23,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.1 | File-order symbol sorting | **COMPLETE** |
 | 1.5E.2 | Git status display | **COMPLETE** |
 | 1.5E.6 | Multimethod implementations (defmethod) | **COMPLETE** |
+| 1.5E.7 | Protocol implementations (defrecord/deftype) | **COMPLETE** |
 | 1.5E.9 | Top-level forms display | **COMPLETE** |
 | 1.5-Epoch | Server epoch for stale data detection | **COMPLETE** |
 
@@ -58,12 +59,25 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 03b46d5 fix(code-browser): Show complete defmethod source code
 31c70df feat(code-browser): Add defmethod and top-level forms display
-54a92e0 docs: Mark Phase 1.5E.2 git status display complete
 37fd04d feat(code-browser): Add git status display (Phase 1.5E.2)
-6faa86f docs: Mark Phase 1.5E.1 file-order sorting complete
+7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
 ```
+
+---
+
+## What's Next on Roadmap
+
+| Priority | Phase | Description | Notes |
+|----------|-------|-------------|-------|
+| 1 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
+| 2 | **1.5E.3** | Project selector | Browse multiple projects |
+| 3 | **1.5E.8** | Enhanced protocol display | Nice-to-have |
+| 4 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
+
+**Phase 1.5E.10 is next** - multi-view symbol inspector (Source, Doc, Examples, Dependents, Dependencies).
 
 ---
 

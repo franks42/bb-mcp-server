@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser Phase 1.5A Complete (clj-kondo) + Enhancements Planned
+**Status:** Code Browser Phase 1.5 Complete (synced atoms, file watching, epoch detection) + Enhancements In Progress
 **Version:** v1.13.0
 **Last Updated:** 2026-01-14
 
@@ -386,7 +386,7 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 
 ---
 
-#### Phase 1.5-Watch: Live File Watching
+#### Phase 1.5-Watch: Live File Watching ✅ Complete (2026-01-13)
 
 **Goal:** Auto-update browser when source files change on disk.
 
@@ -396,14 +396,18 @@ Refactor from request/response messaging to synced atoms for cleaner state manag
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5-Watch.1 | Add `!notification-callbacks` registry to clojure-lsp client | Pending |
-| 1.5-Watch.2 | Add `on-notification!` / `remove-notification-callback!` API | Pending |
-| 1.5-Watch.3 | Extend `handle-notification!` to call registered callbacks | Pending |
-| 1.5-Watch.4 | Add `uri->namespace` helper (extract ns from file URI) | Pending |
-| 1.5-Watch.5 | code-browser: Subscribe to diagnostics notifications | Pending |
-| 1.5-Watch.6 | code-browser: On file change, invalidate `[:symbols-by-ns ns]` | Pending |
-| 1.5-Watch.7 | code-browser: Re-fetch invalidated ns if currently selected | Pending |
-| 1.5-Watch.8 | Test: Edit file, verify browser updates automatically | Pending |
+| 1.5-Watch.1 | Add `!notification-callbacks` registry to clojure-lsp client | ✅ |
+| 1.5-Watch.2 | Add `on-notification!` / `remove-notification-callback!` API | ✅ |
+| 1.5-Watch.3 | Extend `handle-notification!` to call registered callbacks | ✅ |
+| 1.5-Watch.4 | Add `uri->namespace` helper (extract ns from file URI) | ✅ |
+| 1.5-Watch.5 | code-browser: Subscribe to diagnostics notifications | ✅ |
+| 1.5-Watch.6 | code-browser: On file change, invalidate `[:symbols-by-ns ns]` | ✅ |
+| 1.5-Watch.7 | code-browser: Re-fetch invalidated ns if currently selected | ✅ |
+| 1.5-Watch.8 | Test: Edit file, verify browser updates automatically | ✅ |
+
+**Commits:**
+- `59e6243` feat(code-browser): Implement reactive debounce for file watching (Phase 1.5-Watch)
+- `8bb84aa` feat(code-browser): Implement live file watching (Phase 1.5-Watch)
 
 **Flow:**
 ```
@@ -411,6 +415,40 @@ File change → watcher.clj → clojure-lsp → publishDiagnostics
            → handle-notification! → callback → code-browser
            → invalidate cache → refetch if visible → atom-sync → browser
 ```
+
+---
+
+#### Phase 1.5-Epoch: Server Epoch for Stale Data Detection ✅ Complete (2026-01-14)
+
+**Goal:** Prevent stale cached data when server restarts by adding epoch tracking.
+
+**Problem:** When server restarts, browser has old seq numbers cached. New server starts fresh (seq 0), but browser ignores ops with lower seq than expected.
+
+**Solution:** Add epoch (timestamp) to all sync ops. Browser tracks epoch per key and resets local state when epoch changes.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5-Epoch.1 | Add `!server-epoch` atom (timestamp on server start) | ✅ |
+| 1.5-Epoch.2 | Add `get-server-epoch` / `reset-server-epoch!` API | ✅ |
+| 1.5-Epoch.3 | Include `:epoch` in all sync ops (incremental + full) | ✅ |
+| 1.5-Epoch.4 | Module `:start` resets epoch on server startup | ✅ |
+| 1.5-Epoch.5 | Browser: Track `!last-epoch` per key | ✅ |
+| 1.5-Epoch.6 | Browser: On epoch change, reset `!sync-state` and `!resync-pending` | ✅ |
+| 1.5-Epoch.7 | Test: Restart server, verify browser gets fresh state | ✅ |
+
+**Protocol:**
+```clojure
+[:sync/op {:key :code-browser
+           :seq 42
+           :epoch 1736876543210  ; <-- NEW: server start timestamp
+           :op :assoc-in
+           :path [:selected-ns]
+           :value "my.namespace"}]
+```
+
+**Files modified:**
+- `modules/atom-sync/src/atom_sync/core.clj` - Server-side epoch tracking
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - Browser-side epoch detection
 
 ---
 
@@ -598,7 +636,7 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 
 **Commit:** `31c70df` feat(code-browser): Add defmethod and top-level forms display
 
-#### Phase 1.5E.7: Protocol Implementations
+#### Phase 1.5E.7: Protocol Implementations ✅ Complete (2026-01-14)
 
 **Goal:** Show protocol method implementations from `defrecord`/`deftype`.
 
@@ -613,14 +651,20 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.7.1 | Extend kondo analysis to fetch `:protocol-impls` | Pending |
-| 1.5E.7.2 | Create impl entries showing implementing type | Pending |
-| 1.5E.7.3 | Link impls to protocol definition | Pending |
-| 1.5E.7.4 | Browser: Display as `protocol-method (MyRecord)` with kind `impl` | Pending |
+| 1.5E.7.1 | Extend kondo analysis to fetch `:protocol-impls` | ✅ |
+| 1.5E.7.2 | Create impl entries showing implementing type | ✅ |
+| 1.5E.7.3 | Link impls to protocol definition | ✅ |
+| 1.5E.7.4 | Browser: Display as `protocol-method (MyRecord)` with kind `protocol-impl` | ✅ |
 
-**Display options:**
-- Under protocol: Show impls grouped by protocol method
-- Under type: Show which protocols a defrecord/deftype implements
+**Implementation:**
+- Added `:protocol-impls true` to clj-kondo config
+- `find-containing-type` - finds defrecord/deftype by line range
+- `extract-protocol-impls` - creates symbols with name `method (Type)` and kind `:protocol-impl`
+- Browser shows implementations in file order with clickable source
+
+**Display:**
+- `protocol-method (MyRecord)` with kind `protocol-impl`
+- `protocol-method (MyType)` with kind `protocol-impl`
 
 #### Phase 1.5E.8: Enhanced Protocol Display
 
@@ -742,12 +786,12 @@ my-function          function      line 27
 ```
 
 **Priority order:**
-1. **1.5E.1** - File-order sorting (quick, high value) ← prerequisite for 1.5E.9
-2. **1.5E.2** - Git status display (moderate, useful context)
-3. **1.5E.6** - Multimethod implementations (good data available)
-4. **1.5E.7** - Protocol implementations (good data available)
-5. **1.5E.9** - Top-level forms (only in file-order view)
-6. **1.5E.10** - Symbol inspector (multi-view details)
+1. ~~**1.5E.1** - File-order sorting~~ ✅ Complete
+2. ~~**1.5E.2** - Git status display~~ ✅ Complete
+3. ~~**1.5E.6** - Multimethod implementations~~ ✅ Complete
+4. ~~**1.5E.7** - Protocol implementations~~ ✅ Complete
+5. ~~**1.5E.9** - Top-level forms~~ ✅ Complete
+6. **1.5E.10** - Symbol inspector ← **NEXT** (multi-view details)
 7. **1.5E.3** - Project selector (larger, architectural)
 8. **1.5E.8** - Enhanced protocol display (nice-to-have)
 9. **1.5E.4** - Branch switching (complex, defer)
