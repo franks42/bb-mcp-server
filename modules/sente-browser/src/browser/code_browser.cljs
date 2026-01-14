@@ -96,6 +96,12 @@
   (send-event! :code-browser/request-var-source
                {:ns ns-name :var-name var-name :kind kind}))
 
+(defn toggle-sort-mode!
+  "Toggle symbol sort mode between :alpha and :file-order.
+   Server re-sorts all cached symbols and pushes update."
+  []
+  (send-event! :code-browser/toggle-sort-mode {}))
+
 ;; =============================================================================
 ;; Filter Logic
 ;; =============================================================================
@@ -184,6 +190,20 @@
      [:span.symbol-name name]
      [:span.symbol-kind (clojure.core/name (or kind :unknown))]]))
 
+(defn sort-mode-button
+  "Toggle button for symbol sort mode.
+   Shows current mode and toggles on click."
+  []
+  (let [server-state @(get-server-state)
+        sort-mode (or (:sort-mode server-state) :file-order)
+        label (if (= sort-mode :alpha) "A→Z" "↓")]
+    [:button.sort-mode-btn
+     {:on-click toggle-sort-mode!
+      :title (if (= sort-mode :alpha)
+               "Sorted alphabetically. Click for file order."
+               "Sorted by file order. Click for alphabetical.")}
+     label]))
+
 (defn symbols-panel
   "Middle panel: symbols list.
    Reads selected-ns from synced server state."
@@ -191,13 +211,15 @@
   (let [layout @!layout
         server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
+        sort-mode (or (:sort-mode server-state) :file-order)
         syms (filtered-symbols)]
     [:div.panel.symbols-panel
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
       [:h3 (if selected-ns
              (str selected-ns " vars")
-             "Vars")]]
+             "Vars")]
+      [sort-mode-button]]
      [filter-input :symbol-filter "Filter vars..."]
      [:div.list-container
       (if selected-ns
@@ -205,7 +227,9 @@
              ^{:key (:name sym)} [symbol-item sym])
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
-      [:span (str (count syms) " vars")]]]))
+      [:span (str (count syms) " vars")]
+      [:span.sort-mode-indicator
+       (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
 
 (defn source-panel
   "Right panel: source code viewer.

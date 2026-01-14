@@ -13,11 +13,14 @@
    - :code-browser/request-source {:file string :start-line int :end-line int}
    - :code-browser/select-ns {:ns string}        ; Phase 1.5-Pre action
    - :code-browser/select-var {:var-name string} ; Phase 1.5-Pre action
+   - :code-browser/toggle-sort-mode {}           ; Phase 1.5E.1 - toggle alpha/file-order
+   - :code-browser/set-sort-mode {:mode keyword} ; Phase 1.5E.1 - set to :alpha or :file-order
 
    Events to browser (legacy, kept during migration):
    - :code-browser/namespaces {:namespaces [...]}
    - :code-browser/symbols {:symbols [...]}
    - :code-browser/source {:code string :file string :language string}
+   - :code-browser/sort-mode-changed {:sort-mode keyword}
 
    Synced Atom State Shape:
    {:namespaces [\"ns.a\" \"ns.b\" ...]
@@ -25,6 +28,7 @@
     :symbols [{:name \"foo\" :kind :function :line 10 ...}]
     :selected-symbol \"foo\"
     :source {:code \"...\" :file \"...\" :start-line 1 :end-line 20}
+    :sort-mode :file-order  ; :alpha or :file-order (Phase 1.5E.1)
     :loading? false
     :error nil}"
     (:require [atom-sync.core :as atom-sync]
@@ -225,6 +229,7 @@
                 :symbols-by-ns {}      ;; Accumulated: {ns [symbols...]}
                 :selected-symbol nil
                 :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
+                :sort-mode :file-order ;; :alpha or :file-order (Phase 1.5E.1)
                 :loading? false
                 :error nil}))
 
@@ -335,23 +340,37 @@
      :doc (:doc var-def)
      :defined-by (str defined-by)}))
 
+(defn- sort-symbols
+  "Sort symbols based on current sort mode.
+   :file-order sorts by line number (eval order)
+   :alpha sorts alphabetically by name
+   Args ordered for ->> threading: [sort-mode symbols]"
+  [sort-mode symbols]
+  (case sort-mode
+    :file-order (sort-by :line symbols)
+    :alpha (sort-by :name symbols)
+    ;; Default to file-order
+    (sort-by :line symbols)))
+
 (defn- extract-ns-symbols-kondo
   "Extract symbols for a namespace using clj-kondo analysis.
-   Falls back to LSP-based extraction if kondo fails."
+   Falls back to LSP-based extraction if kondo fails.
+   Sorts according to current :sort-mode in state."
   [file-uri ns-name]
-  (let [file-path (str/replace file-uri "file://" "")]
+  (let [file-path (str/replace file-uri "file://" "")
+        sort-mode (:sort-mode @!code-browser-state :file-order)]
     (if-let [var-defs (analyze-file-with-kondo file-path)]
       ;; Filter to the requested namespace (handles multi-ns files)
             (let [ns-sym (symbol ns-name)
                   ns-vars (->> var-defs
                                (filter #(= ns-sym (:ns %)))
                                (map kondo-var->symbol)
-                               (sort-by :name)
+                               (sort-symbols sort-mode)
                                vec)]
               (log/log! {:level :info
                          :id ::kondo-symbols-extracted
                          :msg "Extracted symbols with clj-kondo"
-                         :data {:ns ns-name :count (count ns-vars)}})
+                         :data {:ns ns-name :count (count ns-vars) :sort-mode sort-mode}})
               ns-vars)
       ;; Fallback - return nil to signal caller should use LSP
             (do
@@ -413,20 +432,22 @@
 
 (defn extract-ns-symbols
   "Extract symbols belonging to a specific namespace.
-   Uses file location to group symbols."
+   Uses file location to group symbols.
+   Sorts according to current :sort-mode in state."
   [symbols file-uri]
-  (->> symbols
-       ;; Filter to symbols in the same file (excluding the ns declaration itself)
-       (filter (fn [sym]
-                 (and (= file-uri (get-in sym [:location :uri]))
-                      (not= 3 (:kind sym)))))  ; Exclude namespace
-       (map (fn [sym]
-              {:name (:name sym)
-               :kind (detect-kind sym)
-               :line (inc (get-in sym [:location :range :start :line] 0))
-               :column (inc (get-in sym [:location :range :start :character] 0))}))
-       (sort-by :name)
-       vec))
+  (let [sort-mode (:sort-mode @!code-browser-state :file-order)]
+    (->> symbols
+         ;; Filter to symbols in the same file (excluding the ns declaration itself)
+         (filter (fn [sym]
+                   (and (= file-uri (get-in sym [:location :uri]))
+                        (not= 3 (:kind sym)))))  ; Exclude namespace
+         (map (fn [sym]
+                {:name (:name sym)
+                 :kind (detect-kind sym)
+                 :line (inc (get-in sym [:location :range :start :line] 0))
+                 :column (inc (get-in sym [:location :range :start :character] 0))}))
+         (sort-symbols sort-mode)
+         vec)))
 
 (defn get-namespace-file
   "Get file URI for a namespace from symbols."
@@ -683,6 +704,55 @@
   (swap! !code-browser-state dissoc :error)
   {:cleared true})
 
+(defn handle-toggle-sort-mode
+  "Handle request to toggle symbol sort mode.
+   Toggles between :alpha and :file-order.
+   Re-sorts the currently displayed symbols immediately."
+  [_data]
+  (let [current-mode (:sort-mode @!code-browser-state :file-order)
+        new-mode (if (= current-mode :alpha) :file-order :alpha)]
+    (log/log! {:level :info
+               :id ::toggle-sort-mode
+               :msg "Toggling sort mode"
+               :data {:from current-mode :to new-mode}})
+    ;; Update mode and re-sort cached symbols
+    (swap! !code-browser-state
+           (fn [state]
+             (-> state
+                 (assoc :sort-mode new-mode)
+                 ;; Re-sort all cached symbols
+                 (update :symbols-by-ns
+                         (fn [symbols-map]
+                           (into {}
+                                 (map (fn [[ns-name syms]]
+                                        [ns-name (vec (sort-symbols new-mode syms))])
+                                      symbols-map)))))))
+    {:sort-mode new-mode}))
+
+(defn handle-set-sort-mode
+  "Handle request to set symbol sort mode to a specific value.
+   data: {:mode :alpha|:file-order}
+   Re-sorts the currently displayed symbols immediately."
+  [{:keys [mode]}]
+  (let [new-mode (if (#{:alpha :file-order} mode) mode :file-order)]
+    (log/log! {:level :info
+               :id ::set-sort-mode
+               :msg "Setting sort mode"
+               :data {:mode new-mode}})
+    ;; Update mode and re-sort cached symbols
+    (swap! !code-browser-state
+           (fn [state]
+             (-> state
+                 (assoc :sort-mode new-mode)
+                 ;; Re-sort all cached symbols
+                 (update :symbols-by-ns
+                         (fn [symbols-map]
+                           (into {}
+                                 (map (fn [[ns-name syms]]
+                                        [ns-name (vec (sort-symbols new-mode syms))])
+                                      symbols-map)))))))
+    {:sort-mode new-mode}))
+
 ;; =============================================================================
 ;; Event Dispatch
 ;; =============================================================================
@@ -707,6 +777,12 @@
 
       :code-browser/clear-error
       [:code-browser/error-cleared (handle-clear-error data)]
+
+      :code-browser/toggle-sort-mode
+      [:code-browser/sort-mode-changed (handle-toggle-sort-mode data)]
+
+      :code-browser/set-sort-mode
+      [:code-browser/sort-mode-changed (handle-set-sort-mode data)]
 
       ;; Not a code-browser event
       nil)))
@@ -749,6 +825,7 @@
              :symbols-by-ns {}
              :selected-symbol nil
              :source-by-var {}
+             :sort-mode :file-order
              :loading? false
              :error nil})
     (log/log! {:level :info
