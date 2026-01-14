@@ -290,8 +290,8 @@
       'clojure.test/deftest     :test})
 
 (defn- analyze-file-with-kondo
-  "Run clj-kondo on a file and return var-definitions.
-   Returns nil if analysis fails.
+  "Run clj-kondo on a file and return analysis map.
+   Returns {:var-definitions [...] :var-usages [...]} or nil if analysis fails.
    Note: clj-kondo returns exit code 2 for warnings, 3 for errors.
    We accept exit codes 0 (clean), 2 (warnings), 3 (errors with partial output)
    since we only need the :analysis data which is still provided."
@@ -303,9 +303,10 @@
   (try
    ;; Use :continue true to prevent throwing on non-zero exit codes
    ;; clj-kondo returns 2 for warnings, 3 for errors, but still outputs analysis
+   ;; Include :var-usages for defmethod detection (Phase 1.5E.6)
    (let [result (shell {:out :string :err :string :continue true}
                        "clj-kondo" "--lint" file-path
-                       "--config" "{:output {:analysis {:var-definitions true} :format :edn}}")
+                       "--config" "{:output {:analysis {:var-definitions true :var-usages true} :format :edn}}")
          output (:out result)
          exit-code (:exit result)]
      ;; Log warnings if exit code indicates issues
@@ -318,14 +319,17 @@
                          :stderr (subs (:err result) 0 (min 200 (count (:err result))))}}))
      (when (seq output)
        (let [analysis (edn/read-string output)
-             var-defs (get-in analysis [:analysis :var-definitions])]
+             var-defs (get-in analysis [:analysis :var-definitions])
+             var-usages (get-in analysis [:analysis :var-usages])]
          (log/log! {:level :debug
                     :id ::kondo-result
                     :msg "clj-kondo analysis complete"
                     :data {:file file-path
                            :var-count (count var-defs)
+                           :usage-count (count var-usages)
                            :exit-code exit-code}})
-         var-defs)))
+         {:var-definitions var-defs
+          :var-usages var-usages})))
    (catch Exception e
           (log/log! {:level :warn
                      :id ::kondo-error
@@ -346,6 +350,60 @@
      :end-column (:end-col var-def)
      :doc (:doc var-def)
      :defined-by (str defined-by)}))
+
+;; -----------------------------------------------------------------------------
+;; Phase 1.5E.6: defmethod extraction
+;; -----------------------------------------------------------------------------
+
+(defn- extract-defmethods
+  "Extract defmethod implementations from var-usages.
+   Returns symbols for each defmethod with dispatch value in name."
+  [var-usages]
+  (->> var-usages
+       (filter :defmethod)
+       (map (fn [usage]
+              {:name (str (:name usage) " " (:dispatch-val-str usage))
+               :kind :method
+               :line (:row usage)
+               :column (:col usage)
+               :end-line (:end-row usage)
+               :end-column (:end-col usage)
+               :dispatch-val (:dispatch-val-str usage)
+               :multimethod (str (:name usage))}))))
+
+;; -----------------------------------------------------------------------------
+;; Phase 1.5E.9: top-level forms extraction
+;; -----------------------------------------------------------------------------
+
+;; Forms that indicate side-effects or non-defining top-level code
+(def ^:private top-level-form-names
+  #{'comment 'println 'prn 'print 'set! 'require 'import 'use 'do 'when 'if 'let
+    'binding 'alter-var-root 'reset! 'swap!})
+
+(defn- extract-top-level-forms
+  "Extract non-defining top-level forms from var-usages.
+   Only includes forms at column 1 (true top-level) with names in the allowlist.
+   These are shown only in file-order view to reveal load-time behavior."
+  [var-usages]
+  (->> var-usages
+       (filter (fn [usage]
+                 (and (= 1 (:col usage))
+                      (contains? top-level-form-names (:name usage)))))
+       (map (fn [usage]
+              (let [form-name (str (:name usage))]
+                {:name (str "(" form-name " ...)")
+                 :kind (case (:name usage)
+                         comment :comment
+                         (println prn print) :side-effect
+                         (set! alter-var-root) :config
+                         (require import use) :require
+                         :form)
+                 :line (:row usage)
+                 :column (:col usage)
+                 :end-line (:end-row usage)
+                 :end-column (:end-col usage)
+                 :form-type form-name
+                 :top-level? true})))))
 
 (defn- sort-symbols
   "Sort symbols based on current sort mode.
@@ -409,30 +467,59 @@
 (defn- extract-ns-symbols-kondo
   "Extract symbols for a namespace using clj-kondo analysis.
    Falls back to LSP-based extraction if kondo fails.
-   Sorts according to current :sort-mode in state."
+   Sorts according to current :sort-mode in state.
+   Includes:
+   - var-definitions (defn, def, defmacro, etc.)
+   - defmethod implementations (Phase 1.5E.6)
+   - top-level forms like comment, println (Phase 1.5E.9, marked with :top-level?)
+   Note: Top-level forms are always included; browser filters them in :alpha mode."
   [file-uri ns-name]
   (let [file-path (str/replace file-uri "file://" "")
         sort-mode (:sort-mode @!code-browser-state :file-order)]
-    (if-let [var-defs (analyze-file-with-kondo file-path)]
-      ;; Filter to the requested namespace (handles multi-ns files)
-            (let [ns-sym (symbol ns-name)
-                  ns-vars (->> var-defs
-                               (filter #(= ns-sym (:ns %)))
-                               (map kondo-var->symbol)
-                               (sort-symbols sort-mode)
-                               vec)]
-              (log/log! {:level :info
-                         :id ::kondo-symbols-extracted
-                         :msg "Extracted symbols with clj-kondo"
-                         :data {:ns ns-name :count (count ns-vars) :sort-mode sort-mode}})
-              ns-vars)
+    (if-let [analysis (analyze-file-with-kondo file-path)]
+      ;; Extract all symbol types from analysis
+      (let [ns-sym (symbol ns-name)
+            {:keys [var-definitions var-usages]} analysis
+
+            ;; 1. Var definitions (defn, def, etc.)
+            var-symbols (->> var-definitions
+                             (filter #(= ns-sym (:ns %)))
+                             (map kondo-var->symbol))
+
+            ;; 2. defmethod implementations (Phase 1.5E.6)
+            ;; Filter to usages from this namespace
+            defmethod-symbols (->> var-usages
+                                   (filter #(= ns-sym (:from %)))
+                                   extract-defmethods)
+
+            ;; 3. Top-level forms (Phase 1.5E.9)
+            ;; Always include - browser filters in :alpha mode
+            ;; Marked with :top-level? true for browser-side filtering
+            top-level-symbols (->> var-usages
+                                   (filter #(= ns-sym (:from %)))
+                                   extract-top-level-forms)
+
+            ;; Combine all symbols and sort
+            all-symbols (->> (concat var-symbols defmethod-symbols top-level-symbols)
+                             (sort-symbols sort-mode)
+                             vec)]
+        (log/log! {:level :info
+                   :id ::kondo-symbols-extracted
+                   :msg "Extracted symbols with clj-kondo"
+                   :data {:ns ns-name
+                          :var-count (count var-symbols)
+                          :defmethod-count (count defmethod-symbols)
+                          :top-level-count (count top-level-symbols)
+                          :total (count all-symbols)
+                          :sort-mode sort-mode}})
+        all-symbols)
       ;; Fallback - return nil to signal caller should use LSP
-            (do
-             (log/log! {:level :info
-                        :id ::kondo-fallback
-                        :msg "Falling back to LSP for symbols"
-                        :data {:ns ns-name}})
-             nil))))
+      (do
+        (log/log! {:level :info
+                   :id ::kondo-fallback
+                   :msg "Falling back to LSP for symbols"
+                   :data {:ns ns-name}})
+        nil))))
 
 ;; =============================================================================
 ;; Data Fetching from clojure-lsp
@@ -761,7 +848,8 @@
 (defn handle-toggle-sort-mode
   "Handle request to toggle symbol sort mode.
    Toggles between :alpha and :file-order.
-   Re-sorts the currently displayed symbols immediately."
+   Re-sorts the currently displayed symbols immediately.
+   Note: Top-level forms (Phase 1.5E.9) are filtered browser-side based on sort-mode."
   [_data]
   (let [current-mode (:sort-mode @!code-browser-state :file-order)
         new-mode (if (= current-mode :alpha) :file-order :alpha)]

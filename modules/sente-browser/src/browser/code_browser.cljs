@@ -126,13 +126,19 @@
 
 (defn filtered-symbols
   "Get symbols matching current filter.
-   Reads from accumulated symbols-by-ns map keyed by selected namespace."
+   Reads from accumulated symbols-by-ns map keyed by selected namespace.
+   Top-level forms (Phase 1.5E.9) are hidden in :alpha mode."
   []
   (let [server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
+        sort-mode (or (:sort-mode server-state) :file-order)
         symbols (get-in server-state [:symbols-by-ns selected-ns] [])
-        symbol-filter (:symbol-filter @!ui-state)]
-    (filter #(matches-filter? (:name %) symbol-filter) symbols)))
+        symbol-filter (:symbol-filter @!ui-state)
+        ;; Hide top-level forms in :alpha mode (Phase 1.5E.9)
+        mode-filtered (if (= sort-mode :alpha)
+                        (remove :top-level? symbols)
+                        symbols)]
+    (filter #(matches-filter? (:name %) symbol-filter) mode-filtered)))
 
 ;; =============================================================================
 ;; Components
