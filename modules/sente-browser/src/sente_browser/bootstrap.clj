@@ -300,6 +300,20 @@
     .spinner { width: 30px; height: 30px; border: 3px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .error-banner { background: #f8d7da; color: #721c24; padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: center; }
+    /* Phase 1.5E.10: Tab styles */
+    .tab-bar { display: flex; gap: 0.25rem; margin-left: auto; }
+    .tab-btn { padding: 0.2rem 0.5rem; font-size: 11px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer; border-radius: 3px; }
+    .tab-btn:hover { background: #e8e8e8; }
+    .tab-btn.active { background: #e3f2fd; border-color: #2196F3; font-weight: 500; }
+    .doc-container { flex: 1; overflow: auto; padding: 1rem; }
+    .docstring { font-family: 'Fira Code', monospace; font-size: 13px; white-space: pre-wrap; margin: 0; line-height: 1.5; background: #f8f9fa; padding: 1rem; border-radius: 4px; }
+    .deps-container { flex: 1; overflow: auto; padding: 0.5rem; }
+    .deps-list { }
+    .deps-header { font-size: 12px; color: #666; padding: 0.5rem; border-bottom: 1px solid #eee; margin-bottom: 0.5rem; }
+    .dep-item { display: flex; padding: 0.3rem 0.5rem; font-size: 13px; font-family: 'Fira Code', monospace; border-bottom: 1px solid #f0f0f0; }
+    .dep-item:hover { background: #f0f0f0; cursor: pointer; }
+    .dep-name { color: #333; margin-right: 0.5rem; }
+    .dep-ns { color: #888; font-size: 11px; }
   </style>
 </head>
 <body>

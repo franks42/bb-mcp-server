@@ -245,11 +245,78 @@
       [:span.sort-mode-indicator
        (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
 
+;; -----------------------------------------------------------------------------
+;; Phase 1.5E.10: Symbol Inspector with Tabs
+;; -----------------------------------------------------------------------------
+
+;; Local state for selected tab (not synced to server)
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !source-tab (r/atom :source))
+
+(defn- tab-button
+  "Tab button component."
+  [tab-id label selected-tab on-click]
+  [:button.tab-btn
+   {:class (when (= tab-id selected-tab) "active")
+    :on-click #(on-click tab-id)}
+   label])
+
+(defn- source-view
+  "Source code view with CM6 editor."
+  [source highlight-line highlight-end-line]
+  [:div.source-container
+   [cm6/editor {:id "code-browser-source"
+                :value (or (:code source) ";; Select a var to view source")
+                :language :clojure
+                :read-only true
+                :highlight-line highlight-line
+                :highlight-end-line highlight-end-line}]])
+
+(defn- doc-view
+  "Docstring view."
+  [source]
+  (let [doc (:doc source)]
+    [:div.doc-container
+     (if doc
+       [:pre.docstring doc]
+       [:div.empty-message "No docstring available"])]))
+
+(defn- deps-view
+  "Dependencies view - what this symbol calls."
+  [source]
+  (let [deps (:dependencies source)]
+    [:div.deps-container
+     (if (seq deps)
+       [:div.deps-list
+        [:div.deps-header (str "Calls " (count deps) " symbols:")]
+        (for [{:keys [name ns line]} deps]
+             ^{:key (str ns "/" name "-" line)}
+             [:div.dep-item
+              [:span.dep-name name]
+              [:span.dep-ns ns]])]
+       [:div.empty-message "No dependencies found"])]))
+
+(defn- dependents-view
+  "Dependents view - what calls this symbol."
+  [source]
+  (let [deps (:dependents source)]
+    [:div.deps-container
+     (if (seq deps)
+       [:div.deps-list
+        [:div.deps-header (str "Called by " (count deps) " symbols:")]
+        (for [{:keys [name ns line]} deps]
+             ^{:key (str ns "/" name "-" line)}
+             [:div.dep-item
+              [:span.dep-name name]
+              [:span.dep-ns ns]])]
+       [:div.empty-message "No dependents found (or not yet loaded)"])]))
+
 (defn source-panel
-  "Right panel: source code viewer.
+  "Right panel: source code viewer with tabs.
    Uses stable editor ID to prevent flashing on source changes.
    Reads from accumulated source-by-var map keyed by ns/var-name.
-   Supports :highlight-line/:highlight-end-line for protocol impl source (Phase 1.5E.12)."
+   Supports :highlight-line/:highlight-end-line for protocol impl source (Phase 1.5E.12).
+   Phase 1.5E.10: Adds tabs for Source, Doc, Deps, Callers."
   []
   (let [layout @!layout
         server-state @(get-server-state)
@@ -261,22 +328,30 @@
                  (get-in server-state [:source-by-var var-key]))
         ;; Phase 1.5E.12: highlight lines from server (1-based, relative to extracted source)
         highlight-line (:highlight-line source)
-        highlight-end-line (:highlight-end-line source)]
+        highlight-end-line (:highlight-end-line source)
+        ;; Phase 1.5E.10: selected tab
+        selected-tab @!source-tab]
     [:div.panel.source-panel
      {:style {:width (:source-width layout)}}
      [:div.panel-header
       [:h3 (if source
              (str (:ns source) "/" (:var-name source))
-             "Source")]]
-     [:div.source-container
-      ;; Always mount editor with stable ID to prevent flash on source change
-      ;; Pass highlight lines for protocol impl/method highlighting
-      [cm6/editor {:id "code-browser-source"
-                   :value (or (:code source) ";; Select a var to view source")
-                   :language :clojure
-                   :read-only true
-                   :highlight-line highlight-line
-                   :highlight-end-line highlight-end-line}]]
+             "Source")]
+      ;; Tab bar (only show when source is loaded)
+      (when source
+        [:div.tab-bar
+         [tab-button :source "Source" selected-tab #(reset! !source-tab %)]
+         [tab-button :doc "Doc" selected-tab #(reset! !source-tab %)]
+         [tab-button :deps "Deps" selected-tab #(reset! !source-tab %)]
+         [tab-button :callers "Callers" selected-tab #(reset! !source-tab %)]])]
+     ;; Tab content
+     (case selected-tab
+       :source [source-view source highlight-line highlight-end-line]
+       :doc [doc-view source]
+       :deps [deps-view source]
+       :callers [dependents-view source]
+       ;; Default to source
+       [source-view source highlight-line highlight-end-line])
      (when source
        [:div.panel-footer
         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]])]))

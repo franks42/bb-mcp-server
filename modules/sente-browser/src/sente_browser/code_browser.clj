@@ -152,6 +152,7 @@
                (fn [state]
                  (-> state
                      (update :symbols-by-ns dissoc probable-ns)
+                     (update :var-usages-by-ns dissoc probable-ns)  ;; Phase 1.5E.10
                      (update :source-by-var
                              (fn [source-cache]
                                (into {}
@@ -228,11 +229,13 @@
 ;; Uses accumulated maps for instant back-navigation:
 ;;   :symbols-by-ns  {ns-name [symbols...]}
 ;;   :source-by-var  {"ns/var-name" {:code ... :file ...}}
+;;   :var-usages-by-ns {ns-name [usages...]}  - for deps/dependents (Phase 1.5E.10)
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !code-browser-state
          (atom {:namespaces []
                 :selected-ns nil
                 :symbols-by-ns {}      ;; Accumulated: {ns [symbols...]}
+                :var-usages-by-ns {}   ;; Accumulated: {ns [usages...]} (Phase 1.5E.10)
                 :selected-symbol nil
                 :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
                 :sort-mode :file-order ;; :alpha or :file-order (Phase 1.5E.1)
@@ -566,6 +569,7 @@
   "Extract symbols for a namespace using clj-kondo analysis.
    Falls back to LSP-based extraction if kondo fails.
    Sorts according to current :sort-mode in state.
+   Returns {:symbols [...] :var-usages [...]} or nil if analysis fails.
    Includes:
    - var-definitions (defn, def, defmacro, etc.)
    - defmethod implementations (Phase 1.5E.6)
@@ -589,9 +593,8 @@
 
             ;; 2. defmethod implementations (Phase 1.5E.6)
             ;; Filter to usages from this namespace
-                  defmethod-symbols (->> var-usages
-                                         (filter #(= ns-sym (:from %)))
-                                         extract-defmethods)
+                  ns-var-usages (filter #(= ns-sym (:from %)) var-usages)
+                  defmethod-symbols (->> ns-var-usages extract-defmethods)
 
             ;; 3. Protocol implementations (Phase 1.5E.7)
             ;; Filter to impls in this namespace, pass var-definitions for type lookup
@@ -601,9 +604,7 @@
             ;; 4. Top-level forms (Phase 1.5E.9)
             ;; Always include - browser filters in :alpha mode
             ;; Marked with :top-level? true for browser-side filtering
-                  top-level-symbols (->> var-usages
-                                         (filter #(= ns-sym (:from %)))
-                                         extract-top-level-forms)
+                  top-level-symbols (->> ns-var-usages extract-top-level-forms)
 
             ;; Combine all symbols and sort
                   all-symbols (->> (concat var-symbols defmethod-symbols
@@ -619,8 +620,11 @@
                                 :protocol-impl-count (count protocol-impl-symbols)
                                 :top-level-count (count top-level-symbols)
                                 :total (count all-symbols)
+                                :var-usages-count (count ns-var-usages)
                                 :sort-mode sort-mode}})
-              all-symbols)
+              ;; Return both symbols and var-usages (Phase 1.5E.10)
+              {:symbols all-symbols
+               :var-usages (vec ns-var-usages)})
       ;; Fallback - return nil to signal caller should use LSP
             (do
              (log/log! {:level :info
@@ -791,6 +795,8 @@
                           :loading? false)
                    ;; Remove symbols cache for stale namespaces
                    (update :symbols-by-ns #(apply dissoc % stale-namespaces))
+                   ;; Remove var-usages cache for stale namespaces (Phase 1.5E.10)
+                   (update :var-usages-by-ns #(apply dissoc % stale-namespaces))
                    ;; Remove source cache for vars in stale namespaces
                    (update :source-by-var
                            (fn [source-cache]
@@ -818,8 +824,11 @@
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
       ;; Try clj-kondo first for rich classification, fall back to LSP
-      (let [ns-symbols (or (extract-ns-symbols-kondo file-uri ns)
+      ;; Phase 1.5E.10: kondo returns {:symbols [...] :var-usages [...]}
+      (let [kondo-result (extract-ns-symbols-kondo file-uri ns)
+            ns-symbols (or (:symbols kondo-result)
                            (extract-ns-symbols symbols file-uri))
+            ns-var-usages (or (:var-usages kondo-result) [])
             symbol-names (set (map :name ns-symbols))]
         ;; Update synced atom - ACCUMULATE symbols by namespace
         (swap! !code-browser-state
@@ -845,7 +854,9 @@
                                (-> (assoc :selected-symbol nil)
                                    ;; Also clear the cached source for removed symbol
                                    (update :source-by-var dissoc var-key)))
-                       (assoc-in [:symbols-by-ns ns] ns-symbols)))))
+                       (assoc-in [:symbols-by-ns ns] ns-symbols)
+                       ;; Phase 1.5E.10: Store var-usages for deps/dependents
+                       (assoc-in [:var-usages-by-ns ns] ns-var-usages)))))
         ;; Also return response for legacy event mechanism
         {:ns ns
          :file file-uri
@@ -891,6 +902,46 @@
               :error (str "File not found: " file)
               :loading? false)
        {:error (str "File not found: " file)}))))
+
+;; =============================================================================
+;; Phase 1.5E.10: Dependencies/Dependents Computation
+;; =============================================================================
+
+(defn- compute-dependencies
+  "Compute what symbols a var calls (outgoing dependencies).
+   Looks up var-usages from the symbol's namespace to find calls from this var.
+   Returns [{:name \"fn\" :ns \"ns\" :line N} ...] for symbols called by var-name."
+  [ns-name var-name]
+  (let [var-usages (get-in @!code-browser-state [:var-usages-by-ns ns-name] [])]
+    ;; Filter usages where :from-var matches var-name (this var calls others)
+    (->> var-usages
+         (filter #(= var-name (str (:from-var %))))
+         (map (fn [u]
+                {:name (str (:name u))
+                 :ns (str (:to u))
+                 :line (:row u)}))
+         ;; Remove duplicates (same symbol may be called multiple times)
+         (distinct)
+         vec)))
+
+(defn- compute-dependents
+  "Compute what symbols call a var (incoming dependencies/callers).
+   Searches all cached var-usages to find calls TO this var.
+   Returns [{:name \"fn\" :ns \"ns\" :line N} ...] for symbols that call var-name."
+  [ns-name var-name]
+  (let [all-usages (mapcat (fn [[_ns usages]] usages)
+                           (:var-usages-by-ns @!code-browser-state))]
+    ;; Filter usages where target matches ns-name/var-name
+    (->> all-usages
+         (filter #(and (= (str ns-name) (str (:to %)))
+                       (= var-name (str (:name %)))))
+         (map (fn [u]
+                {:name (str (:from-var u))
+                 :ns (str (:from u))
+                 :line (:row u)}))
+         ;; Remove duplicates
+         (distinct)
+         vec)))
 
 (defn- find-cached-symbol
   "Find symbol in cached symbols-by-ns.
@@ -981,6 +1032,11 @@
                                               (>= method-end-line start-line)
                                               (<= method-end-line actual-end-line))
                                      (- method-end-line (dec start-line)))
+                ;; Phase 1.5E.10: Compute deps/dependents
+                dependencies (compute-dependencies ns var-name)
+                dependents (compute-dependents ns var-name)
+                ;; Phase 1.5E.10: Get docstring from cached symbol
+                doc (:doc cached-sym)
                 source-data (cond-> {:code code
                                      :file file-uri
                                      :ns ns
@@ -990,7 +1046,11 @@
                                      :language "clojure"}
                               ;; Include highlight lines if available (Phase 1.5E.12)
                                     highlight-line (assoc :highlight-line highlight-line)
-                                    highlight-end-line (assoc :highlight-end-line highlight-end-line))
+                                    highlight-end-line (assoc :highlight-end-line highlight-end-line)
+                              ;; Phase 1.5E.10: Include doc and deps
+                                    doc (assoc :doc doc)
+                                    (seq dependencies) (assoc :dependencies dependencies)
+                                    (seq dependents) (assoc :dependents dependents))
                 ;; Get cached source to compare
                 cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
                 source-changed? (not= code cached-code)]
