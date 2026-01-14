@@ -59,9 +59,9 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+bb6494e docs: Add Phase 1.5E.12 source code highlighting to roadmap
 62ae470 fix(code-browser): Symbol filter and protocol impl source display
 05c6f87 fix(code-browser): Show full protocol for protocol methods
-6cc679f docs(showcase): Enhance kondo-types-showcase with extensive examples
 983ad9a feat(code-browser): Add protocol implementation display (Phase 1.5E.7)
 e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 ```
@@ -151,26 +151,38 @@ bb lint && bb format
 
 ---
 
+## Handoff Notes (for next Claude session)
+
+**Server may be running** on ports 3000 (MCP), 8090 (WebSocket), 8091 (Browser UI). Check with `bb server:list`.
+
+**Code browser is stable** - all major features working:
+- Synced atoms, accumulated state, live file watching
+- clj-kondo classification (64 var types in showcase)
+- Protocol/defmethod display with full source
+- Symbol filter works correctly
+
+**Next feature: Phase 1.5E.12** - Source code highlighting
+- When clicking `add (RichRecord)`, highlight the `add` method line within the full defrecord
+- Uses CM6 Decoration API
+- Server data already has line numbers from kondo
+- See IMPLEMENTATION_PLAN.md for detailed tasks
+
+**Key gotchas:**
+- React keys must be unique (use `name-line` not just `name`)
+- Server-side code changes require server restart
+- Browser `.cljs` can be hot-reloaded via nREPL
+- clj-kondo exit code 2 = warnings (use `:continue true` in shell)
+
+---
+
 ## Session Notes
 
-- **Symbol filter fix** - Filter was showing wrong item count due to duplicate React keys; fixed by using `name-line` as key instead of just `name`
-- **Protocol impl source fix** - Clicking protocol impls (like `add (RichRecord)`) now shows full `defrecord`/`deftype` form, not just the method implementation
-- **Protocol method source fix** - Clicking protocol methods (like `add`) now shows full `defprotocol` form, not just method signature
-- **Phase 1.5E.7 complete** - Protocol implementations show as `method-name (TypeName)` with kind `protocol-impl`
-- **Enhanced showcase file** - `kondo_types_showcase.clj` now has 64 vars demonstrating all features (60 in alphabetical, 4 top-level filtered)
-- **Server epoch complete** - Server generates unique epoch on start; browser detects restart and resets local sync state
-- **Phase 1.5E.6 complete** - defmethod implementations show as `my-multimethod :dispatch-val` with kind `method`
-- **Phase 1.5E.9 complete** - top-level forms like `(comment ...)` shown only in file-order view
-- **Browser-side filtering** - top-level forms filtered in browser (not server) to preserve data across sort mode toggles
-- **Defmethod source fix** - kondo's `:end-row` only covers name line; `find-form-end-line` scans for balanced parens
-- **Phase 1.5A complete** - clj-kondo integration working
-- **Exit code fix** - clj-kondo returns exit code 2 for warnings; added `:continue true` to shell
-- **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` demonstrates all kind labels
-- **Phase 2 expanded** - Comprehensive live mode plan inspired by clj-ns-browser
-- **Reference project** - `../clj-ns-browser` for feature inspiration (live introspection)
-- **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools!
+- **Symbol filter fix** - React key `(:name sym)` wasn't unique; changed to `(str name "-" line)`
+- **Protocol impl source** - Shows full defrecord/deftype, not just method lines
+- **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` has 64 vars
+- **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools
 - **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
-- **Future idea** - Pureness indicator for symbols (pure, side-effects, innocent-side-effects)
+- **Reference project** - `../clj-ns-browser` for Phase 2 inspiration
 
 ---
 
