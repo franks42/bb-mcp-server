@@ -133,6 +133,24 @@
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !subscribers (atom {}))
 
+;; Server epoch - unique ID that changes on each server start.
+;; Used by browser to detect server restarts and reset local sync state.
+;; Browsers track this and when it changes, they know to accept any seq.
+#_{:clj-kondo/ignore [:missing-docstring]}
+(defonce !server-epoch (atom (System/currentTimeMillis)))
+
+(defn get-server-epoch
+  "Get current server epoch.
+   Epoch changes on each server start - used for stale detection."
+  []
+  @!server-epoch)
+
+(defn reset-server-epoch!
+  "Reset server epoch to current timestamp.
+   Called on module start to signal server restart to browsers."
+  []
+  (reset! !server-epoch (System/currentTimeMillis)))
+
 (defn- notify-subscribers!
   "Call all subscriber callbacks with ops."
   [ops]
@@ -146,16 +164,19 @@
 (defn- on-atom-change
   "Watcher callback when registered atom changes.
    Generates ops, updates seq, notifies subscribers.
-   Each op gets its own seq number to ensure browser applies all."
+   Each op gets its own seq number and current epoch to ensure browser applies all."
   [key _ref old-val new-val]
   (when (not= old-val new-val)
     (let [base-ops (deep-diff->ops key old-val new-val)
           start-seq (get-in @!synced-atoms [key :seq] 0)
-          ;; Assign incrementing seq to each op
+          epoch @!server-epoch
+          ;; Assign incrementing seq and epoch to each op
           ops (vec
                (map-indexed
                 (fn [idx [op-type op-data]]
-                  [op-type (assoc op-data :seq (+ start-seq idx 1))])
+                  [op-type (assoc op-data
+                                  :seq (+ start-seq idx 1)
+                                  :epoch epoch)])
                 base-ops))
           final-seq (+ start-seq (count base-ops))]
       ;; Update registry with final seq
@@ -264,6 +285,7 @@
 (defn generate-full-sync-ops
   "Generate full sync ops for an atom (path []).
    Used for initial sync to new clients.
+   Includes epoch for stale detection on browser side.
 
    Args:
      key - atom key
@@ -273,6 +295,7 @@
   (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
             [[:sync/op {:key key
                         :seq seq
+                        :epoch @!server-epoch
                         :op :assoc-in
                         :path []
                         :value @atom}]]))
@@ -413,9 +436,12 @@
 (def module
      "Module lifecycle map for bb-mcp-server module system."
      {:start (fn [_config]
+               ;; Reset epoch on server start so browsers detect restart
+               (reset-server-epoch!)
                {:status :started
                 :synced-atoms !synced-atoms
-                :subscribers !subscribers})
+                :subscribers !subscribers
+                :server-epoch !server-epoch})
       :stop (fn [_instance]
               (reset-all!)
               nil)})

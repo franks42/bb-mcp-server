@@ -11,7 +11,7 @@
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, and **top-level forms**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, and **server epoch detection**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -24,6 +24,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.2 | Git status display | **COMPLETE** |
 | 1.5E.6 | Multimethod implementations (defmethod) | **COMPLETE** |
 | 1.5E.9 | Top-level forms display | **COMPLETE** |
+| 1.5-Epoch | Server epoch for stale data detection | **COMPLETE** |
 
 ---
 
@@ -57,11 +58,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+03b46d5 fix(code-browser): Show complete defmethod source code
 31c70df feat(code-browser): Add defmethod and top-level forms display
 54a92e0 docs: Mark Phase 1.5E.2 git status display complete
 37fd04d feat(code-browser): Add git status display (Phase 1.5E.2)
 6faa86f docs: Mark Phase 1.5E.1 file-order sorting complete
-7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
 ```
 
 ---
@@ -118,6 +119,7 @@ bb lint && bb format
 | `atom-sync.server` | `register-on-connect!` | Run callback when browser connects |
 | `atom-sync.server` | `on-browser-connected!` | Trigger callbacks + initial sync |
 | `atom-sync.core` | `register-synced-atom!` | Register atom for sync |
+| `atom-sync.core` | `get-server-epoch` | Get current epoch (changes on restart) |
 | `code-browser` | `analyze-file-with-kondo` | Rich var classification |
 | `bootstrap` (browser) | `get-synced-atom` | Get Reagent atom by key |
 
@@ -137,9 +139,11 @@ bb lint && bb format
 
 ## Session Notes
 
+- **Server epoch complete** - Server generates unique epoch on start; browser detects restart and resets local sync state
 - **Phase 1.5E.6 complete** - defmethod implementations show as `my-multimethod :dispatch-val` with kind `method`
 - **Phase 1.5E.9 complete** - top-level forms like `(comment ...)` shown only in file-order view
 - **Browser-side filtering** - top-level forms filtered in browser (not server) to preserve data across sort mode toggles
+- **Defmethod source fix** - kondo's `:end-row` only covers name line; `find-form-end-line` scans for balanced parens
 - **Phase 1.5A complete** - clj-kondo integration working
 - **Exit code fix** - clj-kondo returns exit code 2 for warnings; added `:continue true` to shell
 - **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` demonstrates all kind labels

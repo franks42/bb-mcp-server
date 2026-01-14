@@ -481,6 +481,10 @@
     ;; Sync state tracking: {:key {:seq n}} for gap detection
     (defonce !sync-state (atom {}))
 
+    ;; Track last-seen epoch per key for server restart detection
+    ;; When epoch changes, we know server restarted and should accept any seq
+    (defonce !last-epoch (atom {}))
+
     ;; Watchers for future bidirectional sync (Phase 2)
     (defonce !sync-watchers-installed (atom #{}))
 
@@ -522,15 +526,31 @@
             (client/send! @!client-id [:sync/resync-request {:key key}])))))
 
     (defn apply-sync-op
-      \"Apply a sync operation with seq validation.
+      \"Apply a sync operation with seq validation and epoch detection.
        Returns :applied, :stale, or :gap.
 
-       Protocol: [:sync/op {:key k :seq n :op :assoc-in :path [] :value v}]
+       Protocol: [:sync/op {:key k :seq n :epoch e :op :assoc-in :path [] :value v}]
+
+       Epoch detection: When server epoch changes (server restart), we reset
+       all local sync state for that key and accept the update unconditionally.
 
        Special case: Full state replace (path []) accepts any seq and resets
        local tracking. This handles both initial sync and resync recovery.\"
-      [{:keys [key seq op path value]}]
-      (let [current-seq (get-in @!sync-state [key :seq] 0)
+      [{:keys [key seq epoch op path value]}]
+      (let [last-epoch (get @!last-epoch key)
+            epoch-changed? (and epoch last-epoch (not= epoch last-epoch))
+            ;; On epoch change, reset local state
+            _ (when epoch-changed?
+                (log/log! {:level :warn
+                           :id ::epoch-changed
+                           :msg \"Server epoch changed - server restarted, resetting local state\"
+                           :data {:key key :old-epoch last-epoch :new-epoch epoch}})
+                (swap! !sync-state dissoc key)
+                (swap! !resync-pending disj key))
+            ;; Track current epoch
+            _ (when epoch
+                (swap! !last-epoch assoc key epoch))
+            current-seq (get-in @!sync-state [key :seq] 0)
             expected-seq (inc current-seq)
             is-full-replace? (= path [])]
         (cond
@@ -547,7 +567,19 @@
             (log/log! {:level :info
                        :id ::full-sync-applied
                        :msg \"Full state sync applied\"
-                       :data {:key key :seq seq :prev-seq current-seq}})
+                       :data {:key key :seq seq :prev-seq current-seq :epoch epoch}})
+            :applied)
+
+          ;; Epoch changed - accept update even if seq looks wrong
+          epoch-changed?
+          (do
+            (when-let [a (get-synced-atom key)]
+              (swap! a assoc-in path value))
+            (swap! !sync-state assoc-in [key :seq] seq)
+            (log/log! {:level :info
+                       :id ::sync-applied-epoch-reset
+                       :msg \"Sync op applied after epoch reset\"
+                       :data {:key key :seq seq :op op :path path}})
             :applied)
 
           ;; Normal case: sequential update
@@ -621,7 +653,8 @@
       \"Get current sync status for debugging.\"
       []
       {:atoms (keys @!synced-atoms)
-       :state @!sync-state})
+       :state @!sync-state
+       :epochs @!last-epoch})
 
     ;; =========================================================================
     ;; Connection Client
