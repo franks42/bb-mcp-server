@@ -674,15 +674,68 @@ my-function          function      line 27
 - Understanding load-time side effects
 - Spotting `(require ...)` outside ns form (sometimes a smell)
 
+#### Phase 1.5E.10: Symbol Inspector (Multi-View Details)
+
+**Goal:** When a symbol is selected, offer multiple views beyond just source code.
+
+**Views:**
+
+| View | Description | Data Source |
+|------|-------------|-------------|
+| **Source** | Full source code (current) | LSP / file read |
+| **Docstring** | Extracted, formatted docstring only | kondo `:doc` field or parse source |
+| **Examples** | Usage examples | ClojureDocs (core), nearby `(comment ...)` blocks |
+| **Dependents** | Vars that USE this symbol ("who calls me?") | kondo `:var-usages` where `:name` = this var |
+| **Dependencies** | Vars this symbol USES ("who do I call?") | kondo `:var-usages` within this var's line range |
+| **Metadata** | Arglists, type hints, deprecation, etc. | kondo analysis + source parsing |
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.10.1 | Add view selector UI (tabs or dropdown) | Pending |
+| 1.5E.10.2 | Docstring view: Extract and format `:doc` | Pending |
+| 1.5E.10.3 | Examples view: Fetch from ClojureDocs for `clojure.core/*` | Pending |
+| 1.5E.10.4 | Examples view: Find nearby `(comment ...)` blocks in same file | Pending |
+| 1.5E.10.5 | Dependents view: Query var-usages for refs to this symbol | Pending |
+| 1.5E.10.6 | Dependencies view: Query var-usages within symbol's source range | Pending |
+| 1.5E.10.7 | Click on dependent/dependency → navigate to that symbol | Pending |
+| 1.5E.10.8 | Metadata view: Show arglists, type hints, private?, deprecated? | Pending |
+
+**Example UI:**
+```
+┌─ my-function ──────────────────────────────────┐
+│ [Source] [Doc] [Examples] [Dependents] [Deps]  │
+├────────────────────────────────────────────────┤
+│ ;; Dependents (3 vars call my-function):       │
+│   → other-fn        (line 45)                  │
+│   → handler         (line 102)                 │
+│   → test-my-fn      (line 230)                 │
+└────────────────────────────────────────────────┘
+```
+
+**Data sources for dependencies:**
+```clojure
+;; Find who calls `my-fn`:
+(->> var-usages
+     (filter #(= 'my-fn (:name %)))
+     (filter #(not= (:from %) (:to %))))  ; exclude self
+
+;; Find what `my-fn` calls (usages within its source range):
+(->> var-usages
+     (filter #(and (>= (:row %) start-line)
+                   (<= (:row %) end-line)))
+     (filter #(not= 'my-fn (:name %))))   ; exclude self
+```
+
 **Priority order:**
 1. **1.5E.1** - File-order sorting (quick, high value) ← prerequisite for 1.5E.9
 2. **1.5E.2** - Git status display (moderate, useful context)
 3. **1.5E.6** - Multimethod implementations (good data available)
 4. **1.5E.7** - Protocol implementations (good data available)
 5. **1.5E.9** - Top-level forms (only in file-order view)
-6. **1.5E.3** - Project selector (larger, architectural)
-7. **1.5E.8** - Enhanced protocol display (nice-to-have)
-8. **1.5E.4** - Branch switching (complex, defer)
+6. **1.5E.10** - Symbol inspector (multi-view details)
+7. **1.5E.3** - Project selector (larger, architectural)
+8. **1.5E.8** - Enhanced protocol display (nice-to-have)
+9. **1.5E.4** - Branch switching (complex, defer)
 
 #### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
 
