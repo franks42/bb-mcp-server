@@ -11,7 +11,7 @@
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, and **file-order symbol sorting**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, and **top-level forms**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -22,6 +22,8 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5A | clj-kondo rich var classification | **COMPLETE** |
 | 1.5E.1 | File-order symbol sorting | **COMPLETE** |
 | 1.5E.2 | Git status display | **COMPLETE** |
+| 1.5E.6 | Multimethod implementations (defmethod) | **COMPLETE** |
+| 1.5E.9 | Top-level forms display | **COMPLETE** |
 
 ---
 
@@ -55,11 +57,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+31c70df feat(code-browser): Add defmethod and top-level forms display
+54a92e0 docs: Mark Phase 1.5E.2 git status display complete
 37fd04d feat(code-browser): Add git status display (Phase 1.5E.2)
+6faa86f docs: Mark Phase 1.5E.1 file-order sorting complete
 7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
-8c55349 docs: Expand Phase 2 with comprehensive live mode plan
-84bd11f docs: Add Phase 1.5E.10 symbol inspector (multi-view details)
-f13129a docs: Add Phase 1.5E.9 top-level forms display to plan
 ```
 
 ---
@@ -135,6 +137,9 @@ bb lint && bb format
 
 ## Session Notes
 
+- **Phase 1.5E.6 complete** - defmethod implementations show as `my-multimethod :dispatch-val` with kind `method`
+- **Phase 1.5E.9 complete** - top-level forms like `(comment ...)` shown only in file-order view
+- **Browser-side filtering** - top-level forms filtered in browser (not server) to preserve data across sort mode toggles
 - **Phase 1.5A complete** - clj-kondo integration working
 - **Exit code fix** - clj-kondo returns exit code 2 for warnings; added `:continue true` to shell
 - **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` demonstrates all kind labels
@@ -142,6 +147,7 @@ bb lint && bb format
 - **Reference project** - `../clj-ns-browser` for feature inspiration (live introspection)
 - **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools!
 - **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
+- **Future idea** - Pureness indicator for symbols (pure, side-effects, innocent-side-effects)
 
 ---
 

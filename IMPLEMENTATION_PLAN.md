@@ -571,7 +571,7 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 - May need to reinitialize clojure-lsp after switch
 - Consider read-only mode first (just display, no switch)
 
-#### Phase 1.5E.6: Multimethod Implementations (defmethod)
+#### Phase 1.5E.6: Multimethod Implementations (defmethod) ✅ Complete (2026-01-14)
 
 **Goal:** Show `defmethod` implementations linked to their `defmulti`.
 
@@ -585,15 +585,18 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.6.1 | Extend kondo analysis to fetch `:var-usages` | Pending |
-| 1.5E.6.2 | Filter var-usages for `:defmethod true` | Pending |
-| 1.5E.6.3 | Create method entries with dispatch value in name | Pending |
-| 1.5E.6.4 | Link methods to parent multimethod (group or indent) | Pending |
-| 1.5E.6.5 | Browser: Display as `my-multimethod :default` with kind `method` | Pending |
+| 1.5E.6.1 | Extend kondo analysis to fetch `:var-usages` | ✅ |
+| 1.5E.6.2 | Filter var-usages for `:defmethod true` | ✅ |
+| 1.5E.6.3 | Create method entries with dispatch value in name | ✅ |
+| 1.5E.6.4 | Link methods to parent multimethod (group or indent) | Deferred |
+| 1.5E.6.5 | Browser: Display as `my-multimethod :default` with kind `method` | ✅ |
 
-**Display options:**
-- Flat: `my-multimethod :default   method   (line 59)`
-- Grouped under multimethod (tree view)
+**Implementation:**
+- `extract-defmethods` - filters var-usages for `:defmethod true`
+- Display format: `my-multimethod :dispatch-val` with kind `method`
+- Flat display (grouping deferred to future enhancement)
+
+**Commit:** `31c70df` feat(code-browser): Add defmethod and top-level forms display
 
 #### Phase 1.5E.7: Protocol Implementations
 
@@ -638,7 +641,7 @@ MyProtocol           protocol
     → MyType         impl
 ```
 
-#### Phase 1.5E.9: Top-Level Forms Display
+#### Phase 1.5E.9: Top-Level Forms Display ✅ Complete (2026-01-14)
 
 **Goal:** Show non-defining top-level forms (side effects, comments, config).
 
@@ -654,11 +657,17 @@ Line 19     require    (require outside ns)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.9.1 | Extend analysis: get var-usages, filter by col=1, outside defs | Pending |
-| 1.5E.9.2 | Categorize forms: comment, side-effect, config, require, do | Pending |
-| 1.5E.9.3 | Generate display name from form type + line range | Pending |
-| 1.5E.9.4 | **Only show in file-order view** (not alphabetical) | Pending |
-| 1.5E.9.5 | Visual distinction (different color/icon for non-def forms) | Pending |
+| 1.5E.9.1 | Extend analysis: get var-usages, filter by col=1, outside defs | ✅ |
+| 1.5E.9.2 | Categorize forms: comment, side-effect, config, require, do | ✅ |
+| 1.5E.9.3 | Generate display name from form type + line range | ✅ |
+| 1.5E.9.4 | **Only show in file-order view** (not alphabetical) | ✅ |
+| 1.5E.9.5 | Visual distinction (different color/icon for non-def forms) | Deferred |
+
+**Implementation:**
+- `extract-top-level-forms` - filters var-usages by col=1 and form name allowlist
+- Forms marked with `:top-level? true` for browser-side filtering
+- Browser filters out top-level forms in `:alpha` mode
+- Display format: `(comment ...)` with kind `comment`
 
 **Display decision:**
 - **Alphabetical view:** Hide top-level forms (no meaningful name to sort)
@@ -672,6 +681,8 @@ my-variable          variable      line 13
 my-function          function      line 27
 (set! *warn...*)     config        line 30
 ```
+
+**Commit:** `31c70df` feat(code-browser): Add defmethod and top-level forms display
 
 **Useful for:**
 - Finding `(comment ...)` blocks with examples/experiments
