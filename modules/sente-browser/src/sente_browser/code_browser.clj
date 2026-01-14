@@ -29,9 +29,11 @@
     :error nil}"
     (:require [atom-sync.core :as atom-sync]
               [atom-sync.server :as atom-sync-server]
+              [babashka.process :refer [shell]]
               [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
               [bb-mcp-server.modules.clojure-lsp.server :as lsp-server]
               [bb-mcp-server.modules.clojure-lsp.watcher :as lsp-watcher]
+              [clojure.edn :as edn]
               [clojure.java.io :as io]
               [clojure.set :as set]
               [clojure.string :as str]
@@ -256,6 +258,95 @@
       26 :type-parameter})
 
 ;; =============================================================================
+;; clj-kondo Analysis (Phase 1.5A - Rich Var Classification)
+;; =============================================================================
+
+(def ^:private defined-by->label
+     "Map clj-kondo :defined-by to human-readable kind labels.
+   These provide richer classification than LSP's generic kinds."
+     {'clojure.core/defn        :function
+      'clojure.core/defn-       :private-fn
+      'clojure.core/def         :variable
+      'clojure.core/defonce     :defonce
+      'clojure.core/declare     :declare
+      'clojure.core/defmacro    :macro
+      'clojure.core/defmulti    :multimethod
+      'clojure.core/defmethod   :method
+      'clojure.core/defprotocol :protocol
+      'clojure.core/deftype     :deftype
+      'clojure.core/defrecord   :defrecord
+      'clojure.test/deftest     :test})
+
+(defn- analyze-file-with-kondo
+  "Run clj-kondo on a file and return var-definitions.
+   Returns nil if analysis fails."
+  [file-path]
+  (log/log! {:level :debug
+             :id ::kondo-analyze
+             :msg "Analyzing file with clj-kondo"
+             :data {:file file-path}})
+  (try
+   (let [result (shell {:out :string :err :string}
+                       "clj-kondo" "--lint" file-path
+                       "--config" "{:output {:analysis {:var-definitions true} :format :edn}}")
+         output (:out result)]
+     (when (seq output)
+       (let [analysis (edn/read-string output)
+             var-defs (get-in analysis [:analysis :var-definitions])]
+         (log/log! {:level :debug
+                    :id ::kondo-result
+                    :msg "clj-kondo analysis complete"
+                    :data {:file file-path
+                           :var-count (count var-defs)}})
+         var-defs)))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::kondo-error
+                     :msg "clj-kondo analysis failed"
+                     :data {:file file-path :error (ex-message e)}})
+          nil)))
+
+(defn- kondo-var->symbol
+  "Convert a clj-kondo var-definition to our symbol format."
+  [var-def]
+  (let [defined-by (:defined-by var-def)
+        kind (get defined-by->label defined-by :variable)]
+    {:name (str (:name var-def))
+     :kind kind
+     :line (:row var-def)
+     :column (:col var-def)
+     :end-line (:end-row var-def)
+     :end-column (:end-col var-def)
+     :doc (:doc var-def)
+     :defined-by (str defined-by)}))
+
+(defn- extract-ns-symbols-kondo
+  "Extract symbols for a namespace using clj-kondo analysis.
+   Falls back to LSP-based extraction if kondo fails."
+  [file-uri ns-name]
+  (let [file-path (str/replace file-uri "file://" "")]
+    (if-let [var-defs (analyze-file-with-kondo file-path)]
+      ;; Filter to the requested namespace (handles multi-ns files)
+            (let [ns-sym (symbol ns-name)
+                  ns-vars (->> var-defs
+                               (filter #(= ns-sym (:ns %)))
+                               (map kondo-var->symbol)
+                               (sort-by :name)
+                               vec)]
+              (log/log! {:level :info
+                         :id ::kondo-symbols-extracted
+                         :msg "Extracted symbols with clj-kondo"
+                         :data {:ns ns-name :count (count ns-vars)}})
+              ns-vars)
+      ;; Fallback - return nil to signal caller should use LSP
+            (do
+             (log/log! {:level :info
+                        :id ::kondo-fallback
+                        :msg "Falling back to LSP for symbols"
+                        :data {:ns ns-name}})
+             nil))))
+
+;; =============================================================================
 ;; Data Fetching from clojure-lsp
 ;; =============================================================================
 
@@ -415,7 +506,9 @@
   (let [symbols (fetch-all-symbols)
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
-      (let [ns-symbols (extract-ns-symbols symbols file-uri)
+      ;; Try clj-kondo first for rich classification, fall back to LSP
+      (let [ns-symbols (or (extract-ns-symbols-kondo file-uri ns)
+                           (extract-ns-symbols symbols file-uri))
             symbol-names (set (map :name ns-symbols))]
         ;; Update synced atom - ACCUMULATE symbols by namespace
         (swap! !code-browser-state
