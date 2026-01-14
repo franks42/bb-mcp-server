@@ -431,19 +431,23 @@
 (defn- fix-protocol-method-lines
   "Update protocol methods to use parent protocol's line range.
    Protocol methods (col > 1) should show the entire defprotocol form.
+   Preserves :method-line for highlighting the method within the protocol.
    Returns updated symbols with parent protocol's row/end-row for methods."
   [symbols var-definitions]
   (map (fn [sym]
          (if (and (= :protocol (:kind sym))
                   (> (:_orig-col sym 1) 1))  ; Protocol method, not protocol itself
            ;; Find parent protocol and use its line range
-           (if-let [parent (find-parent-protocol var-definitions (:line sym))]
-                   (-> sym
-                       (assoc :line (:row parent)
-                              :end-line (:end-row parent)
-                              :parent-protocol (str (:name parent)))
-                       (dissoc :_orig-col))
-                   (dissoc sym :_orig-col))
+           (let [original-line (:line sym)]  ; Preserve original method line
+             (if-let [parent (find-parent-protocol var-definitions original-line)]
+                     (-> sym
+                         (assoc :line (:row parent)
+                                :end-line (:end-row parent)
+                                :parent-protocol (str (:name parent))
+                                ;; Preserve original method line for highlighting (Phase 1.5E.12)
+                                :method-line original-line)
+                         (dissoc :_orig-col))
+                     (dissoc sym :_orig-col)))
            ;; Not a protocol method - just remove internal field
            (dissoc sym :_orig-col)))
        symbols))
@@ -470,6 +474,7 @@
   "Extract protocol method implementations from protocol-impls analysis.
    Creates symbols like 'protocol-method (MyRecord)' with kind :protocol-impl.
    Uses containing defrecord/deftype's line range for source display.
+   Preserves :method-line and :method-end-line for highlighting implementation.
    Requires var-definitions to determine the implementing type name and bounds."
   [protocol-impls var-definitions]
   (->> protocol-impls
@@ -479,14 +484,20 @@
                     method-name (str (:method-name impl))
                     display-name (if type-name
                                    (str method-name " (" type-name ")")
-                                   method-name)]
+                                   method-name)
+                    ;; Original method implementation lines (for highlighting)
+                    impl-line (:row impl)
+                    impl-end-line (:end-row impl)]
                 {:name display-name
                  :kind :protocol-impl
                  ;; Use containing type's line range so source shows full defrecord/deftype
                  :line (if type-var (:row type-var) (:row impl))
                  :column (:col impl)
-                 :end-line (if type-var (:end-row type-var) (:end-row impl))
+                 :end-line (if type-var (:end-row type-var) impl-end-line)
                  :end-column (:end-col impl)
+                 ;; Preserve original method lines for source highlighting (Phase 1.5E.12)
+                 :method-line impl-line
+                 :method-end-line impl-end-line
                  :protocol (str (:protocol-name impl))
                  :protocol-ns (str (:protocol-ns impl))
                  :method-name method-name
@@ -957,13 +968,29 @@
                                   end-line)
                 code (extract-source-region content start-line actual-end-line)
                 var-key (str ns "/" var-name)
-                source-data {:code code
-                             :file file-uri
-                             :ns ns
-                             :var-name var-name
-                             :start-line start-line
-                             :end-line actual-end-line
-                             :language "clojure"}
+                ;; Phase 1.5E.12: Calculate highlight lines for protocol impls/methods
+                ;; If cached symbol has :method-line/:method-end-line, compute relative lines
+                method-line (:method-line cached-sym)
+                method-end-line (:method-end-line cached-sym)
+                highlight-line (when (and method-line
+                                          (>= method-line start-line)
+                                          (<= method-line actual-end-line))
+                                 ;; Convert absolute line to 1-based line within extracted source
+                                 (- method-line (dec start-line)))
+                highlight-end-line (when (and method-end-line
+                                              (>= method-end-line start-line)
+                                              (<= method-end-line actual-end-line))
+                                     (- method-end-line (dec start-line)))
+                source-data (cond-> {:code code
+                                     :file file-uri
+                                     :ns ns
+                                     :var-name var-name
+                                     :start-line start-line
+                                     :end-line actual-end-line
+                                     :language "clojure"}
+                              ;; Include highlight lines if available (Phase 1.5E.12)
+                                    highlight-line (assoc :highlight-line highlight-line)
+                                    highlight-end-line (assoc :highlight-end-line highlight-end-line))
                 ;; Get cached source to compare
                 cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
                 source-changed? (not= code cached-code)]

@@ -248,7 +248,8 @@
 (defn source-panel
   "Right panel: source code viewer.
    Uses stable editor ID to prevent flashing on source changes.
-   Reads from accumulated source-by-var map keyed by ns/var-name."
+   Reads from accumulated source-by-var map keyed by ns/var-name.
+   Supports :highlight-line/:highlight-end-line for protocol impl source (Phase 1.5E.12)."
   []
   (let [layout @!layout
         server-state @(get-server-state)
@@ -257,7 +258,10 @@
         var-key (when (and selected-ns selected-symbol)
                   (str selected-ns "/" selected-symbol))
         source (when var-key
-                 (get-in server-state [:source-by-var var-key]))]
+                 (get-in server-state [:source-by-var var-key]))
+        ;; Phase 1.5E.12: highlight lines from server (1-based, relative to extracted source)
+        highlight-line (:highlight-line source)
+        highlight-end-line (:highlight-end-line source)]
     [:div.panel.source-panel
      {:style {:width (:source-width layout)}}
      [:div.panel-header
@@ -266,10 +270,13 @@
              "Source")]]
      [:div.source-container
       ;; Always mount editor with stable ID to prevent flash on source change
+      ;; Pass highlight lines for protocol impl/method highlighting
       [cm6/editor {:id "code-browser-source"
                    :value (or (:code source) ";; Select a var to view source")
                    :language :clojure
-                   :read-only true}]]
+                   :read-only true
+                   :highlight-line highlight-line
+                   :highlight-end-line highlight-end-line}]]
      (when source
        [:div.panel-footer
         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]])]))

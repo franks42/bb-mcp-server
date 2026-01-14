@@ -791,7 +791,7 @@ my-function          function      line 27
 3. ~~**1.5E.6** - Multimethod implementations~~ ✅ Complete
 4. ~~**1.5E.7** - Protocol implementations~~ ✅ Complete
 5. ~~**1.5E.9** - Top-level forms~~ ✅ Complete
-6. **1.5E.12** - Source code highlighting ← **NEXT** (highlight method within type)
+6. ~~**1.5E.12** - Source code highlighting~~ ✅ Complete (multi-line highlight)
 7. **1.5E.10** - Symbol inspector (multi-view details)
 8. **1.5E.3** - Project selector (larger, architectural)
 9. **1.5E.8** - Enhanced protocol display (nice-to-have)
@@ -875,12 +875,12 @@ my.namespace (3 files)
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.12.1 | Server: Include `:highlight-line` in source response for protocol impls | Pending |
-| 1.5E.12.2 | Server: Include `:highlight-range` for multi-line method bodies | Pending |
-| 1.5E.12.3 | scittle_cm6.cljs: Add CM6 line decoration support | Pending |
-| 1.5E.12.4 | scittle_cm6.cljs: Add range decoration support (background color) | Pending |
-| 1.5E.12.5 | Browser: Scroll highlighted line into view | Pending |
-| 1.5E.12.6 | CSS: Style for highlight (subtle yellow/blue background) | Pending |
+| 1.5E.12.1 | Server: Include `:highlight-line` in source response for protocol impls | **Done** |
+| 1.5E.12.2 | Server: Include `:highlight-end-line` for multi-line method bodies | **Done** |
+| 1.5E.12.3 | scittle_cm6.cljs: Add CM6 line decoration support | **Done** |
+| 1.5E.12.4 | scittle_cm6.cljs: Add range decoration support (multiple lines) | **Done** |
+| 1.5E.12.5 | Browser: Scroll highlighted line into view | **Done** |
+| 1.5E.12.6 | CSS: Style for highlight (subtle yellow/blue background) | **Done** |
 
 **CM6 API:**
 ```javascript
@@ -1195,6 +1195,12 @@ bb nrepl connect 7888 --nickname my-repl
 bb nrepl eval "(+ 1 2 3)"
 bb nrepl load-file src/app/core.clj
 ```
+
+**Known Issue:** `bb nrepl load-file` silently fails for `.cljc` files when loading into Scittle browser. Workaround: use `bb mcp call nrepl.nrepl-eval-local-file '{"file-path":"...","connection":"browser-N","timeout":30000}' --mcp <nickname>` directly.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 18.1 | Fix `bb nrepl load-file` to properly handle `.cljc` files for Scittle | Pending |
 
 ---
 

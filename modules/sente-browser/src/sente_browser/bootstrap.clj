@@ -270,6 +270,9 @@
     .cm-editor { height: 100%; font-family: 'Fira Code', monospace !important; }
     .cm-editor .cm-content { font-family: 'Fira Code', monospace !important; }
     .cm-editor .cm-gutters { font-family: 'Fira Code', monospace !important; }
+    /* Phase 1.5E.12: Line highlighting for protocol impls/methods */
+    .cm-editor .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.25); }
+    .cm-editor.cm-focused .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.35); }
 
     /* Code Browser three-panel layout */
     .code-browser { display: flex; flex-direction: column; height: calc(100vh - 200px); }
@@ -419,18 +422,22 @@
   <script type=\"module\">
     const STATE_VERSION = '6.4.1';
 
-    // Import EditorState from @codemirror/state (not included in codemirror meta-package)
-    const { EditorState } = await import(`https://esm.sh/@codemirror/state@${STATE_VERSION}`);
+    // Import EditorState and StateField from @codemirror/state
+    const { EditorState, StateField, RangeSet } = await import(`https://esm.sh/@codemirror/state@${STATE_VERSION}`);
 
-    // Import EditorView and basicSetup - pin state version only, let view resolve naturally
+    // Import EditorView and basicSetup from codemirror meta-package
     const { EditorView, basicSetup } = await import(`https://esm.sh/codemirror?deps=@codemirror/state@${STATE_VERSION}`);
+
+    // Import Decoration from @codemirror/view (not re-exported by codemirror bundle)
+    const { Decoration } = await import(`https://esm.sh/@codemirror/view?deps=@codemirror/state@${STATE_VERSION}`);
 
     // Import Clojure language support with same state version
     const { clojure } = await import(`https://esm.sh/@nextjournal/lang-clojure?deps=@codemirror/state@${STATE_VERSION}`);
 
-    globalThis.CM = { EditorView, EditorState, basicSetup, clojure };
+    // Expose all modules needed by scittle_cm6.cljs (including Phase 1.5E.12 highlighting)
+    globalThis.CM = { EditorView, EditorState, basicSetup, clojure, Decoration, StateField, RangeSet };
     window.CM6_READY = true;
-    console.log('[code-browser] CodeMirror 6 loaded');
+    console.log('[code-browser] CodeMirror 6 loaded (with decoration support)');
   </script>
 
   <!-- 7. sente-lite-nrepl bundle -->

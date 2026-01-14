@@ -26,6 +26,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.7 | Protocol implementations (defrecord/deftype) | **COMPLETE** |
 | 1.5E.9 | Top-level forms display | **COMPLETE** |
 | 1.5-Epoch | Server epoch for stale data detection | **COMPLETE** |
+| 1.5E.12 | Source code highlighting (multi-line) | **COMPLETE** |
 
 ---
 
@@ -72,12 +73,11 @@ e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 
 | Priority | Phase | Description | Notes |
 |----------|-------|-------------|-------|
-| 1 | **1.5E.12** | Source code highlighting | Highlight method within defrecord/deftype |
-| 2 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
-| 3 | **1.5E.3** | Project selector | Browse multiple projects |
-| 4 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
+| 1 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
+| 2 | **1.5E.3** | Project selector | Browse multiple projects |
+| 3 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
 
-**Phase 1.5E.12 is next** - highlight relevant code regions (e.g., `add` method within `RichRecord` defrecord).
+**Phase 1.5E.10 (Symbol inspector)** is the next significant feature.
 
 ---
 
@@ -160,12 +160,9 @@ bb lint && bb format
 - clj-kondo classification (64 var types in showcase)
 - Protocol/defmethod display with full source
 - Symbol filter works correctly
+- **Source code highlighting** with multi-line support (Phase 1.5E.12)
 
-**Next feature: Phase 1.5E.12** - Source code highlighting
-- When clicking `add (RichRecord)`, highlight the `add` method line within the full defrecord
-- Uses CM6 Decoration API
-- Server data already has line numbers from kondo
-- See IMPLEMENTATION_PLAN.md for detailed tasks
+**Next feature: Phase 1.5E.10** - Symbol inspector (multi-view details)
 
 **Key gotchas:**
 - React keys must be unique (use `name-line` not just `name`)
