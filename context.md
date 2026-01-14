@@ -11,7 +11,7 @@
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, and **clj-kondo rich var classification**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, and **file-order symbol sorting**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -20,6 +20,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5-Auto | Reactive auto-initialization | **COMPLETE** |
 | 1.5-Watch | Live file watching | **COMPLETE** |
 | 1.5A | clj-kondo rich var classification | **COMPLETE** |
+| 1.5E.1 | File-order symbol sorting | **COMPLETE** |
 
 ---
 
@@ -53,11 +54,12 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
-7deb52d fix(code-browser): Handle clj-kondo non-zero exit codes gracefully
-6c06c7b feat(code-browser): Add clj-kondo analysis for rich var classification (Phase 1.5A)
-6c85a81 feat(code-browser): Preserve selection on file changes
-7d771a6 fix(atom-sync): Prevent resync request flooding
-2cbd0e2 fix(code-browser): Remove CM6 view version pinning
+7589871 feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
+8c55349 docs: Expand Phase 2 with comprehensive live mode plan
+84bd11f docs: Add Phase 1.5E.10 symbol inspector (multi-view details)
+f13129a docs: Add Phase 1.5E.9 top-level forms display to plan
+c7a4b1c docs: Add defmethod and protocol implementation phases to plan
+1a4002f docs: Add Phase 1.5E.5 sync mode toggle to plan
 ```
 
 ---
@@ -136,6 +138,8 @@ bb lint && bb format
 - **Phase 1.5A complete** - clj-kondo integration working
 - **Exit code fix** - clj-kondo returns exit code 2 for warnings; added `:continue true` to shell
 - **Showcase file** - `test/bb_mcp_server/kondo_types_showcase.clj` demonstrates all kind labels
+- **Phase 2 expanded** - Comprehensive live mode plan inspired by clj-ns-browser
+- **Reference project** - `../clj-ns-browser` for feature inspiration (live introspection)
 - **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools!
 - **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
 

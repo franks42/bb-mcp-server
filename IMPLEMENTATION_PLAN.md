@@ -483,16 +483,18 @@ File change → watcher.clj → clojure-lsp → publishDiagnostics
 
 User-requested improvements for better code navigation and project awareness.
 
-#### Phase 1.5E.1: File-Order Symbol Sorting (Quick Win)
+#### Phase 1.5E.1: File-Order Symbol Sorting ✅ Complete (2026-01-14)
 
 **Goal:** Show symbols in file order (by line number) instead of alphabetically, to understand eval dependencies.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.1.1 | Add sort-mode toggle to browser state (`:alpha` or `:file-order`) | Pending |
-| 1.5E.1.2 | Server: Sort by `:line` instead of `:name` when file-order selected | Pending |
-| 1.5E.1.3 | Browser: Add toggle button in vars panel header | Pending |
-| 1.5E.1.4 | Persist sort preference (or default to file-order) | Pending |
+| 1.5E.1.1 | Add sort-mode toggle to browser state (`:alpha` or `:file-order`) | ✅ |
+| 1.5E.1.2 | Server: Sort by `:line` instead of `:name` when file-order selected | ✅ |
+| 1.5E.1.3 | Browser: Add toggle button in vars panel header | ✅ |
+| 1.5E.1.4 | Persist sort preference (or default to file-order) | ✅ (defaults to `:file-order`) |
+
+**Commit:** `7589871` feat(code-browser): Add file-order symbol sorting (Phase 1.5E.1)
 
 **Implementation notes:**
 - clj-kondo already provides `:row` (line number) for each symbol
