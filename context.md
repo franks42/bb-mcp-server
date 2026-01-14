@@ -59,11 +59,11 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+62ae470 fix(code-browser): Symbol filter and protocol impl source display
 05c6f87 fix(code-browser): Show full protocol for protocol methods
 6cc679f docs(showcase): Enhance kondo-types-showcase with extensive examples
 983ad9a feat(code-browser): Add protocol implementation display (Phase 1.5E.7)
 e9ef9fd feat(atom-sync): Add server epoch for stale data detection
-03b46d5 fix(code-browser): Show complete defmethod source code
 ```
 
 ---
@@ -72,12 +72,12 @@ e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 
 | Priority | Phase | Description | Notes |
 |----------|-------|-------------|-------|
-| 1 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
-| 2 | **1.5E.3** | Project selector | Browse multiple projects |
-| 3 | **1.5E.8** | Enhanced protocol display | Nice-to-have |
+| 1 | **1.5E.12** | Source code highlighting | Highlight method within defrecord/deftype |
+| 2 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
+| 3 | **1.5E.3** | Project selector | Browse multiple projects |
 | 4 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
 
-**Phase 1.5E.10 is next** - multi-view symbol inspector (Source, Doc, Examples, Dependents, Dependencies).
+**Phase 1.5E.12 is next** - highlight relevant code regions (e.g., `add` method within `RichRecord` defrecord).
 
 ---
 

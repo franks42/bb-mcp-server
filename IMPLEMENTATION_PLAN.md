@@ -791,11 +791,12 @@ my-function          function      line 27
 3. ~~**1.5E.6** - Multimethod implementations~~ ✅ Complete
 4. ~~**1.5E.7** - Protocol implementations~~ ✅ Complete
 5. ~~**1.5E.9** - Top-level forms~~ ✅ Complete
-6. **1.5E.10** - Symbol inspector ← **NEXT** (multi-view details)
-7. **1.5E.3** - Project selector (larger, architectural)
-8. **1.5E.8** - Enhanced protocol display (nice-to-have)
-9. **1.5E.4** - Branch switching (complex, defer)
-10. **1.5E.11** - Multi-file namespace handling
+6. **1.5E.12** - Source code highlighting ← **NEXT** (highlight method within type)
+7. **1.5E.10** - Symbol inspector (multi-view details)
+8. **1.5E.3** - Project selector (larger, architectural)
+9. **1.5E.8** - Enhanced protocol display (nice-to-have)
+10. **1.5E.4** - Branch switching (complex, defer)
+11. **1.5E.11** - Multi-file namespace handling
 
 #### Phase 1.5E.11: Multi-File Namespace Handling
 
@@ -860,6 +861,42 @@ my.namespace (3 files)
 **Trigger:** Implement when multi-user independence becomes a real requirement.
 
 **Reference:** See `docs/atom-sync-review-gemini.md` for architectural discussion.
+
+#### Phase 1.5E.12: Source Code Highlighting
+
+**Goal:** Highlight relevant code regions in CM6 viewer when selecting compound symbols.
+
+**Use Case:** When user clicks `add (RichRecord)` in the symbols list:
+- Source panel shows full `defrecord RichRecord` form (lines 175-190)
+- The `add` method implementation (around line 183) is **highlighted** within that form
+- Helps user immediately locate the specific implementation within larger type definitions
+
+**Implementation:**
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.12.1 | Server: Include `:highlight-line` in source response for protocol impls | Pending |
+| 1.5E.12.2 | Server: Include `:highlight-range` for multi-line method bodies | Pending |
+| 1.5E.12.3 | scittle_cm6.cljs: Add CM6 line decoration support | Pending |
+| 1.5E.12.4 | scittle_cm6.cljs: Add range decoration support (background color) | Pending |
+| 1.5E.12.5 | Browser: Scroll highlighted line into view | Pending |
+| 1.5E.12.6 | CSS: Style for highlight (subtle yellow/blue background) | Pending |
+
+**CM6 API:**
+```javascript
+// Line decoration
+Decoration.line({class: "cm-highlighted-line"})
+
+// Range decoration
+Decoration.mark({class: "cm-highlighted-range"})
+```
+
+**Data already available:**
+- Protocol impls have `:row` for method line
+- `defmethod` has `:row` for dispatch implementation
+- Can compute highlight line relative to containing form's start
+
+**Scope:** Protocol impls, defmethod, potentially other compound symbols.
 
 ---
 
