@@ -6,7 +6,8 @@
    - macro, multimethod, method, protocol, deftype, defrecord, test
    - protocol-impl (protocol implementations in defrecord/deftype)
    - Top-level forms: comment, side-effect, require, config (file-order view only)"
-  (:require [clojure.test :refer [deftest is testing]]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str :refer [replace]]))
 
 ;; =============================================================================
 ;; Top-level forms (Phase 1.5E.9)
@@ -63,9 +64,9 @@
   (* x 2))
 
 (defn- another-private-fn
-  "Another private function"
+  "Another private function - uses referred replace (shadows clojure.core/replace)"
   [s]
-  (str "private: " s))
+  (replace (str/upper-case s) "A" "X"))
 
 (defn my-declared-fn
   "Implement the declared function - shows as 'function'"

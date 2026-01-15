@@ -34,6 +34,7 @@
     :error nil}"
     (:require [atom-sync.core :as atom-sync]
               [atom-sync.server :as atom-sync-server]
+              [babashka.fs :as fs]
               [babashka.process :refer [shell]]
               [bb-mcp-server.modules.clojure-lsp.client :as lsp-client]
               [bb-mcp-server.modules.clojure-lsp.server :as lsp-server]
@@ -230,18 +231,28 @@
 ;;   :symbols-by-ns  {ns-name [symbols...]}
 ;;   :source-by-var  {"ns/var-name" {:code ... :file ...}}
 ;;   :var-usages-by-ns {ns-name [usages...]}  - for deps/dependents (Phase 1.5E.10)
+;;   :ns-usages-by-ns {ns-name [ns-usages...]} - for NS deps/aliases (Phase 1.5E.19/20)
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !code-browser-state
          (atom {:namespaces []
                 :selected-ns nil
                 :symbols-by-ns {}      ;; Accumulated: {ns [symbols...]}
                 :var-usages-by-ns {}   ;; Accumulated: {ns [usages...]} (Phase 1.5E.10)
+                :ns-usages-by-ns {}    ;; Accumulated: {ns [ns-usages...]} (Phase 1.5E.19/20)
                 :selected-symbol nil
                 :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
                 :sort-mode :file-order ;; :alpha or :file-order (Phase 1.5E.1)
                 :git nil               ;; Git info: {:project-root :branch :dirty? :upstream}
+                :projects []           ;; Phase 1.5E.3: Configured project paths
+                :current-project nil   ;; Phase 1.5E.3: Current project root path
                 :loading? false
                 :error nil}))
+
+;; Phase 1.5E.20: Core vars for shadow detection
+;; Dynamically computed from running Clojure/Babashka - always up-to-date
+(def ^:private core-var-names
+     "Set of clojure.core public var names (as strings) for shadow detection."
+     (set (map str (keys (ns-publics 'clojure.core)))))
 
 (def ^:private symbol-kind->name
      "LSP Symbol Kinds (from LSP spec) mapped to keywords."
@@ -308,9 +319,11 @@
    ;; clj-kondo returns 2 for warnings, 3 for errors, but still outputs analysis
    ;; Include :var-usages for defmethod detection (Phase 1.5E.6)
    ;; Include :protocol-impls for protocol implementation detection (Phase 1.5E.7)
+   ;; Include :namespace-definitions for ns form display (Phase 1.5E.13)
+   ;; Include :namespace-usages for NS deps and alias panel (Phase 1.5E.19/20)
    (let [result (shell {:out :string :err :string :continue true}
                        "clj-kondo" "--lint" file-path
-                       "--config" "{:output {:analysis {:var-definitions true :var-usages true :protocol-impls true} :format :edn}}")
+                       "--config" "{:output {:analysis {:var-definitions true :var-usages true :protocol-impls true :namespace-definitions true :namespace-usages true} :format :edn}}")
          output (:out result)
          exit-code (:exit result)]
      ;; Log warnings if exit code indicates issues
@@ -325,7 +338,9 @@
        (let [analysis (edn/read-string output)
              var-defs (get-in analysis [:analysis :var-definitions])
              var-usages (get-in analysis [:analysis :var-usages])
-             protocol-impls (get-in analysis [:analysis :protocol-impls])]
+             protocol-impls (get-in analysis [:analysis :protocol-impls])
+             ns-defs (get-in analysis [:analysis :namespace-definitions])
+             ns-usages (get-in analysis [:analysis :namespace-usages])]
          (log/log! {:level :debug
                     :id ::kondo-result
                     :msg "clj-kondo analysis complete"
@@ -333,10 +348,14 @@
                            :var-count (count var-defs)
                            :usage-count (count var-usages)
                            :protocol-impl-count (count protocol-impls)
+                           :ns-def-count (count ns-defs)
+                           :ns-usage-count (count ns-usages)
                            :exit-code exit-code}})
          {:var-definitions var-defs
           :var-usages var-usages
-          :protocol-impls protocol-impls})))
+          :protocol-impls protocol-impls
+          :namespace-definitions ns-defs
+          :namespace-usages ns-usages})))
    (catch Exception e
           (log/log! {:level :warn
                      :id ::kondo-error
@@ -565,12 +584,140 @@
                :data {:branch (:branch git-info)
                       :dirty? (:dirty? git-info)}})))
 
+;; =============================================================================
+;; Project Directory Management (Phase 1.5E.3)
+;; =============================================================================
+
+(defn- is-project-root?
+  "Check if a directory is a Clojure/Babashka project root.
+   Looks for: deps.edn, bb.edn, project.clj, or shadow-cljs.edn."
+  [path]
+  (when (and path (not (str/blank? path)))
+    (let [dir (io/file path)]
+      (and (.isDirectory dir)
+           (some #(.exists (io/file dir %))
+                 ["deps.edn" "bb.edn" "project.clj" "shadow-cljs.edn"])))))
+
+(defn- project-basename
+  "Extract project name from full path."
+  [path]
+  (when path
+    (last (str/split path #"/"))))
+
+(defn set-projects!
+  "Set the list of available projects from config.
+   Called during initialization with config from system.edn."
+  [projects]
+  (let [;; Filter to valid project roots
+        valid-projects (filter is-project-root? projects)]
+    (swap! !code-browser-state assoc :projects valid-projects)
+    (log/log! {:level :info
+               :id ::projects-configured
+               :msg "Available projects configured"
+               :data {:configured (count projects)
+                      :valid (count valid-projects)
+                      :projects (mapv project-basename valid-projects)}})))
+
+(defn- clear-project-caches!
+  "Clear all cached data when switching projects.
+   Clears namespaces, symbols, sources - all project-specific data."
+  []
+  (swap! !code-browser-state assoc
+         :namespaces []
+         :selected-ns nil
+         :symbols-by-ns {}
+         :var-usages-by-ns {}
+         :ns-usages-by-ns {}    ;; Phase 1.5E.19/20: NS-level deps/aliases
+         :selected-symbol nil
+         :source-by-var {}))
+
+(defn handle-set-project-root
+  "Handle setting a new project root.
+   Validates path, reinitializes LSP, clears caches, refreshes namespaces.
+   data: {:path string}"
+  [{:keys [path]}]
+  (if-not (is-project-root? path)
+    (do
+     (swap! !code-browser-state assoc :error (str "Not a valid project: " path))
+     {:success false :error "Not a valid project root"})
+    (do
+     (log/log! {:level :info
+                :id ::set-project-root
+                :msg "Setting project root"
+                :data {:path path :name (project-basename path)}})
+      ;; 1. Clear all caches
+     (clear-project-caches!)
+      ;; 2. Update current project in state
+     (swap! !code-browser-state assoc :current-project path)
+      ;; 3. Reinitialize LSP with new project (async)
+     (future
+      (try
+        ;; Shutdown existing LSP if running
+       (when (lsp-server/initialized?)
+         (log/log! {:level :info :id ::lsp-shutdown :msg "Shutting down LSP for project switch"})
+         (lsp-watcher/stop!)
+         (lsp-server/stop!))
+        ;; Init with new project
+       (log/log! {:level :info :id ::lsp-reinit :msg "Reinitializing LSP" :data {:project path}})
+       (lsp-server/init! {:project-root path})
+        ;; Restart file watcher
+       (lsp-watcher/start!)
+       (log/log! {:level :info :id ::lsp-reinit-complete :msg "LSP reinitialized for new project"})
+        ;; Refresh git info for new project
+       (refresh-git-info!)
+        ;; Auto-refresh namespaces after LSP is ready
+       (handle-request-namespaces {})
+       (catch Exception e
+              (log/log! {:level :error
+                         :id ::lsp-reinit-failed
+                         :msg "LSP reinitialization failed"
+                         :data {:error (ex-message e)}}))))
+     {:success true :path path :name (project-basename path)})))
+
+(defn handle-add-project
+  "Handle adding a new project to the available projects list.
+   Phase 1.5E.15: Validates directory exists and is a Clojure project.
+   data: {:path string}"
+  [{:keys [path]}]
+  (let [trimmed-path (when path (str/trim path))]
+    (cond
+      ;; Empty path
+      (or (nil? trimmed-path) (str/blank? trimmed-path))
+      {:success false :error "Path cannot be empty"}
+
+      ;; Not a directory
+      (not (fs/directory? trimmed-path))
+      (do
+       (swap! !code-browser-state assoc :error (str "Not a directory: " trimmed-path))
+       {:success false :error "Path is not a directory"})
+
+      ;; Not a valid Clojure project
+      (not (is-project-root? trimmed-path))
+      (do
+       (swap! !code-browser-state assoc :error (str "Not a Clojure project: " trimmed-path))
+       {:success false :error "Not a valid Clojure project (no deps.edn, bb.edn, project.clj, or shadow-cljs.edn)"})
+
+      ;; Already in list
+      (some #(= % trimmed-path) (:projects @!code-browser-state))
+      {:success false :error "Project already in list"}
+
+      ;; Valid - add to list
+      :else
+      (do
+       (swap! !code-browser-state update :projects conj trimmed-path)
+       (log/log! {:level :info
+                  :id ::project-added
+                  :msg "Project added to list"
+                  :data {:path trimmed-path :name (project-basename trimmed-path)}})
+       {:success true :path trimmed-path :name (project-basename trimmed-path)}))))
+
 (defn- extract-ns-symbols-kondo
   "Extract symbols for a namespace using clj-kondo analysis.
    Falls back to LSP-based extraction if kondo fails.
    Sorts according to current :sort-mode in state.
    Returns {:symbols [...] :var-usages [...]} or nil if analysis fails.
    Includes:
+   - namespace definition (ns form) - always first (Phase 1.5E.13)
    - var-definitions (defn, def, defmacro, etc.)
    - defmethod implementations (Phase 1.5E.6)
    - protocol implementations (Phase 1.5E.7)
@@ -582,7 +729,18 @@
     (if-let [analysis (analyze-file-with-kondo file-path)]
       ;; Extract all symbol types from analysis
             (let [ns-sym (symbol ns-name)
-                  {:keys [var-definitions var-usages protocol-impls]} analysis
+                  {:keys [var-definitions var-usages protocol-impls
+                          namespace-definitions namespace-usages]} analysis
+
+            ;; 0. Namespace definition (Phase 1.5E.13)
+            ;; Find the ns definition for this namespace, create symbol entry
+                  ns-def (first (filter #(= ns-sym (:name %)) namespace-definitions))
+                  ns-symbol (when ns-def
+                              {:name ns-name
+                               :kind :ns
+                               :line (:row ns-def)
+                               :end-line (:end-row ns-def)
+                               :doc (:doc ns-def)})
 
             ;; 1. Var definitions (defn, def, etc.)
             ;; Filter to this namespace, then fix protocol method line ranges
@@ -606,25 +764,66 @@
             ;; Marked with :top-level? true for browser-side filtering
                   top-level-symbols (->> ns-var-usages extract-top-level-forms)
 
-            ;; Combine all symbols and sort
-                  all-symbols (->> (concat var-symbols defmethod-symbols
-                                           protocol-impl-symbols top-level-symbols)
-                                   (sort-symbols sort-mode)
-                                   vec)]
+            ;; 5. Namespace usages (Phase 1.5E.19/20)
+            ;; Filter to requires/refers from this namespace
+            ;; Each has :from, :to, :alias (optional)
+                  ns-ns-usages-raw (->> namespace-usages
+                                        (filter #(= ns-sym (:from %)))
+                                        (mapv (fn [u]
+                                                {:to (str (:to u))
+                                                 :alias (when (:alias u) (str (:alias u)))
+                                                 :row (:row u)})))
+
+            ;; 6. Derive refers from var-usages (Phase 1.5E.20)
+            ;; Var usages with :refer true are explicitly referred symbols
+            ;; Group by :to namespace, include shadow detection for clojure.core
+                  refers-by-ns (->> ns-var-usages
+                                    (filter :refer)
+                                    (group-by #(str (:to %)))
+                                    (reduce-kv (fn [m ns-str usages]
+                                                 (assoc m ns-str
+                                                        (->> usages
+                                                             (map #(str (:name %)))
+                                                             distinct
+                                                             sort
+                                                             (mapv (fn [sym-name]
+                                                                     {:name sym-name
+                                                                      :shadows-core? (contains? core-var-names sym-name)})))))
+                                               {}))
+
+            ;; Merge refers into ns-usages
+                  ns-ns-usages (mapv (fn [u]
+                                       (if-let [refers (get refers-by-ns (:to u))]
+                                               (assoc u :refers refers)
+                                               u))
+                                     ns-ns-usages-raw)
+
+            ;; Combine all symbols and sort (ns form always first)
+                  sorted-symbols (->> (concat var-symbols defmethod-symbols
+                                              protocol-impl-symbols top-level-symbols)
+                                      (sort-symbols sort-mode)
+                                      vec)
+            ;; Prepend ns symbol if present (always first regardless of sort)
+                  all-symbols (if ns-symbol
+                                (vec (cons ns-symbol sorted-symbols))
+                                sorted-symbols)]
               (log/log! {:level :info
                          :id ::kondo-symbols-extracted
                          :msg "Extracted symbols with clj-kondo"
                          :data {:ns ns-name
+                                :has-ns-symbol (some? ns-symbol)
                                 :var-count (count var-symbols)
                                 :defmethod-count (count defmethod-symbols)
                                 :protocol-impl-count (count protocol-impl-symbols)
                                 :top-level-count (count top-level-symbols)
+                                :ns-usages-count (count ns-ns-usages)
                                 :total (count all-symbols)
                                 :var-usages-count (count ns-var-usages)
                                 :sort-mode sort-mode}})
-              ;; Return both symbols and var-usages (Phase 1.5E.10)
+        ;; Return symbols, var-usages, and ns-usages (Phase 1.5E.10, 1.5E.19/20)
               {:symbols all-symbols
-               :var-usages (vec ns-var-usages)})
+               :var-usages (vec ns-var-usages)
+               :ns-usages ns-ns-usages})
       ;; Fallback - return nil to signal caller should use LSP
             (do
              (log/log! {:level :info
@@ -797,6 +996,8 @@
                    (update :symbols-by-ns #(apply dissoc % stale-namespaces))
                    ;; Remove var-usages cache for stale namespaces (Phase 1.5E.10)
                    (update :var-usages-by-ns #(apply dissoc % stale-namespaces))
+                   ;; Remove ns-usages cache for stale namespaces (Phase 1.5E.19/20)
+                   (update :ns-usages-by-ns #(apply dissoc % stale-namespaces))
                    ;; Remove source cache for vars in stale namespaces
                    (update :source-by-var
                            (fn [source-cache]
@@ -824,11 +1025,12 @@
         file-uri (get-namespace-file symbols ns)]
     (if file-uri
       ;; Try clj-kondo first for rich classification, fall back to LSP
-      ;; Phase 1.5E.10: kondo returns {:symbols [...] :var-usages [...]}
+      ;; Phase 1.5E.10: kondo returns {:symbols [...] :var-usages [...] :ns-usages [...]}
       (let [kondo-result (extract-ns-symbols-kondo file-uri ns)
             ns-symbols (or (:symbols kondo-result)
                            (extract-ns-symbols symbols file-uri))
             ns-var-usages (or (:var-usages kondo-result) [])
+            ns-ns-usages (or (:ns-usages kondo-result) [])
             symbol-names (set (map :name ns-symbols))]
         ;; Update synced atom - ACCUMULATE symbols by namespace
         (swap! !code-browser-state
@@ -856,7 +1058,9 @@
                                    (update :source-by-var dissoc var-key)))
                        (assoc-in [:symbols-by-ns ns] ns-symbols)
                        ;; Phase 1.5E.10: Store var-usages for deps/dependents
-                       (assoc-in [:var-usages-by-ns ns] ns-var-usages)))))
+                       (assoc-in [:var-usages-by-ns ns] ns-var-usages)
+                       ;; Phase 1.5E.19/20: Store ns-usages for aliases/deps
+                       (assoc-in [:ns-usages-by-ns ns] ns-ns-usages)))))
         ;; Also return response for legacy event mechanism
         {:ns ns
          :file file-uri
@@ -954,6 +1158,99 @@
                        (or (nil? kind) (= kind (:kind %)))))
          first)))
 
+;; =============================================================================
+;; Phase 1.5E.8: Protocol/Multimethod Implementations Computation
+;; =============================================================================
+
+(defn- compute-protocol-implementations
+  "Find all implementations of a protocol or protocol method.
+   For a protocol: finds all protocol-impls in any namespace that implement this protocol.
+   For a protocol method: finds protocol-impls matching both protocol and method name.
+   Returns [{:name \"method (Type)\" :ns \"impl-ns\" :line N :implementing-type \"Type\"} ...]."
+  [protocol-name method-name]
+  (let [all-symbols (mapcat (fn [[ns-key symbols]]
+                              (map #(assoc % :_ns ns-key) symbols))
+                            (:symbols-by-ns @!code-browser-state))]
+    (->> all-symbols
+         (filter #(= :protocol-impl (:kind %)))
+         (filter (fn [sym]
+                   (and (= protocol-name (:protocol sym))
+                        (or (nil? method-name)
+                            (= method-name (:method-name sym))))))
+         (map (fn [sym]
+                {:name (:name sym)
+                 :ns (:_ns sym)
+                 :line (:line sym)
+                 :implementing-type (:implementing-type sym)
+                 :method-name (:method-name sym)}))
+         vec)))
+
+(defn- compute-multimethod-implementations
+  "Find all defmethod implementations for a defmulti.
+   Searches all cached symbols for :method kind with matching :multimethod.
+   Returns [{:name \"multimethod :dispatch\" :ns \"ns\" :line N :dispatch-val \"val\"} ...]."
+  [multimethod-name]
+  (let [all-symbols (mapcat (fn [[ns-key symbols]]
+                              (map #(assoc % :_ns ns-key) symbols))
+                            (:symbols-by-ns @!code-browser-state))]
+    (->> all-symbols
+         (filter #(= :method (:kind %)))
+         (filter #(= multimethod-name (:multimethod %)))
+         (map (fn [sym]
+                {:name (:name sym)
+                 :ns (:_ns sym)
+                 :line (:line sym)
+                 :dispatch-val (:dispatch-val sym)}))
+         vec)))
+
+(defn- compute-implementations
+  "Compute implementations for a symbol.
+   For protocols: finds all protocol method implementations.
+   For protocol methods (in defprotocol): finds implementations of that method.
+   For defmulti: finds all defmethod implementations.
+   For protocol-impl: returns link to protocol definition.
+   For defmethod: returns link to defmulti definition.
+   Returns {:implementations [...] :definition {...}} or nil if not applicable."
+  [cached-sym ns-name var-name]
+  (let [kind (:kind cached-sym)]
+    (case kind
+      ;; Protocol definition - find all implementations of all its methods
+      :protocol
+      (let [;; Check if this is a protocol method (has :parent-protocol) or the protocol itself
+            parent-protocol (:parent-protocol cached-sym)
+            protocol-name (or parent-protocol var-name)
+            ;; If it's a protocol method, search for that specific method
+            method-name (when parent-protocol var-name)
+            impls (compute-protocol-implementations protocol-name method-name)]
+        (when (seq impls)
+          {:implementations impls}))
+
+      ;; defmulti - find all defmethod implementations
+      :multimethod
+      (let [impls (compute-multimethod-implementations var-name)]
+        (when (seq impls)
+          {:implementations impls}))
+
+      ;; Protocol implementation - link back to protocol definition
+      :protocol-impl
+      (let [protocol-name (:protocol cached-sym)
+            protocol-ns (:protocol-ns cached-sym)]
+        (when (and protocol-name protocol-ns)
+          {:definition {:name protocol-name
+                        :ns protocol-ns
+                        :type :protocol}}))
+
+      ;; defmethod - link back to defmulti definition
+      :method
+      (let [multimethod-name (:multimethod cached-sym)]
+        (when multimethod-name
+          {:definition {:name multimethod-name
+                        :ns ns-name
+                        :type :multimethod}}))
+
+      ;; Other symbol types - no implementations
+      nil)))
+
 (defn handle-request-var-source
   "Handle request for source of a specific var.
    Updates synced atom AND returns response (parallel mode).
@@ -1037,6 +1334,8 @@
                 dependents (compute-dependents ns var-name)
                 ;; Phase 1.5E.10: Get docstring from cached symbol
                 doc (:doc cached-sym)
+                ;; Phase 1.5E.8: Compute implementations for protocols/multimethods
+                impl-data (when cached-sym (compute-implementations cached-sym ns var-name))
                 source-data (cond-> {:code code
                                      :file file-uri
                                      :ns ns
@@ -1050,7 +1349,10 @@
                               ;; Phase 1.5E.10: Include doc and deps
                                     doc (assoc :doc doc)
                                     (seq dependencies) (assoc :dependencies dependencies)
-                                    (seq dependents) (assoc :dependents dependents))
+                                    (seq dependents) (assoc :dependents dependents)
+                              ;; Phase 1.5E.8: Include implementations/definition
+                                    (:implementations impl-data) (assoc :implementations (:implementations impl-data))
+                                    (:definition impl-data) (assoc :definition (:definition impl-data)))
                 ;; Get cached source to compare
                 cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
                 source-changed? (not= code cached-code)]
@@ -1132,6 +1434,22 @@
                                       symbols-map)))))))
     {:sort-mode new-mode}))
 
+(defn handle-navigate-to-symbol
+  "Handle navigation to a symbol in any namespace.
+   Phase 1.5E.10.7: Click deps/callers -> navigate to that symbol.
+   data: {:ns string :name string}
+   First fetches symbols for the namespace (if not cached), then fetches the source."
+  [{:keys [ns name]}]
+  (log/log! {:level :info
+             :id ::navigate-to-symbol
+             :msg "Navigating to symbol"
+             :data {:ns ns :name name}})
+  ;; First fetch symbols for the namespace (this will update selected-ns and cache symbols)
+  (handle-request-symbols {:ns ns})
+  ;; Then fetch source for the var (without kind - will find first match)
+  (handle-request-var-source {:ns ns :var-name name :kind nil})
+  {:navigated true :ns ns :name name})
+
 ;; =============================================================================
 ;; Event Dispatch
 ;; =============================================================================
@@ -1163,6 +1481,15 @@
       :code-browser/set-sort-mode
       [:code-browser/sort-mode-changed (handle-set-sort-mode data)]
 
+      :code-browser/navigate-to-symbol
+      [:code-browser/navigated (handle-navigate-to-symbol data)]
+
+      :code-browser/set-project-root
+      [:code-browser/project-changed (handle-set-project-root data)]
+
+      :code-browser/add-project
+      [:code-browser/project-added (handle-add-project data)]
+
       ;; Not a code-browser event
       nil)))
 
@@ -1172,21 +1499,31 @@
 
 (defn enable!
   "Enable code browser handlers and register synced atom.
-   Idempotent - safe to call multiple times."
-  []
-  (when-not @!enabled
-    (reset! !enabled true)
-    ;; Register atom for sync - browsers will receive updates automatically
-    (atom-sync/register-synced-atom! :code-browser !code-browser-state)
-    ;; Register for file change notifications (Phase 1.5-Watch)
-    (lsp-client/on-notification! :code-browser on-lsp-notification!)
-    ;; Fetch initial git info (Phase 1.5E.2)
-    (refresh-git-info!)
-    (log/log! {:level :info
-               :id ::enabled
-               :msg "Code browser handlers enabled"
-               :data {:synced-atom-key :code-browser
-                      :file-watching true}})))
+   Idempotent - safe to call multiple times.
+   Optional config map can include:
+   - :projects - list of project root paths to make available"
+  ([] (enable! {}))
+  ([config]
+   (when-not @!enabled
+     (reset! !enabled true)
+     ;; Register atom for sync - browsers will receive updates automatically
+     (atom-sync/register-synced-atom! :code-browser !code-browser-state)
+     ;; Register for file change notifications (Phase 1.5-Watch)
+     (lsp-client/on-notification! :code-browser on-lsp-notification!)
+     ;; Phase 1.5E.3: Set up projects if configured
+     (when-let [projects (:projects config)]
+               (set-projects! projects))
+     ;; Set current project to working directory
+     (let [cwd (System/getProperty "user.dir")]
+       (swap! !code-browser-state assoc :current-project cwd))
+     ;; Fetch initial git info (Phase 1.5E.2)
+     (refresh-git-info!)
+     (log/log! {:level :info
+                :id ::enabled
+                :msg "Code browser handlers enabled"
+                :data {:synced-atom-key :code-browser
+                       :file-watching true
+                       :projects-configured (count (:projects @!code-browser-state))}}))))
 
 (defn disable!
   "Disable code browser handlers and unregister synced atom."
@@ -1199,15 +1536,19 @@
     (lsp-client/remove-notification-callback! :code-browser)
     ;; Unregister on-connect callback
     (atom-sync-server/unregister-on-connect! :code-browser)
-    ;; Reset state (Phase 1.5-Acc shape)
+    ;; Reset state (Phase 1.5-Acc shape with Phase 1.5E.3 fields)
     (reset! !code-browser-state
             {:namespaces []
              :selected-ns nil
              :symbols-by-ns {}
+             :var-usages-by-ns {}
+             :ns-usages-by-ns {}    ;; Phase 1.5E.19/20: NS-level deps/aliases
              :selected-symbol nil
              :source-by-var {}
              :sort-mode :file-order
              :git nil
+             :projects []
+             :current-project nil
              :loading? false
              :error nil})
     (log/log! {:level :info

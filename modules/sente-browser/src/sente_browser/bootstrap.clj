@@ -314,6 +314,57 @@
     .dep-item:hover { background: #f0f0f0; cursor: pointer; }
     .dep-name { color: #333; margin-right: 0.5rem; }
     .dep-ns { color: #888; font-size: 11px; }
+    /* Phase 1.5E.8: Implementations view */
+    .impls-container { flex: 1; overflow: auto; padding: 0.5rem; }
+    .impls-list { }
+    .definition-section { margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e0e0e0; }
+    .impl-type { color: #1976D2; font-size: 11px; margin-left: 0.5rem; }
+    .dispatch-val { color: #7B1FA2; font-size: 11px; margin-left: 0.5rem; }
+    .def-type { color: #388E3C; font-size: 11px; margin-left: 0.5rem; }
+    /* Phase 1.5E.2 & 1.5E.3: Git status bar and project selector */
+    .git-status-bar { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; background: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 13px; }
+    .project-name { font-weight: 500; color: #333; }
+    .project-selector { font-size: 13px; padding: 0.25rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; background: white; cursor: pointer; font-family: 'Fira Code', monospace; }
+    .project-selector:hover { border-color: #999; }
+    .project-selector:focus { outline: none; border-color: #2196F3; }
+    /* Phase 1.5E.15: Add project input */
+    .add-project-input { display: flex; align-items: center; gap: 0.25rem; }
+    .add-project-input input { font-size: 12px; padding: 0.2rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; width: 180px; font-family: 'Fira Code', monospace; }
+    .add-project-input input:focus { outline: none; border-color: #2196F3; }
+    .add-project-input button { font-size: 13px; padding: 0.15rem 0.5rem; border: 1px solid #4CAF50; border-radius: 4px; background: #4CAF50; color: white; cursor: pointer; font-weight: bold; }
+    .add-project-input button:hover { background: #388E3C; }
+    .branch-info { display: flex; align-items: center; gap: 0.25rem; color: #666; }
+    .branch-icon { font-size: 14px; }
+    .branch-name { font-family: 'Fira Code', monospace; }
+    .dirty-indicator { color: #e65100; font-weight: bold; }
+    .upstream-info { color: #999; font-size: 12px; }
+    /* Phase 1.5E.19/20: Aliases panel and NS deps */
+    .aliases-panel { background: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 12px; }
+    .aliases-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; cursor: pointer; user-select: none; }
+    .aliases-header:hover { background: #eef0f2; }
+    .aliases-toggle { font-size: 10px; color: #666; }
+    .aliases-title { font-weight: 500; color: #333; }
+    .aliases-count { color: #888; }
+    .aliases-content { padding: 0.25rem 0.75rem 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+    .alias-item { display: flex; align-items: center; gap: 0.25rem; font-family: 'Fira Code', monospace; }
+    .alias-short { color: #1976D2; font-weight: 500; }
+    .alias-arrow { color: #888; }
+    .alias-full { color: #666; font-size: 11px; }
+    .aliases-section { display: contents; }
+    .refers-section { display: contents; }
+    .refer-item { display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 0.75rem; font-family: 'Fira Code', monospace; }
+    .refer-sym { color: #7B1FA2; font-weight: 500; }
+    .refer-from { color: #888; font-size: 10px; }
+    /* Shadow warning for refers that shadow clojure.core */
+    .refer-item.shadows-core { background: #fff3cd; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    .refer-item.shadows-core .refer-sym { color: #856404; }
+    .shadow-warning { color: #856404; font-size: 10px; margin-left: 0.1rem; }
+    /* NS deps in deps view */
+    .ns-dep-item { display: flex; padding: 0.3rem 0.5rem; font-size: 13px; font-family: 'Fira Code', monospace; border-bottom: 1px solid #f0f0f0; align-items: center; gap: 0.5rem; }
+    .ns-dep-item:hover { background: #f0f0f0; }
+    .ns-dep-name { color: #333; }
+    .ns-dep-alias { color: #1976D2; font-size: 11px; }
+    .ns-dep-refers { color: #7B1FA2; font-size: 11px; }
   </style>
 </head>
 <body>

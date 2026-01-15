@@ -453,15 +453,17 @@
    Config options:
    - :host - bind address (default 127.0.0.1)
    - :ws-port - WebSocket port (default 8090)
-   - :code-browser - enable code browser handlers (default false)"
+   - :code-browser - enable code browser handlers (default false)
+   - :projects - list of project root paths for code browser (Phase 1.5E.3)"
   [config]
   (let [host (get config :host "127.0.0.1")
         port (get config :ws-port 8090)
-        code-browser-enabled? (get config :code-browser false)]
+        code-browser-enabled? (get config :code-browser false)
+        projects (get config :projects [])]
 
-    ;; Enable code browser if configured
+    ;; Enable code browser if configured, passing projects list
     (when code-browser-enabled?
-      (code-browser/enable!))
+      (code-browser/enable! {:projects projects}))
     (log/log! {:level :info
                :id ::starting
                :msg "Starting sente WebSocket server"

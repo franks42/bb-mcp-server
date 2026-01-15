@@ -43,7 +43,9 @@
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !ui-state
          (r/atom {:ns-filter ""
-                  :symbol-filter ""}))
+                  :symbol-filter ""
+                  :add-project-path ""
+                  :aliases-expanded true}))  ;; Phase 1.5E.20: Aliases panel state
 
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !layout
@@ -101,6 +103,26 @@
    Server re-sorts all cached symbols and pushes update."
   []
   (send-event! :code-browser/toggle-sort-mode {}))
+
+(defn navigate-to-symbol!
+  "Navigate to a symbol in any namespace.
+   Phase 1.5E.10.7: Click deps/callers -> navigate.
+   Server fetches symbols for ns, then fetches source for var."
+  [ns-name var-name]
+  (send-event! :code-browser/navigate-to-symbol {:ns ns-name :name var-name}))
+
+(defn set-project-root!
+  "Switch to a different project root.
+   Phase 1.5E.3: Project directory selector.
+   Server reinitializes LSP and refreshes all data."
+  [path]
+  (send-event! :code-browser/set-project-root {:path path}))
+
+(defn add-project!
+  "Add a new project to the available projects list.
+   Phase 1.5E.15: Server validates directory and adds to list."
+  [path]
+  (send-event! :code-browser/add-project {:path path}))
 
 ;; =============================================================================
 ;; Filter Logic
@@ -229,10 +251,10 @@
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
       [:h3 (if selected-ns
-             (str selected-ns " vars")
-             "Vars")]
+             (str selected-ns " symbols")
+             "Symbols")]
       [sort-mode-button]]
-     [filter-input :symbol-filter "Filter vars..."]
+     [filter-input :symbol-filter "Filter symbols..."]
      [:div.list-container
       (if selected-ns
         (doall
@@ -241,7 +263,7 @@
               ^{:key (str (:name sym) "-" (:line sym))} [symbol-item sym]))
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
-      [:span (str (count syms) " vars")]
+      [:span (str (count syms) " symbols")]
       [:span.sort-mode-indicator
        (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
 
@@ -282,22 +304,58 @@
        [:div.empty-message "No docstring available"])]))
 
 (defn- deps-view
-  "Dependencies view - what this symbol calls."
+  "Dependencies view - what this symbol calls.
+   Phase 1.5E.10.7: Items are clickable for navigation.
+   Phase 1.5E.19: For ns symbols, shows namespace-level deps (requires)."
   [source]
-  (let [deps (:dependencies source)]
+  (let [server-state @(get-server-state)
+        selected-ns (:selected-ns server-state)
+        selected-symbol (:selected-symbol server-state)
+        ;; Check if current symbol is the namespace itself
+        is-ns-symbol? (= selected-symbol selected-ns)
+        ;; Get ns-usages for NS-level deps view
+        ns-usages (when is-ns-symbol?
+                    (get-in server-state [:ns-usages-by-ns selected-ns] []))
+        ;; Regular var deps
+        deps (:dependencies source)]
     [:div.deps-container
-     (if (seq deps)
+     (cond
+       ;; NS-level deps for namespace symbol
+       is-ns-symbol?
+       (if (seq ns-usages)
+         [:div.deps-list
+          [:div.deps-header (str "Requires " (count ns-usages) " namespaces:")]
+          (for [{:keys [to alias refer row]} ns-usages]
+               ^{:key (str to "-" row)}
+               [:div.ns-dep-item
+                [:span.ns-dep-name to]
+                (when alias
+                  [:span.ns-dep-alias (str ":as " alias)])
+                (when (seq refer)
+                  [:span.ns-dep-refers
+                   (str ":refer ["
+                        (clojure.string/join " " (take 3 refer))
+                        (when (> (count refer) 3) "...")
+                        "]")])])]
+         [:div.empty-message "No namespace dependencies (no requires)"])
+
+       ;; Regular var dependencies
+       (seq deps)
        [:div.deps-list
         [:div.deps-header (str "Calls " (count deps) " symbols:")]
         (for [{:keys [name ns line]} deps]
              ^{:key (str ns "/" name "-" line)}
-             [:div.dep-item
+             [:div.dep-item.clickable
+              {:on-click #(navigate-to-symbol! ns name)}
               [:span.dep-name name]
               [:span.dep-ns ns]])]
+
+       :else
        [:div.empty-message "No dependencies found"])]))
 
 (defn- dependents-view
-  "Dependents view - what calls this symbol."
+  "Dependents view - what calls this symbol.
+   Phase 1.5E.10.7: Items are clickable for navigation."
   [source]
   (let [deps (:dependents source)]
     [:div.deps-container
@@ -306,10 +364,113 @@
         [:div.deps-header (str "Called by " (count deps) " symbols:")]
         (for [{:keys [name ns line]} deps]
              ^{:key (str ns "/" name "-" line)}
-             [:div.dep-item
+             [:div.dep-item.clickable
+              {:on-click #(navigate-to-symbol! ns name)}
               [:span.dep-name name]
               [:span.dep-ns ns]])]
        [:div.empty-message "No dependents found (or not yet loaded)"])]))
+
+(defn- impls-view
+  "Implementations view - for protocols and multimethods.
+   Phase 1.5E.8: Shows implementations with navigation.
+   Also shows definition link for impls/methods to navigate back."
+  [source]
+  (let [impls (:implementations source)
+        definition (:definition source)]
+    [:div.impls-container
+     ;; Definition link (for protocol-impl and defmethod)
+     (when definition
+       [:div.definition-section
+        [:div.deps-header "Definition:"]
+        [:div.dep-item.clickable
+         {:on-click #(navigate-to-symbol! (:ns definition) (:name definition))}
+         [:span.dep-name (:name definition)]
+         [:span.dep-ns (:ns definition)]
+         [:span.def-type (str "(" (name (:type definition)) ")")]]])
+     ;; Implementations list (for protocols and defmulti)
+     (when (seq impls)
+       [:div.impls-list
+        [:div.deps-header (str (count impls) " implementations:")]
+        (for [{:keys [name ns line implementing-type dispatch-val]} impls]
+             ^{:key (str ns "/" name "-" line)}
+             [:div.dep-item.clickable
+              {:on-click #(navigate-to-symbol! ns name)}
+              [:span.dep-name name]
+              [:span.dep-ns ns]
+              (when implementing-type
+                [:span.impl-type implementing-type])
+              (when dispatch-val
+                [:span.dispatch-val dispatch-val])])])
+     ;; Empty message when neither definition nor impls
+     (when (and (nil? definition) (empty? impls))
+       [:div.empty-message "No implementations (load more namespaces to see impls)"])]))
+
+;; -----------------------------------------------------------------------------
+;; Phase 1.5E.20: Aliases Panel
+;; -----------------------------------------------------------------------------
+
+(defn- aliases-panel
+  "Collapsible panel showing aliases and refers for current namespace.
+   Phase 1.5E.20: Shows alias→namespace mappings and referred symbols.
+   Refers derived from var-usages with :refer true flag."
+  []
+  (let [server-state @(get-server-state)
+        selected-ns (:selected-ns server-state)
+        ns-usages (get-in server-state [:ns-usages-by-ns selected-ns] [])
+        ;; Extract aliases (usages with :alias)
+        aliases (->> ns-usages
+                     (filter :alias)
+                     (map (fn [{:keys [alias to]}] {:short alias :full to}))
+                     (sort-by :short))
+        ;; Extract refers (usages with :refers list)
+        ;; Each refer is now {:name "sym" :shadows-core? bool}
+        refers (->> ns-usages
+                    (filter :refers)
+                    (mapcat (fn [{:keys [to refers]}]
+                              (map (fn [{:keys [name shadows-core?]}]
+                                     {:sym name :from to :shadows-core? shadows-core?})
+                                   refers)))
+                    (sort-by :sym))
+        expanded? (:aliases-expanded @!ui-state)
+        has-aliases? (seq aliases)
+        has-refers? (seq refers)
+        has-content? (or has-aliases? has-refers?)
+        ;; Title reflects what's available
+        title (cond
+                (and has-aliases? has-refers?) "Aliases & Refers"
+                has-refers? "Refers"
+                :else "Aliases")]
+    (when has-content?
+      [:div.aliases-panel
+       ;; Clickable header to toggle
+       [:div.aliases-header
+        {:on-click #(swap! !ui-state update :aliases-expanded not)}
+        [:span.aliases-toggle (if expanded? "▼" "▶")]
+        [:span.aliases-title title]
+        [:span.aliases-count (str "(" (+ (count aliases) (count refers)) ")")]]
+       ;; Collapsible content
+       (when expanded?
+         [:div.aliases-content
+          ;; Alias mappings
+          (when has-aliases?
+            [:div.aliases-section
+             (for [{:keys [short full]} aliases]
+                  ^{:key (str "alias-" short "-" full)}
+                  [:div.alias-item
+                   [:span.alias-short short]
+                   [:span.alias-arrow "→"]
+                   [:span.alias-full full]])])
+          ;; Referred symbols
+          (when has-refers?
+            [:div.refers-section
+             (for [{:keys [sym from shadows-core?]} refers]
+                  ^{:key (str "refer-" sym "-" from)}
+                  [:div.refer-item
+                   {:class (when shadows-core? "shadows-core")}
+                   [:span.refer-sym sym]
+                   (when shadows-core?
+                     [:span.shadow-warning "⚠"])
+                   [:span.refer-from (str "← " from)]])])])])))
 
 (defn source-panel
   "Right panel: source code viewer with tabs.
@@ -335,7 +496,10 @@
      {:style {:width (:source-width layout)}}
      [:div.panel-header
       [:h3 (if source
-             (str (:ns source) "/" (:var-name source))
+             ;; For ns symbols, just show ns name (not ns/ns)
+             (if (= (:ns source) (:var-name source))
+               (:ns source)
+               (str (:ns source) "/" (:var-name source)))
              "Source")]
       ;; Tab bar (only show when source is loaded)
       (when source
@@ -343,13 +507,19 @@
          [tab-button :source "Source" selected-tab #(reset! !source-tab %)]
          [tab-button :doc "Doc" selected-tab #(reset! !source-tab %)]
          [tab-button :deps "Deps" selected-tab #(reset! !source-tab %)]
-         [tab-button :callers "Callers" selected-tab #(reset! !source-tab %)]])]
+         [tab-button :callers "Callers" selected-tab #(reset! !source-tab %)]
+         ;; Phase 1.5E.8: Impls tab for protocols/multimethods
+         [tab-button :impls "Impls" selected-tab #(reset! !source-tab %)]])]
+     ;; Phase 1.5E.20: Aliases panel above source (only show in Source tab)
+     (when (= selected-tab :source)
+       [aliases-panel])
      ;; Tab content
      (case selected-tab
        :source [source-view source highlight-line highlight-end-line]
        :doc [doc-view source]
        :deps [deps-view source]
        :callers [dependents-view source]
+       :impls [impls-view source]
        ;; Default to source
        [source-view source highlight-line highlight-end-line])
      (when source
@@ -386,24 +556,76 @@
   (when path
     (last (clojure.string/split path #"/"))))
 
-(defn git-status-bar
-  "Header bar showing project path, git branch, and dirty status.
-   Reads from synced server state :git field."
+(defn- project-selector
+  "Dropdown selector for switching between projects.
+   Phase 1.5E.3: Project directory selector UI."
   []
   (let [server-state @(get-server-state)
-        git-info (:git server-state)]
-    (when git-info
-      (let [{:keys [project-root branch dirty? upstream]} git-info
-            project-name (project-basename project-root)]
-        [:div.git-status-bar
-         [:span.project-name {:title project-root} project-name]
-         (when branch
-           [:span.branch-info
-            [:span.branch-icon "\uD83C\uDF3F"] ;; 🌿
-            [:span.branch-name branch]
-            (when dirty? [:span.dirty-indicator "*"])])
-         (when upstream
-           [:span.upstream-info {:title (str "tracking " upstream)} "↑"])]))))
+        projects (or (:projects server-state) [])
+        current-project (:current-project server-state)]
+    (when (seq projects)
+      [:select.project-selector
+       {:value (or current-project "")
+        :on-change #(let [new-path (-> % .-target .-value)]
+                      (when (and (not (clojure.string/blank? new-path))
+                                 (not= new-path current-project))
+                        (set-project-root! new-path)))
+        :title "Switch project"}
+       (for [proj projects]
+            ^{:key proj}
+            [:option {:value proj} (project-basename proj)])])))
+
+(defn- add-project-input
+  "Input field + button for adding a new project.
+   Phase 1.5E.15: Simple form to add project directories."
+  []
+  (let [path (:add-project-path @!ui-state)]
+    [:div.add-project-input
+     [:input
+      {:type "text"
+       :placeholder "Add project path..."
+       :value path
+       :on-change #(swap! !ui-state assoc :add-project-path (-> % .-target .-value))
+       :on-key-down #(when (= (.-key %) "Enter")
+                       (when (not (clojure.string/blank? path))
+                         (add-project! path)
+                         (swap! !ui-state assoc :add-project-path "")))}]
+     [:button
+      {:on-click #(when (not (clojure.string/blank? path))
+                    (add-project! path)
+                    (swap! !ui-state assoc :add-project-path ""))
+       :title "Add project directory"}
+      "+"]]))
+
+(defn git-status-bar
+  "Header bar showing project path, git branch, and dirty status.
+   Reads from synced server state :git field.
+   Phase 1.5E.3: Includes project selector dropdown.
+   Phase 1.5E.15: Includes add project input."
+  []
+  (let [server-state @(get-server-state)
+        git-info (:git server-state)
+        projects (:projects server-state)
+        current-project (:current-project server-state)]
+    [:div.git-status-bar
+     ;; Project selector (if multiple projects configured)
+     (if (> (count projects) 1)
+       [project-selector]
+       ;; Single project - just show name
+       (when-let [project-name (project-basename (or current-project
+                                                     (:project-root git-info)))]
+                 [:span.project-name {:title (or current-project (:project-root git-info))}
+                  project-name]))
+     ;; Add project input (Phase 1.5E.15)
+     [add-project-input]
+     ;; Git branch info
+     (when-let [branch (:branch git-info)]
+               [:span.branch-info
+                [:span.branch-icon "\uD83C\uDF3F"] ;; 🌿
+                [:span.branch-name branch]
+                (when (:dirty? git-info) [:span.dirty-indicator "*"])])
+     (when-let [upstream (:upstream git-info)]
+               [:span.upstream-info {:title (str "tracking " upstream)} "↑"])]))
 
 (defn main-panel
   "Main code browser component."
@@ -434,6 +656,6 @@
   "Unmount code browser.
    Clears local UI state. Server state is managed by synced atom."
   []
-  ;; Clear local filter state
-  (reset! !ui-state {:ns-filter "" :symbol-filter ""})
+  ;; Clear local filter state (including Phase 1.5E.20 aliases panel state)
+  (reset! !ui-state {:ns-filter "" :symbol-filter "" :add-project-path "" :aliases-expanded true})
   (js/console.log "[code-browser] UI state reset"))

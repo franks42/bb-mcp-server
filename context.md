@@ -4,14 +4,14 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-14
-**Version:** v1.13.0
+**Last Updated:** 2026-01-15
+**Version:** v1.14.0
 
 ---
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, and **server epoch detection**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, **server epoch detection**, and **aliases/refers panel with shadow warnings**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -27,6 +27,8 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.9 | Top-level forms display | **COMPLETE** |
 | 1.5-Epoch | Server epoch for stale data detection | **COMPLETE** |
 | 1.5E.12 | Source code highlighting (multi-line) | **COMPLETE** |
+| 1.5E.19 | NS-level dependencies in Deps tab | **COMPLETE** |
+| 1.5E.20 | Aliases & Refers panel with shadow detection | **COMPLETE** |
 
 ---
 
@@ -161,6 +163,7 @@ bb lint && bb format
 - Protocol/defmethod display with full source
 - Symbol filter works correctly
 - **Source code highlighting** with multi-line support (Phase 1.5E.12)
+- **Aliases & Refers panel** with shadow detection (Phase 1.5E.20)
 
 **Next feature: Phase 1.5E.10** - Symbol inspector (multi-view details)
 
@@ -169,6 +172,7 @@ bb lint && bb format
 - Server-side code changes require server restart
 - Browser `.cljs` can be hot-reloaded via nREPL
 - clj-kondo exit code 2 = warnings (use `:continue true` in shell)
+- clj-kondo doesn't expose `:refer-clojure :exclude` in analysis output
 
 ---
 
@@ -180,6 +184,29 @@ bb lint && bb format
 - **Browser testing** - Use `mcp__chrome-devtools__` or `mcp__playwright__` tools
 - **Port 8091** - Browser UI (not 3000 which is MCP HTTP)
 - **Reference project** - `../clj-ns-browser` for Phase 2 inspiration
+
+### Session 2026-01-15: Aliases & Refers Panel
+
+**Implemented Phase 1.5E.19 & 1.5E.20:**
+- NS-level dependencies shown in Deps tab when viewing namespace symbol
+- Aliases panel shows `alias → namespace` mappings (right arrow)
+- Refers derived from var-usages with `:refer true` flag (not from namespace-usages)
+- Refers shown as `symbol ← namespace` (left arrow - "comes from")
+- Shadow detection: refers that shadow clojure.core vars get yellow highlight + ⚠
+
+**Key learnings:**
+- clj-kondo's `:namespace-usages` doesn't include `:refer` info
+- Refers must be derived from `:var-usages` where `:refer true`
+- clojure.core vars don't have `:refer true` - only explicit refers do
+- `:refer-clojure :exclude` is NOT exposed in kondo analysis output
+- `:exclude` in `:require` is silently ignored (not a valid option)
+- For shadow detection, use `(keys (ns-publics 'clojure.core))` dynamically - never hardcode
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Server-side refers extraction + shadow detection
+- `modules/sente-browser/src/browser/code_browser.cljs` - Browser aliases panel UI
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - CSS for panel
+- `test/bb_mcp_server/kondo_types_showcase.clj` - Added `replace` refer for shadow test
 
 ---
 

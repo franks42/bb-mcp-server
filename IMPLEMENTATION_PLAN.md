@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1.5 Complete (synced atoms, file watching, epoch detection) + Enhancements In Progress
-**Version:** v1.13.0
-**Last Updated:** 2026-01-14
+**Version:** v1.14.0
+**Last Updated:** 2026-01-15
 
 ---
 
@@ -666,26 +666,32 @@ git rev-parse --abbrev-ref @{u}      # Upstream branch (if tracking)
 - `protocol-method (MyRecord)` with kind `protocol-impl`
 - `protocol-method (MyType)` with kind `protocol-impl`
 
-#### Phase 1.5E.8: Enhanced Protocol & Multimethod Navigation
+#### Phase 1.5E.8: Enhanced Protocol & Multimethod Navigation ✅ Complete (2026-01-14)
 
 **Goal:** Navigate between definitions and implementations for protocols and multimethods.
+
+**Implementation:** Added "Impls" tab in symbol inspector that shows:
+- For protocols: List of all implementing types (clickable)
+- For protocol-impl: Link back to protocol definition (clickable)
+- For defmulti: List of all defmethod implementations with dispatch values (clickable)
+- For defmethod: Link back to defmulti definition (clickable)
 
 **Protocol tasks:**
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.8.1 | Show protocol methods as children of protocol | Pending |
-| 1.5E.8.2 | For each method, show count of implementations | Pending |
-| 1.5E.8.3 | Click protocol method → see all implementations | Pending |
-| 1.5E.8.4 | Click implementation → jump to protocol definition | Pending |
+| 1.5E.8.1 | Show protocol methods as children of protocol | ✅ (via Impls tab) |
+| 1.5E.8.2 | For each method, show count of implementations | ✅ (shown in Impls tab) |
+| 1.5E.8.3 | Click protocol method → see all implementations | ✅ |
+| 1.5E.8.4 | Click implementation → jump to protocol definition | ✅ |
 
 **Multimethod tasks:**
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.8.5 | Click defmulti → list all defmethod implementations | Pending |
-| 1.5E.8.6 | Click defmethod → jump to defmulti definition | Pending |
-| 1.5E.8.7 | Show defmethod count next to defmulti | Pending |
+| 1.5E.8.5 | Click defmulti → list all defmethod implementations | ✅ |
+| 1.5E.8.6 | Click defmethod → jump to defmulti definition | ✅ |
+| 1.5E.8.7 | Show defmethod count next to defmulti | ✅ (shown in Impls tab)
 
 **Example display:**
 ```
@@ -748,7 +754,7 @@ my-function          function      line 27
 - Understanding load-time side effects
 - Spotting `(require ...)` outside ns form (sometimes a smell)
 
-#### Phase 1.5E.10: Symbol Inspector (Multi-View Details)
+#### Phase 1.5E.10: Symbol Inspector (Multi-View Details) ✅ Core Complete (2026-01-14)
 
 **Goal:** When a symbol is selected, offer multiple views beyond just source code.
 
@@ -765,14 +771,20 @@ my-function          function      line 27
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.10.1 | Add view selector UI (tabs or dropdown) | ✓ Done |
-| 1.5E.10.2 | Docstring view: Extract and format `:doc` | ✓ Done |
+| 1.5E.10.1 | Add view selector UI (tabs or dropdown) | ✅ Tested |
+| 1.5E.10.2 | Docstring view: Extract and format `:doc` | ✅ Tested |
 | 1.5E.10.3 | Examples view: Fetch from ClojureDocs for `clojure.core/*` | Pending |
 | 1.5E.10.4 | Examples view: Find nearby `(comment ...)` blocks in same file | Pending |
-| 1.5E.10.5 | Dependents view: Query var-usages for refs to this symbol | ✓ Done |
-| 1.5E.10.6 | Dependencies view: Query var-usages within symbol's source range | ✓ Done |
+| 1.5E.10.5 | Dependents view: Query var-usages for refs to this symbol | ✅ Tested |
+| 1.5E.10.6 | Dependencies view: Query var-usages within symbol's source range | ✅ Tested |
 | 1.5E.10.7 | Click on dependent/dependency → navigate to that symbol | Pending |
 | 1.5E.10.8 | Metadata view: Show arglists, type hints, private?, deprecated? | Pending |
+
+**Tested 2026-01-14:**
+- Source tab: Shows full function code with syntax highlighting ✅
+- Doc tab: Shows extracted docstring (parsed from source) ✅
+- Deps tab: Shows 47 symbols that `register!` calls ✅
+- Callers tab: Shows `register-all!` calls the function ✅
 
 **Example UI:**
 ```
@@ -807,11 +819,19 @@ my-function          function      line 27
 4. ~~**1.5E.7** - Protocol implementations~~ ✅ Complete
 5. ~~**1.5E.9** - Top-level forms~~ ✅ Complete
 6. ~~**1.5E.12** - Source code highlighting~~ ✅ Complete (multi-line highlight)
-7. **1.5E.10** - Symbol inspector (multi-view details)
-8. **1.5E.3** - Project selector (larger, architectural)
-9. **1.5E.8** - Enhanced protocol display (nice-to-have)
-10. **1.5E.4** - Branch switching (complex, defer)
-11. **1.5E.11** - Multi-file namespace handling
+7. ~~**1.5E.10** - Symbol inspector (multi-view details)~~ ✅ Core Complete (tabs, doc, deps, callers)
+8. ~~**1.5E.3** - Project selector~~ ✅ Complete (directory dropdown)
+9. ~~**1.5E.8** - Enhanced protocol display~~ ✅ Complete (Impls tab)
+10. ~~**1.5E.13** - Show ns form as first symbol entry~~ ✅ Complete
+11. ~~**1.5E.14** - Rename 'Vars' panel to 'Symbols'~~ ✅ Complete
+12. ~~**1.5E.15** - Add project via form field~~ ✅ Complete
+13. **1.5E.4** - Branch switching (complex, defer)
+14. **1.5E.11** - Multi-file namespace handling
+15. **1.5E.16** - Directory browser (tree navigation)
+16. **1.5E.17** - Clone git repo from URL
+17. **1.5E.18** - Browse Maven artifact source
+18. **1.5E.19** - Namespace-level dependencies (requires)
+19. **1.5E.20** - Alias reference panel (str → clojure.string)
 
 #### Phase 1.5E.11: Multi-File Namespace Handling
 
@@ -912,6 +932,165 @@ Decoration.mark({class: "cm-highlighted-range"})
 - Can compute highlight line relative to containing form's start
 
 **Scope:** Protocol impls, defmethod, potentially other compound symbols.
+
+#### Phase 1.5E.13: Show ns Form as First Symbol Entry ✅ Complete (2026-01-14)
+
+**Goal:** Display the namespace form (with requires) as the first entry in the Symbols panel.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.13.1 | Add `:namespace-definitions true` to kondo config | ✅ Done |
+| 1.5E.13.2 | Extract ns definition from kondo analysis | ✅ Done |
+| 1.5E.13.3 | Create ns symbol entry with `:kind :ns` | ✅ Done |
+| 1.5E.13.4 | Always prepend ns symbol (first regardless of sort mode) | ✅ Done |
+
+**Implementation:** kondo provides `:namespace-definitions` with `:row`, `:end-row`, and `:doc` fields. The ns form is displayed as `(ns my.namespace ...)` and clicking shows the full ns form including all requires.
+
+#### Phase 1.5E.14: Rename 'Vars' Panel to 'Symbols' ✅ Complete (2026-01-14)
+
+**Goal:** Use more accurate terminology since the panel shows vars, ns forms, protocol impls, etc.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.14.1 | Rename header from "Vars" to "Symbols" | ✅ Done |
+| 1.5E.14.2 | Update filter placeholder text | ✅ Done |
+| 1.5E.14.3 | Update footer count text | ✅ Done |
+
+#### Phase 1.5E.15: Add Project via Form Field ✅ Complete (2026-01-14)
+
+**Goal:** Allow users to add project directories dynamically via a text input field.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.15.1 | Add text input + "+" button in git-status-bar | ✅ Done |
+| 1.5E.15.2 | Server handler validates with `babashka.fs/directory?` | ✅ Done |
+| 1.5E.15.3 | Validate is Clojure project (deps.edn, bb.edn, project.clj, shadow-cljs.edn) | ✅ Done |
+| 1.5E.15.4 | Add valid project to projects list (no duplicates) | ✅ Done |
+
+**Implementation:** User enters path, server validates it's a directory and a Clojure project, then adds to the projects dropdown. Errors displayed if validation fails.
+
+#### Phase 1.5E.16: Directory Browser (Future Enhancement)
+
+**Goal:** Provide tree-based directory navigation instead of manual path entry.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.16.1 | Add "Browse..." button next to path input | Pending |
+| 1.5E.16.2 | Server: Implement `list-directories` using `babashka.fs` | Pending |
+| 1.5E.16.3 | Browser: Tree component for navigating filesystem | Pending |
+| 1.5E.16.4 | Start from home directory, allow drill-down | Pending |
+| 1.5E.16.5 | Visual indicator for directories that are valid projects | Pending |
+
+#### Phase 1.5E.17: Clone Git Repo from URL
+
+**Goal:** Allow users to enter a git repository URL, clone it to a temp directory, and browse it.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.17.1 | Add URL input field (detect git URL pattern) | Pending |
+| 1.5E.17.2 | Server: Create temp directory with `babashka.fs/create-temp-dir` | Pending |
+| 1.5E.17.3 | Server: Clone repo using `git clone --depth 1` for speed | Pending |
+| 1.5E.17.4 | Add cloned project to projects list | Pending |
+| 1.5E.17.5 | Display progress indicator during clone | Pending |
+| 1.5E.17.6 | Handle clone errors gracefully | Pending |
+| 1.5E.17.7 | Optional: Cleanup temp dirs on server shutdown | Pending |
+
+**Use cases:**
+- Quick exploration of open source projects
+- Code review of external dependencies
+- Learning from other codebases
+
+#### Phase 1.5E.18: Browse Maven Artifact Source
+
+**Goal:** Allow users to enter Maven coordinates and browse the source JAR.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.18.1 | Parse Maven coordinates (group/artifact:version) | Pending |
+| 1.5E.18.2 | Construct Maven Central URL for `-sources.jar` | Pending |
+| 1.5E.18.3 | Download JAR using `babashka.curl` or `clj-http` | Pending |
+| 1.5E.18.4 | Extract to temp dir using `babashka.fs/unzip` | Pending |
+| 1.5E.18.5 | Add extracted source as project to browse | Pending |
+| 1.5E.18.6 | Handle missing sources JAR gracefully | Pending |
+| 1.5E.18.7 | Cache downloaded JARs to avoid re-downloading | Pending |
+
+**Maven Central URL pattern:**
+```
+https://repo1.maven.org/maven2/org/clojure/clojure/1.11.1/clojure-1.11.1-sources.jar
+```
+
+**Input formats to support:**
+- `org.clojure/clojure:1.11.1` (Clojure style)
+- `metosin/malli:0.16.4` (short form)
+- `io.github.clojure/tools.build:0.9.6`
+
+**Use cases:**
+- Explore library internals without cloning full repo
+- Debug issues in dependencies
+- Learn from well-written libraries
+- Quick code review of specific versions
+
+#### Phase 1.5E.19: Namespace-Level Dependencies (Requires) ✅ Complete (2026-01-15)
+
+**Goal:** When viewing an ns symbol, the Deps tab should show required namespaces (not var-level deps).
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.19.1 | Add `:namespace-usages true` to kondo config | ✅ Done |
+| 1.5E.19.2 | Store namespace-usages in analysis result | ✅ Done |
+| 1.5E.19.3 | For ns symbol Deps: filter where `:from` = current ns | ✅ Done |
+| 1.5E.19.4 | Display `:to` values with `:alias` if present | ✅ Done |
+| 1.5E.19.5 | Show `:refer` symbols (abbreviated if many) | ✅ Done |
+| 1.5E.19.6 | Update state reset functions | ✅ Done |
+
+**kondo namespace-usages structure:**
+```clojure
+{:from bb-mcp-server.main     ; namespace doing the requiring
+ :to bb-mcp-server.registry   ; namespace being required
+ :alias registry              ; the :as alias
+ :row 14                      ; location in source
+ ...}
+```
+
+**Display format:**
+```
+Deps (requires):
+  → bb-mcp-server.registry (as registry)
+  → bb-mcp-server.module.system (as sys)
+  → clojure.string (as str)
+```
+
+**Symmetry:**
+- **Var Deps:** vars this function calls
+- **Var Callers:** vars that call this function
+- **NS Deps:** namespaces this ns requires
+- **NS Callers:** namespaces that require this ns
+
+#### Phase 1.5E.20: Alias Reference Panel ✅ Complete (2026-01-15)
+
+**Goal:** Show a collapsible panel above source code listing alias → namespace mappings.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.20.1 | Extract aliases from namespace-usages (where `:alias` exists) | ✅ Done |
+| 1.5E.20.2 | Add collapsible "Aliases" panel above source | ✅ Done |
+| 1.5E.20.3 | Display as `alias → full.namespace` | ✅ Done |
+| 1.5E.20.4 | Show refers section with shadow warnings for clojure.core names | ✅ Done |
+| 1.5E.20.5 | Persist expanded/collapsed state in !ui-state | ✅ Done |
+
+**Display format:**
+```
+▼ Aliases (12)
+  fs  → babashka.fs
+  io  → clojure.java.io
+  log → taoensso.trove
+  str → clojure.string
+  ...
+```
+
+**Data source:** Same `:namespace-usages` as 1.5E.19, filtered to entries with `:alias`.
+
+**UX benefit:** When reading `(str/join ...)` or `(fs/directory? ...)`, quickly see what namespace those aliases refer to without scrolling to the ns form.
 
 ---
 
