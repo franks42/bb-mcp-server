@@ -4,14 +4,14 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-15
+**Last Updated:** 2026-01-16
 **Version:** v1.14.0
 
 ---
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, **server epoch detection**, and **aliases/refers panel with shadow warnings**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, **server epoch detection**, **aliases/refers panel with shadow warnings**, **multi-file namespace support with file dividers**, and **lazy JAR dependency exploration**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -29,6 +29,8 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.12 | Source code highlighting (multi-line) | **COMPLETE** |
 | 1.5E.19 | NS-level dependencies in Deps tab | **COMPLETE** |
 | 1.5E.20 | Aliases & Refers panel with shadow detection | **COMPLETE** |
+| 1.5E.11 | Multi-file NS + (in-ns) detection | **COMPLETE** |
+| 1.5E.18 | Lazy JAR Dependency Exploration | **COMPLETE** |
 
 ---
 
@@ -147,6 +149,7 @@ bb lint && bb format
 |-----|---------|
 | `docs/design/atom-sync-design.md` | Sync architecture, Phase 1.5-Watch diagram |
 | `docs/design/static-code-analysis.md` | Phase 1.5A kondo design |
+| `docs/design/static-live-code-revision-history.md` | Vision: datalog DB, runtime tracking, git diffs |
 | `IMPLEMENTATION_PLAN.md` | Task checklists |
 | `modules/atom-sync/README.md` | Atom-sync API reference |
 | `docs/SCITTLE_DEV_ENVIRONMENT.md` | Browser dev setup |
@@ -164,15 +167,17 @@ bb lint && bb format
 - Symbol filter works correctly
 - **Source code highlighting** with multi-line support (Phase 1.5E.12)
 - **Aliases & Refers panel** with shadow detection (Phase 1.5E.20)
+- **Multi-file namespace support** with file dividers (Phase 1.5E.11)
 
 **Next feature: Phase 1.5E.10** - Symbol inspector (multi-view details)
 
 **Key gotchas:**
-- React keys must be unique (use `name-line` not just `name`)
+- React keys must be globally unique across namespace switches - include `selected-ns` and `filename` in keys
 - Server-side code changes require server restart
 - Browser `.cljs` can be hot-reloaded via nREPL
 - clj-kondo exit code 2 = warnings (use `:continue true` in shell)
 - clj-kondo doesn't expose `:refer-clojure :exclude` in analysis output
+- Multi-file NS: Use kondo's `:ns-files` mapping (LSP doesn't index test files well)
 
 ---
 
@@ -207,6 +212,179 @@ bb lint && bb format
 - `modules/sente-browser/src/browser/code_browser.cljs` - Browser aliases panel UI
 - `modules/sente-browser/src/sente_browser/bootstrap.clj` - CSS for panel
 - `test/bb_mcp_server/kondo_types_showcase.clj` - Added `replace` refer for shadow test
+
+### Session 2026-01-15 (continued): Design Doc
+
+**Created `docs/design/static-live-code-revision-history.md`** capturing the vision for:
+- Static analysis (file-based, current)
+- Git diffs integration (Phase A)
+- Datalog DB code storage (Phase B)
+- Runtime REPL tracking (Phase C)
+- Unified timeline view (Phase D)
+
+### Session 2026-01-15 (later): Phase 1.5E.11 - (in-ns) Namespace Detection
+
+**Problem:** Namespaces defined via `(in-ns ...)` instead of `(ns ...)` were not appearing in Code Browser.
+
+**Root cause discovered:**
+- LSP `workspace/symbol` response does NOT include `containerName` field
+- The old `extract-namespaces` function relied on kind=3 symbols (ns declarations) only
+- Files with `(in-ns 'target-ns)` have no `(ns ...)` form, so no kind=3 symbol
+- However, clj-kondo correctly identifies the namespace in var-definitions via `:ns` field
+
+**Solution implemented:**
+- Added `analyze-project-with-kondo` - runs clj-kondo on `src`, `test`, `modules` directories
+- Added `extract-namespaces-from-kondo-vars` - extracts unique `:ns` values from var-definitions
+- Added `compute-ns-file-counts-kondo` - computes multi-file namespace info from kondo data
+- Updated `handle-request-namespaces` to use kondo-based detection (with LSP fallback)
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj` (lines 290-346 new functions, 1091-1114 updated)
+- Removed unused `compute-ns-file-counts` (old LSP-based version)
+
+**Test file:** `test/bb_mcp_server/in_ns_test.clj` contains `(in-ns 'bb-mcp-server.target-ns)`
+
+**Verification:** `bb-mcp-server.target-ns` now appears in namespace list at http://localhost:8091
+
+### Session 2026-01-15 (final): Phase 1.5E.11 - Multi-file Symbol Loading Fix
+
+**Problem:** Multi-file namespaces (like `mock-claude`, `user`) showed "(N files)" badge but returned "Namespace not found" error when selected.
+
+**Root cause:**
+- `handle-request-symbols` used `get-namespace-file` which relies on LSP
+- LSP doesn't index test files well, returning empty for `mock-claude`
+- But kondo correctly identifies files via `compute-ns-file-counts-kondo`
+
+**Solution implemented:**
+- Added `:ns-files {}` field to state atom for ALL namespace → files mappings
+- Created `compute-ns-files-kondo` function (extracts `:ns` + `:filename` from var-defs)
+- Modified `handle-request-namespaces` to compute and store `:ns-files`
+- Modified `handle-request-symbols` to use kondo's ns-files first, fall back to LSP
+- Added multi-file merging: analyzes ALL files for a namespace and merges results
+
+**Verification:**
+- `mock-claude (2 files)` → Shows "10 symbols in 2 files" with file divider
+- `user (18 files)` → Shows "115 symbols in 18 files" with file dividers
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj`:
+  - Added `compute-ns-files-kondo` function
+  - Added `:ns-files {}` to state atom
+  - Updated `handle-request-namespaces` to store ns-files
+  - Updated `handle-request-symbols` with multi-file support
+  - Updated both state reset locations
+
+**Phase 1.5E.11 is now COMPLETE.**
+
+### Session 2026-01-15 (followup): Multi-file UX Fixes
+
+**Two issues fixed:**
+
+1. **File divider disambiguation** - Both mock-claude files had identical dividers (`mock_claude.clj`)
+   - Root cause: `uri->filename` only extracted basename
+   - Fix: Changed to include 3 path segments (grandparent/parent/filename.clj)
+   - Result: `claude-manager/test/mock_claude.clj` vs `claude-subprocess-provider/test/mock_claude.clj`
+
+2. **Ghost artifact prevention** - Old symbols persisted when switching namespaces
+   - Root cause: React keys were `name-line` which weren't unique across namespaces
+   - Fix: Changed keys to include `selected-ns` and `filename`: `(str selected-ns "-" (:filename item) "-" (:name item) "-" (:line item))`
+   - Result: Clean namespace switching with no ghost artifacts
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - `uri->filename` function
+- `modules/sente-browser/src/browser/code_browser.cljs` - React keys in symbols panel
+
+**Key learning:** React keys must be globally unique when items can be swapped between lists. Include parent context (namespace) in keys to ensure proper unmounting.
+
+### Session 2026-01-15 (evening): Phase 1.5E.18 - Lazy JAR Dependency Exploration
+
+**Goal:** Enable exploring external JAR dependencies (like `clojure.string`, `taoensso.trove`) without analyzing all JARs at startup.
+
+**Implementation:**
+- **NS→JAR mapping at startup:** Quick scan of JAR entry paths to map namespaces to JAR files
+- **Lazy JAR analysis:** Only analyze JAR with clj-kondo when user clicks on external dependency
+- **JAR analysis caching:** Cache results in `:jar-analyses` to avoid re-analyzing
+- **Explored Dependencies section:** Shows explored JAR namespaces in namespace panel
+
+**New state fields in `!code-browser-state`:**
+- `:ns->jar {}` - Maps namespace names to JAR file paths
+- `:jar-analyses {}` - Caches clj-kondo analysis per JAR path
+- `:explored-deps []` - List of explored JAR namespace names
+
+**New functions added:**
+- `build-ns->jar-mapping` - Scans JAR files on classpath to build namespace mapping
+- `initialize-ns->jar-mapping!` - Async initialization of mapping
+- `analyze-jar-with-kondo` - Runs clj-kondo on JAR file
+- `get-jar-namespace-symbols` - Extracts symbols for a specific namespace from JAR
+- `handle-explore-jar-dep` - Event handler for exploring JAR dependency
+- `is-project-namespace?` - Checks if namespace is from project or JAR
+
+**Browser changes:**
+- External dependencies shown with 📦 icon in Deps tab
+- Clicking 📦 dep triggers JAR exploration
+- "Explored Dependencies" section appears in namespace panel
+- Count shows "N namespaces + M JAR"
+
+**Verification:**
+- Clicked `taoensso.trove` → Successfully explored, showed 4 symbols
+- Clicked `clojure.string` → Successfully explored, showed 25 symbols
+- Both appear in "Explored Dependencies" with 📦 icons
+- Count shows "188 namespaces + 2 JAR"
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - ~15 new functions, 2 event handlers
+- `modules/sente-browser/src/browser/code_browser.cljs` - External dep detection + explore UI
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` - CSS for external deps
+
+**Minor issues noted (future fixes):**
+- `*log-fn*` variable appears in symbols list across explored namespaces (symbol mixing)
+- This is cosmetic and doesn't affect functionality
+
+**Phase 1.5E.18 is now COMPLETE.**
+
+### Session 2026-01-15 (late): JAR Navigation Fix
+
+**Problem:** Clicking on JAR dependency symbols (like `clojure.core/reset!`) in the Deps tab didn't navigate to the JAR namespace with the symbol selected - unlike project source symbols.
+
+**Root causes identified:**
+1. `handle-navigate-to-symbol` was setting `:symbols` but not `:symbols-by-ns` for JAR namespaces
+   - `find-cached-symbol` looks in `:symbols-by-ns` to get line info for source extraction
+2. `jar-source-data` in `handle-request-var-source` was missing `:start-line` and `:end-line` fields
+   - Caused "lines -" display instead of actual line numbers
+
+**Fixes applied:**
+1. Updated `handle-navigate-to-symbol` (lines 1929-1946) to use functional swap setting both `:symbols` and `:symbols-by-ns`:
+   ```clojure
+   (swap! !code-browser-state
+          (fn [state]
+            (-> state
+                (assoc :selected-ns ns)
+                (assoc :symbols symbols)
+                (assoc :selected-symbol name)
+                (assoc-in [:symbols-by-ns ns] (vec symbols)))))
+   ```
+
+2. Added `:start-line` and `:end-line` to `jar-source-data` (lines 1693-1699):
+   ```clojure
+   jar-source-data {:code (:code source-data)
+                    :file (:file source-data)
+                    :ns ns
+                    :var-name var-name
+                    :from-jar true
+                    :start-line (:start-line source-data)
+                    :end-line (:end-line source-data)}
+   ```
+
+**Verification:**
+- Selected `bb-mcp-server.telemetry` → `init!` → Deps tab → clicked `reset!` (📦)
+- ✅ Navigated to `clojure.core` with 791 symbols displayed
+- ✅ `reset!` selected in inspector
+- ✅ Source shows `jar:/.../clojure-1.12.3.jar!clojure/core.clj lines 2393-2398`
+
+**Files modified:**
+- `modules/sente-browser/src/sente_browser/code_browser.clj`:
+  - `handle-navigate-to-symbol` - update both `:symbols` and `:symbols-by-ns`
+  - `handle-request-var-source` - add line numbers to `jar-source-data`
 
 ---
 

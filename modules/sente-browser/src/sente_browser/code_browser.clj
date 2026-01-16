@@ -239,12 +239,18 @@
                 :symbols-by-ns {}      ;; Accumulated: {ns [symbols...]}
                 :var-usages-by-ns {}   ;; Accumulated: {ns [usages...]} (Phase 1.5E.10)
                 :ns-usages-by-ns {}    ;; Accumulated: {ns [ns-usages...]} (Phase 1.5E.19/20)
+                :ns-file-counts {}     ;; Phase 1.5E.11: {ns {:file-count N :files [uri...]}}
+                :ns-files {}           ;; Phase 1.5E.11: {ns [file1 file2...]} - ALL namespaces
                 :selected-symbol nil
                 :source-by-var {}      ;; Accumulated: {"ns/var" {:code ...}}
                 :sort-mode :file-order ;; :alpha or :file-order (Phase 1.5E.1)
                 :git nil               ;; Git info: {:project-root :branch :dirty? :upstream}
                 :projects []           ;; Phase 1.5E.3: Configured project paths
                 :current-project nil   ;; Phase 1.5E.3: Current project root path
+                ;; Phase 1.5E.18: Lazy JAR Dependency Exploration
+                :ns->jar {}            ;; Mapping: {"cheshire.core" "/path/to/cheshire.jar"}
+                :jar-analyses {}       ;; Cached: {"/path/to.jar" {:var-definitions [...]}}
+                :explored-deps []      ;; List of explored JAR namespace names
                 :loading? false
                 :error nil}))
 
@@ -253,6 +259,97 @@
 (def ^:private core-var-names
      "Set of clojure.core public var names (as strings) for shadow detection."
      (set (map str (keys (ns-publics 'clojure.core)))))
+
+;; =============================================================================
+;; Phase 1.5E.11: Multi-File Namespace Detection (using clj-kondo)
+;; =============================================================================
+
+(defn- uri->filename
+  "Extract short path from file URI for display.
+   Shows grandparent/parent/filename.clj to distinguish files with same name.
+   e.g., file:///modules/claude-manager/test/mock_claude.clj -> claude-manager/test/mock_claude.clj"
+  [uri]
+  (when uri
+    (let [parts (str/split uri #"/")
+          n (count parts)]
+      (cond
+        (>= n 3) (str (nth parts (- n 3)) "/" (nth parts (- n 2)) "/" (nth parts (- n 1)))
+        (>= n 2) (str (nth parts (- n 2)) "/" (nth parts (- n 1)))
+        :else (last parts)))))
+
+(defn- analyze-project-with-kondo
+  "Run clj-kondo on src and test directories to get all var-definitions.
+   Returns map with :var-definitions containing all vars with their :ns field.
+   This correctly identifies namespaces even for (in-ns ...) patterns."
+  []
+  (try
+   (let [;; Analyze src and test directories
+         result (shell {:out :string :err :string :continue true}
+                       "clj-kondo" "--lint" "src" "--lint" "test" "--lint" "modules"
+                       "--config" "{:output {:analysis {:var-definitions true} :format :edn}}")
+         output (:out result)]
+     (when (seq output)
+       (let [analysis (edn/read-string output)
+             var-defs (get-in analysis [:analysis :var-definitions])]
+         (log/log! {:level :debug
+                    :id ::kondo-project-analysis
+                    :msg "clj-kondo project analysis complete"
+                    :data {:var-count (count var-defs)}})
+         {:var-definitions var-defs})))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::kondo-project-error
+                     :msg "clj-kondo project analysis failed"
+                     :data {:error (ex-message e)}})
+          nil)))
+
+(defn- extract-namespaces-from-kondo-vars
+  "Extract unique namespaces from clj-kondo var-definitions.
+   Uses the :ns field which correctly identifies (in-ns ...) patterns."
+  [var-defs]
+  (->> var-defs
+       (map :ns)
+       (filter some?)
+       (map str)
+       distinct
+       sort
+       vec))
+
+(defn- compute-ns-file-counts-kondo
+  "Compute file counts per namespace from clj-kondo var-definitions.
+   Uses :ns and :filename fields which correctly handle (in-ns ...) patterns.
+   Returns map of {ns-name {:file-count N :files [filename1 filename2 ...]}}
+   for namespaces with > 1 file."
+  [var-defs]
+  (let [ns-files (->> var-defs
+                      (filter (fn [v] (and (:ns v) (:filename v))))
+                      (group-by :ns)
+                      (map (fn [[ns-name vars]]
+                             (let [files (->> vars
+                                              (map :filename)
+                                              distinct
+                                              vec)]
+                               [(str ns-name) {:file-count (count files)
+                                               :files files}])))
+                      (into {}))]
+    ;; Only keep namespaces with > 1 file
+    (into {} (filter (fn [[_ data]] (> (:file-count data) 1)) ns-files))))
+
+(defn- compute-ns-files-kondo
+  "Compute namespace → files mapping for ALL namespaces from clj-kondo var-definitions.
+   Uses :ns and :filename fields which correctly handle (in-ns ...) patterns.
+   Returns map of {ns-name [filename1 filename2 ...]} for ALL namespaces."
+  [var-defs]
+  (->> var-defs
+       (filter (fn [v] (and (:ns v) (:filename v))))
+       (group-by :ns)
+       (map (fn [[ns-name vars]]
+              (let [files (->> vars
+                               (map :filename)
+                               distinct
+                               vec)]
+                [(str ns-name) files])))
+       (into {})))
 
 (def ^:private symbol-kind->name
      "LSP Symbol Kinds (from LSP spec) mapped to keywords."
@@ -364,10 +461,13 @@
           nil)))
 
 (defn- kondo-var->symbol
-  "Convert a clj-kondo var-definition to our symbol format."
+  "Convert a clj-kondo var-definition to our symbol format.
+   Phase 1.5E.11: Includes :filename for multi-file namespace display."
   [var-def]
   (let [defined-by (:defined-by var-def)
-        kind (get defined-by->label defined-by :variable)]
+        kind (get defined-by->label defined-by :variable)
+        ;; Extract just filename from full path for display
+        filename (uri->filename (:filename var-def))]
     {:name (str (:name var-def))
      :kind kind
      :line (:row var-def)
@@ -376,6 +476,8 @@
      :end-column (:end-col var-def)
      :doc (:doc var-def)
      :defined-by (str defined-by)
+     ;; Phase 1.5E.11: Include filename for multi-file display
+     :filename filename
      ;; Preserve original column for protocol method detection
      :_orig-col (:col var-def)}))
 
@@ -385,7 +487,8 @@
 
 (defn- extract-defmethods
   "Extract defmethod implementations from var-usages.
-   Returns symbols for each defmethod with dispatch value in name."
+   Returns symbols for each defmethod with dispatch value in name.
+   Phase 1.5E.11: Includes :filename for multi-file namespace display."
   [var-usages]
   (->> var-usages
        (filter :defmethod)
@@ -397,7 +500,9 @@
                :end-line (:end-row usage)
                :end-column (:end-col usage)
                :dispatch-val (:dispatch-val-str usage)
-               :multimethod (str (:name usage))}))))
+               :multimethod (str (:name usage))
+               ;; Phase 1.5E.11: Include filename
+               :filename (uri->filename (:filename usage))}))))
 
 ;; -----------------------------------------------------------------------------
 ;; Phase 1.5E.9: top-level forms extraction
@@ -406,12 +511,15 @@
 ;; Forms that indicate side-effects or non-defining top-level code
 (def ^:private top-level-form-names
      #{'comment 'println 'prn 'print 'set! 'require 'import 'use 'do 'when 'if 'let
-       'binding 'alter-var-root 'reset! 'swap!})
+       'binding 'alter-var-root 'reset! 'swap!
+       ;; Multi-file namespace forms (Phase 1.5E.11)
+       'load 'load-file 'in-ns})
 
 (defn- extract-top-level-forms
   "Extract non-defining top-level forms from var-usages.
    Only includes forms at column 1 (true top-level) with names in the allowlist.
-   These are shown only in file-order view to reveal load-time behavior."
+   These are shown only in file-order view to reveal load-time behavior.
+   Phase 1.5E.11: Includes :filename for multi-file namespace display."
   [var-usages]
   (->> var-usages
        (filter (fn [usage]
@@ -425,13 +533,17 @@
                          (println prn print) :side-effect
                          (set! alter-var-root) :config
                          (require import use) :require
+                         (load load-file) :load
+                         in-ns :in-ns
                          :form)
                  :line (:row usage)
                  :column (:col usage)
                  :end-line (:end-row usage)
                  :end-column (:end-col usage)
                  :form-type form-name
-                 :top-level? true})))))
+                 :top-level? true
+                 ;; Phase 1.5E.11: Include filename
+                 :filename (uri->filename (:filename usage))})))))
 
 ;; -----------------------------------------------------------------------------
 ;; Phase 1.5E.7: protocol implementation extraction
@@ -497,7 +609,8 @@
    Creates symbols like 'protocol-method (MyRecord)' with kind :protocol-impl.
    Uses containing defrecord/deftype's line range for source display.
    Preserves :method-line and :method-end-line for highlighting implementation.
-   Requires var-definitions to determine the implementing type name and bounds."
+   Requires var-definitions to determine the implementing type name and bounds.
+   Phase 1.5E.11: Includes :filename for multi-file namespace display."
   [protocol-impls var-definitions]
   (->> protocol-impls
        (map (fn [impl]
@@ -523,7 +636,9 @@
                  :protocol (str (:protocol-name impl))
                  :protocol-ns (str (:protocol-ns impl))
                  :method-name method-name
-                 :implementing-type (when type-name (str type-name))})))))
+                 :implementing-type (when type-name (str type-name))
+                 ;; Phase 1.5E.11: Include filename
+                 :filename (uri->filename (:filename impl))})))))
 
 (defn- sort-symbols
   "Sort symbols based on current sort mode.
@@ -536,6 +651,245 @@
     :alpha (sort-by :name symbols)
     ;; Default to file-order
     (sort-by :line symbols)))
+
+;; =============================================================================
+;; Phase 1.5E.18: Lazy JAR Dependency Exploration
+;; =============================================================================
+
+(defn- get-project-classpath
+  "Get the classpath for the current project using clojure -Spath.
+   Returns a vector of paths (JARs and directories) or nil if it fails."
+  []
+  (try
+   (let [result (shell {:out :string :err :string :continue true :timeout 30000}
+                       "clojure" "-Spath")]
+     (when (zero? (:exit result))
+       (let [cp (str/trim (:out result))]
+         (when (seq cp)
+           (str/split cp #":")))))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::classpath-error
+                     :msg "Failed to get classpath"
+                     :data {:error (ex-message e)}})
+          nil)))
+
+(defn- jar-entry->namespace
+  "Convert a JAR entry path to a namespace name.
+   e.g., 'cheshire/core.clj' -> 'cheshire.core'
+   Returns nil if the entry is not a Clojure source file."
+  [entry-name]
+  (when (and entry-name
+             (or (str/ends-with? entry-name ".clj")
+                 (str/ends-with? entry-name ".cljs")
+                 (str/ends-with? entry-name ".cljc"))
+             (not (str/starts-with? entry-name "META-INF")))
+    (-> entry-name
+        (str/replace #"\.(clj|cljs|cljc)$" "")
+        (str/replace "/" ".")
+        (str/replace "_" "-"))))
+
+(defn- scan-jar-namespaces
+  "Quickly scan a JAR file to extract namespace names from entry paths.
+   Returns a set of namespace name strings."
+  [jar-path]
+  (try
+   (let [jar-file (java.util.jar.JarFile. (io/file jar-path))
+         entries (enumeration-seq (.entries jar-file))]
+     (->> entries
+          (map #(.getName %))
+          (keep jar-entry->namespace)
+          set))
+   (catch Exception e
+          (log/log! {:level :debug
+                     :id ::jar-scan-error
+                     :msg "Failed to scan JAR"
+                     :data {:jar jar-path :error (ex-message e)}})
+          #{})))
+
+(defn- build-ns->jar-mapping
+  "Build a mapping of namespace names to JAR paths from the classpath.
+   Only includes JARs, not directories (those are project sources).
+   Returns {:ns->jar {\"cheshire.core\" \"/path/to/cheshire.jar\" ...}}."
+  []
+  (log/log! {:level :info
+             :id ::building-ns-jar-mapping
+             :msg "Building NS -> JAR mapping from classpath"})
+  (let [classpath (get-project-classpath)
+        jars (filter #(str/ends-with? % ".jar") classpath)]
+    (when (seq jars)
+      (log/log! {:level :debug
+                 :id ::jar-count
+                 :msg "Found JARs on classpath"
+                 :data {:count (count jars)}})
+      (let [ns->jar (reduce
+                     (fn [acc jar-path]
+                       (let [namespaces (scan-jar-namespaces jar-path)]
+                         (reduce (fn [m ns-name]
+                                   ;; First JAR wins (in case of duplicates)
+                                   (if (contains? m ns-name)
+                                     m
+                                     (assoc m ns-name jar-path)))
+                                 acc
+                                 namespaces)))
+                     {}
+                     jars)]
+        (log/log! {:level :info
+                   :id ::ns-jar-mapping-complete
+                   :msg "NS -> JAR mapping complete"
+                   :data {:namespace-count (count ns->jar)
+                          :jar-count (count jars)}})
+        {:ns->jar ns->jar}))))
+
+(defn- analyze-jar-with-kondo
+  "Run clj-kondo analysis on a JAR file.
+   Returns {:var-definitions [...] :namespace-definitions [...]} or nil."
+  [jar-path]
+  (log/log! {:level :info
+             :id ::analyzing-jar
+             :msg "Analyzing JAR with clj-kondo"
+             :data {:jar jar-path}})
+  (try
+   (let [result (shell {:out :string :err :string :continue true :timeout 60000}
+                       "clj-kondo" "--lint" jar-path
+                       "--config" "{:output {:analysis {:var-definitions true :namespace-definitions true :var-usages true} :format :edn}}")
+         output (:out result)]
+     (when (seq output)
+       (let [analysis (edn/read-string output)
+             var-defs (get-in analysis [:analysis :var-definitions])
+             ns-defs (get-in analysis [:analysis :namespace-definitions])
+             var-usages (get-in analysis [:analysis :var-usages])]
+         (log/log! {:level :info
+                    :id ::jar-analysis-complete
+                    :msg "JAR analysis complete"
+                    :data {:jar jar-path
+                           :var-count (count var-defs)
+                           :ns-count (count ns-defs)}})
+         {:var-definitions var-defs
+          :namespace-definitions ns-defs
+          :var-usages var-usages})))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::jar-analysis-error
+                     :msg "JAR analysis failed"
+                     :data {:jar jar-path :error (ex-message e)}})
+          nil)))
+
+(defn- read-source-from-jar
+  "Read source code from a JAR file without extracting.
+   entry-path should be like 'cheshire/core.clj'.
+   Returns the source code string or nil."
+  [jar-path entry-path]
+  (try
+   (let [jar-file (java.util.jar.JarFile. (io/file jar-path))
+         entry (.getEntry jar-file entry-path)]
+     (when entry
+       (slurp (.getInputStream jar-file entry))))
+   (catch Exception e
+          (log/log! {:level :debug
+                     :id ::jar-read-error
+                     :msg "Failed to read from JAR"
+                     :data {:jar jar-path :entry entry-path :error (ex-message e)}})
+          nil)))
+
+(defn- ns->jar-entry-path
+  "Convert a namespace to a JAR entry path.
+   e.g., 'cheshire.core' -> 'cheshire/core'
+   Note: caller needs to try .clj, .cljs, .cljc extensions."
+  [ns-name]
+  (-> ns-name
+      (str/replace "." "/")
+      (str/replace "-" "_")))
+
+(defn- get-jar-for-namespace
+  "Look up which JAR contains a namespace.
+   Returns the JAR path or nil if not found."
+  [ns-name]
+  (get-in @!code-browser-state [:ns->jar ns-name]))
+
+(defn- is-project-namespace?
+  "Check if a namespace is part of the project (not from a JAR).
+   Returns true if the namespace is in the project's namespace list."
+  [ns-name]
+  (let [namespaces (:namespaces @!code-browser-state)]
+    (some #(= % ns-name) namespaces)))
+
+(defn- ensure-jar-analyzed!
+  "Ensure a JAR has been analyzed and cached.
+   Returns the cached analysis or nil if analysis fails."
+  [jar-path]
+  (if-let [cached (get-in @!code-browser-state [:jar-analyses jar-path])]
+          cached
+          (when-let [analysis (analyze-jar-with-kondo jar-path)]
+                    (swap! !code-browser-state assoc-in [:jar-analyses jar-path] analysis)
+                    analysis)))
+
+(defn- get-jar-namespace-symbols
+  "Get symbols for a namespace from JAR analysis.
+   Similar to project symbols but from JAR cache."
+  [jar-path ns-name]
+  (when-let [analysis (ensure-jar-analyzed! jar-path)]
+            (let [ns-sym (symbol ns-name)
+                  var-defs (:var-definitions analysis)
+                  ns-vars (->> var-defs
+                               (filter #(= ns-sym (:ns %))))]
+              (mapv (fn [v]
+                      {:name (str (:name v))
+                       :kind (get defined-by->label (:defined-by v) :variable)
+                       :line (:row v)
+                       :end-line (:end-row v)
+                       :filename (:filename v)
+                       :doc (:doc v)
+                       :arglists (:arglist-strs v)
+                       :from-jar true
+                       :jar-path jar-path})
+                    ns-vars))))
+
+(defn- get-jar-symbol-source
+  "Get source code for a symbol from a JAR.
+   Returns {:code string :file string :start-line int :end-line int} or nil."
+  [jar-path ns-name _var-name start-line end-line]
+  (let [base-path (ns->jar-entry-path ns-name)
+        ;; Try each possible extension
+        extensions [".cljc" ".clj" ".cljs"]
+        entry-path (some (fn [ext]
+                           (let [path (str base-path ext)]
+                             (when (read-source-from-jar jar-path path)
+                               path)))
+                         extensions)]
+    (when entry-path
+      (let [full-source (read-source-from-jar jar-path entry-path)
+            lines (str/split-lines full-source)
+            ;; Extract just the lines we need (1-indexed)
+            start-idx (max 0 (dec start-line))
+            end-idx (min (count lines) end-line)
+            source-lines (subvec (vec lines) start-idx end-idx)]
+        {:code (str/join "\n" source-lines)
+         :file (str "jar:" jar-path "!" entry-path)
+         :start-line start-line
+         :end-line end-line
+         :from-jar true}))))
+
+(defn- add-explored-dep!
+  "Add a namespace to the explored dependencies list."
+  [ns-name]
+  (swap! !code-browser-state update :explored-deps
+         (fn [deps]
+           (if (some #(= % ns-name) deps)
+             deps
+             (conj (vec deps) ns-name)))))
+
+(defn- initialize-ns->jar-mapping!
+  "Initialize the NS -> JAR mapping at startup.
+   Called when code browser is enabled."
+  []
+  (future
+   (when-let [{:keys [ns->jar]} (build-ns->jar-mapping)]
+             (swap! !code-browser-state assoc :ns->jar ns->jar)
+             (log/log! {:level :info
+                        :id ::ns-jar-mapping-initialized
+                        :msg "NS -> JAR mapping initialized"
+                        :data {:namespace-count (count ns->jar)}}))))
 
 ;; =============================================================================
 ;; Git Status (Phase 1.5E.2)
@@ -628,6 +982,8 @@
          :symbols-by-ns {}
          :var-usages-by-ns {}
          :ns-usages-by-ns {}    ;; Phase 1.5E.19/20: NS-level deps/aliases
+         :ns-files {}           ;; Phase 1.5E.11: ALL ns → files
+         :ns-file-counts {}     ;; Phase 1.5E.11: Multi-file namespace info
          :selected-symbol nil
          :source-by-var {}))
 
@@ -740,7 +1096,9 @@
                                :kind :ns
                                :line (:row ns-def)
                                :end-line (:end-row ns-def)
-                               :doc (:doc ns-def)})
+                               :doc (:doc ns-def)
+                               ;; Phase 1.5E.11: Include filename
+                               :filename (uri->filename (:filename ns-def))})
 
             ;; 1. Var definitions (defn, def, etc.)
             ;; Filter to this namespace, then fix protocol method line ranges
@@ -866,13 +1224,22 @@
 
 (defn extract-namespaces
   "Extract unique namespaces from LSP symbols.
-   Filters for kind=3 (namespace) and returns sorted list."
+   Phase 1.5E.11: Now includes namespaces from containerName fields,
+   which catches namespaces defined via (in-ns ...) that have no (ns ...) form.
+   Returns sorted list of unique namespace names."
   [symbols]
-  (->> symbols
-       (filter #(= 3 (:kind %)))
-       (map :name)
-       (sort)
-       vec))
+  (let [;; Namespaces with explicit (ns ...) declarations (kind=3)
+        ns-declarations (->> symbols
+                             (filter #(= 3 (:kind %)))
+                             (map :name))
+        ;; Namespaces from symbol containerName (catches in-ns patterns)
+        ns-from-containers (->> symbols
+                                (map :containerName)
+                                (filter some?))]
+    (->> (concat ns-declarations ns-from-containers)
+         distinct
+         sort
+         vec)))
 
 (defn- detect-kind
   "Map LSP symbol kind number to keyword.
@@ -971,14 +1338,36 @@
   "Handle request for namespace list.
    Updates synced atom AND returns response (parallel mode).
    Also cleans up stale cached data for namespaces that no longer exist.
+   Phase 1.5E.11: Uses clj-kondo project analysis to correctly detect
+   namespaces including those defined via (in-ns ...).
    Returns {:namespaces [string ...]}."
   [_data]
   (log/log! {:level :info
              :id ::request-namespaces
              :msg "Handling namespace list request"})
-  (let [symbols (fetch-all-symbols)
-        namespaces (extract-namespaces symbols)
-        namespace-set (set namespaces)]
+  ;; Use clj-kondo for namespace discovery (correctly handles in-ns patterns)
+  (let [kondo-result (analyze-project-with-kondo)
+        var-defs (:var-definitions kondo-result)
+        ;; Fall back to LSP if kondo fails
+        namespaces (if (seq var-defs)
+                     (extract-namespaces-from-kondo-vars var-defs)
+                     (let [symbols (fetch-all-symbols)]
+                       (extract-namespaces symbols)))
+        namespace-set (set namespaces)
+        ;; Phase 1.5E.11: Compute namespace → files mappings from kondo data
+        ns-files (if (seq var-defs)
+                   (compute-ns-files-kondo var-defs)
+                   {})
+        ns-file-counts (if (seq var-defs)
+                         (compute-ns-file-counts-kondo var-defs)
+                         {})]
+    ;; Log multi-file namespaces if any
+    (when (seq ns-file-counts)
+      (log/log! {:level :info
+                 :id ::multi-file-namespaces-detected
+                 :msg "Detected multi-file namespaces"
+                 :data {:count (count ns-file-counts)
+                        :namespaces (keys ns-file-counts)}}))
     ;; Update synced atom and clean up stale cached data
     (swap! !code-browser-state
            (fn [state]
@@ -991,6 +1380,8 @@
                             :data {:stale stale-namespaces}}))
                (-> state
                    (assoc :namespaces namespaces
+                          :ns-files ns-files              ;; Phase 1.5E.11: ALL ns → files
+                          :ns-file-counts ns-file-counts  ;; Phase 1.5E.11: multi-file only
                           :loading? false)
                    ;; Remove symbols cache for stale namespaces
                    (update :symbols-by-ns #(apply dissoc % stale-namespaces))
@@ -1008,7 +1399,8 @@
                                            source-cache))))))))
     ;; Also return response for legacy event mechanism
     {:namespaces namespaces
-     :count (count namespaces)}))
+     :count (count namespaces)
+     :multi-file-count (count ns-file-counts)}))
 
 (defn handle-request-symbols
   "Handle request for symbols in a namespace.
@@ -1021,16 +1413,30 @@
              :id ::request-symbols
              :msg "Handling symbols request"
              :data {:ns ns :preserve-selection? preserve-selection?}})
-  (let [symbols (fetch-all-symbols)
-        file-uri (get-namespace-file symbols ns)]
-    (if file-uri
-      ;; Try clj-kondo first for rich classification, fall back to LSP
-      ;; Phase 1.5E.10: kondo returns {:symbols [...] :var-usages [...] :ns-usages [...]}
-      (let [kondo-result (extract-ns-symbols-kondo file-uri ns)
-            ns-symbols (or (:symbols kondo-result)
-                           (extract-ns-symbols symbols file-uri))
-            ns-var-usages (or (:var-usages kondo-result) [])
-            ns-ns-usages (or (:ns-usages kondo-result) [])
+  ;; Phase 1.5E.11: Use kondo's ns-files mapping first, fall back to LSP
+  (let [state @!code-browser-state
+        kondo-files (get-in state [:ns-files ns])
+        ;; Fall back to LSP if kondo doesn't have the file
+        file-uri (or (first kondo-files)
+                     (let [symbols (fetch-all-symbols)]
+                       (get-namespace-file symbols ns)))
+        ;; For multi-file ns, we'll analyze all files
+        all-files (or (seq kondo-files) (when file-uri [file-uri]))]
+    (if (seq all-files)
+      ;; Phase 1.5E.11: Analyze all files for the namespace and merge results
+      ;; Try clj-kondo first for rich classification
+      (let [kondo-results (mapv #(extract-ns-symbols-kondo % ns) all-files)
+            ;; Merge results from all files
+            merged-symbols (vec (mapcat :symbols kondo-results))
+            merged-var-usages (vec (mapcat :var-usages kondo-results))
+            merged-ns-usages (vec (mapcat :ns-usages kondo-results))
+            ;; Use merged kondo results, or fall back to LSP for first file
+            ns-symbols (if (seq merged-symbols)
+                         merged-symbols
+                         (let [lsp-symbols (fetch-all-symbols)]
+                           (extract-ns-symbols lsp-symbols file-uri)))
+            ns-var-usages (or (seq merged-var-usages) [])
+            ns-ns-usages (or (seq merged-ns-usages) [])
             symbol-names (set (map :name ns-symbols))]
         ;; Update synced atom - ACCUMULATE symbols by namespace
         (swap! !code-browser-state
@@ -1257,122 +1663,186 @@
    data: {:ns string :var-name string :kind keyword}
    First checks cached symbols (kondo data with accurate line ranges),
    falls back to clojure-lsp lookup if not found.
-   Uses :kind to disambiguate when multiple symbols have same name."
+   Uses :kind to disambiguate when multiple symbols have same name.
+   Phase 1.5E.18: Handles JAR namespaces specially since source files
+   are inside JARs and can't be read directly."
   [{:keys [ns var-name kind]}]
   (log/log! {:level :info
              :id ::request-var-source
              :msg "Handling var source request"
              :data {:ns ns :var-name var-name :kind kind}})
-  (let [symbols (fetch-all-symbols)
-        file-uri (get-namespace-file symbols ns)
-        file-path (when file-uri (str/replace file-uri "file://" ""))
-        ;; First check cached symbol data (kondo-derived, has accurate line ranges)
-        cached-sym (find-cached-symbol ns var-name kind)]
-    (if-not file-path
-      (do
+  ;; Phase 1.5E.18C: Check if this is a JAR namespace - read source from JAR
+  (if-not (is-project-namespace? ns)
+    ;; JAR namespace - read source from JAR file
+    (let [cached-sym (find-cached-symbol ns var-name kind)
+          jar-path (get-jar-for-namespace ns)
+          start-line (or (:line cached-sym) 1)
+          end-line (or (:end-line cached-sym) start-line)
+          source-data (when jar-path
+                        (get-jar-symbol-source jar-path ns var-name start-line end-line))]
+      (log/log! {:level :debug
+                 :id ::jar-var-source
+                 :msg "JAR namespace - reading source from JAR"
+                 :data {:ns ns :var-name var-name :jar-path jar-path
+                        :start-line start-line :end-line end-line
+                        :found? (boolean source-data)}})
+      (if source-data
+        ;; Successfully read source from JAR
+        (let [var-key (str ns "/" var-name)
+              ;; Build source-data map matching browser expectations
+              jar-source-data {:code (:code source-data)
+                               :file (:file source-data)
+                               :ns ns
+                               :var-name var-name
+                               :from-jar true
+                               :start-line (:start-line source-data)
+                               :end-line (:end-line source-data)}]
+          (swap! !code-browser-state
+                 (fn [state]
+                   (-> state
+                       (assoc :selected-symbol var-name
+                              :loading? false)
+                       (assoc-in [:source-by-var var-key] jar-source-data))))
+          {:source (:code source-data) :ns ns :var-name var-name :from-jar true
+           :file (:file source-data) :start-line start-line :end-line end-line})
+        ;; Fallback if source reading fails
+        (let [var-key (str ns "/" var-name)
+              placeholder (str ";; Could not read source from JAR.\n;;\n"
+                               ";; Symbol: " var-name "\n"
+                               ";; Namespace: " ns "\n"
+                               (when cached-sym
+                                 (str ";; Type: " (:kind cached-sym) "\n"
+                                      ";; Line: " start-line "-" end-line "\n"))
+                               (when jar-path
+                                 (str ";; JAR: " jar-path)))
+              fallback-data {:code placeholder
+                             :file nil
+                             :ns ns
+                             :var-name var-name
+                             :from-jar true}]
+          (swap! !code-browser-state
+                 (fn [state]
+                   (-> state
+                       (assoc :selected-symbol var-name
+                              :loading? false)
+                       (assoc-in [:source-by-var var-key] fallback-data))))
+          {:source placeholder :ns ns :var-name var-name :from-jar true})))
+    ;; Project namespace - continue with normal logic
+    ;; Phase 1.5E.11: Use kondo's ns-files mapping first, fall back to LSP
+    (let [state @!code-browser-state
+          kondo-files (get-in state [:ns-files ns])
+          symbols (fetch-all-symbols)
+          ;; Use kondo files first, fall back to LSP
+          file-uri (or (first kondo-files)
+                       (get-namespace-file symbols ns))
+          file-path (when file-uri (str/replace file-uri "file://" ""))
+          ;; First check cached symbol data (kondo-derived, has accurate line ranges)
+          cached-sym (find-cached-symbol ns var-name kind)]
+      (if-not file-path
+        (do
        ;; Update synced atom with error state
-       (swap! !code-browser-state assoc
-              :error (str "Namespace not found: " ns)
-              :loading? false)
-       {:error (str "Namespace not found: " ns)})
+         (swap! !code-browser-state assoc
+                :error (str "Namespace not found: " ns)
+                :loading? false)
+         {:error (str "Namespace not found: " ns)})
       ;; Use cached symbol if available, otherwise fall back to LSP lookup
-      (let [;; If we have cached symbol with line info, use it
+        (let [;; If we have cached symbol with line info, use it
             ;; Otherwise fall back to LSP lookup
-            [start-line end-line]
-            (if (and cached-sym (:line cached-sym) (:end-line cached-sym))
+              [start-line end-line]
+              (if (and cached-sym (:line cached-sym) (:end-line cached-sym))
               ;; Use cached kondo data (already 1-based)
-              [(:line cached-sym) (:end-line cached-sym)]
+                [(:line cached-sym) (:end-line cached-sym)]
               ;; Fall back to LSP lookup
-              (let [matching (->> symbols
-                                  (filter #(and (= file-uri (get-in % [:location :uri]))
-                                                (= var-name (:name %)))))
-                    var-sym (if kind
-                              (let [kind-num (case kind
-                                               :declare 13
-                                               :function 12
-                                               :variable 13
-                                               nil)]
-                                (or (->> matching
-                                         (filter #(= kind-num (:kind %)))
-                                         first)
-                                    (first matching)))
-                              (first matching))]
-                (when var-sym
+                (let [matching (->> symbols
+                                    (filter #(and (= file-uri (get-in % [:location :uri]))
+                                                  (= var-name (:name %)))))
+                      var-sym (if kind
+                                (let [kind-num (case kind
+                                                 :declare 13
+                                                 :function 12
+                                                 :variable 13
+                                                 nil)]
+                                  (or (->> matching
+                                           (filter #(= kind-num (:kind %)))
+                                           first)
+                                      (first matching)))
+                                (first matching))]
+                  (when var-sym
                   ;; LSP lines are 0-based, convert to 1-based
-                  [(inc (get-in var-sym [:location :range :start :line] 0))
-                   (inc (get-in var-sym [:location :range :end :line] 0))])))]
-        (if-not (and start-line end-line)
-          (do
+                    [(inc (get-in var-sym [:location :range :start :line] 0))
+                     (inc (get-in var-sym [:location :range :end :line] 0))])))]
+          (if-not (and start-line end-line)
+            (do
            ;; Update synced atom with error state
-           (swap! !code-browser-state assoc
-                  :error (str "Var not found: " ns "/" var-name)
-                  :loading? false)
-           {:error (str "Var not found: " ns "/" var-name)})
-          (let [content (fetch-file-content file-uri)
+             (swap! !code-browser-state assoc
+                    :error (str "Var not found: " ns "/" var-name)
+                    :loading? false)
+             {:error (str "Var not found: " ns "/" var-name)})
+            (let [content (fetch-file-content file-uri)
                 ;; For defmethod/top-level-forms, end-line from kondo only covers the name.
                 ;; If end-line == start-line, scan for balanced parens to find actual end.
-                actual-end-line (if (= start-line end-line)
-                                  (find-form-end-line content start-line)
-                                  end-line)
-                code (extract-source-region content start-line actual-end-line)
-                var-key (str ns "/" var-name)
+                  actual-end-line (if (= start-line end-line)
+                                    (find-form-end-line content start-line)
+                                    end-line)
+                  code (extract-source-region content start-line actual-end-line)
+                  var-key (str ns "/" var-name)
                 ;; Phase 1.5E.12: Calculate highlight lines for protocol impls/methods
                 ;; If cached symbol has :method-line/:method-end-line, compute relative lines
-                method-line (:method-line cached-sym)
-                method-end-line (:method-end-line cached-sym)
-                highlight-line (when (and method-line
-                                          (>= method-line start-line)
-                                          (<= method-line actual-end-line))
+                  method-line (:method-line cached-sym)
+                  method-end-line (:method-end-line cached-sym)
+                  highlight-line (when (and method-line
+                                            (>= method-line start-line)
+                                            (<= method-line actual-end-line))
                                  ;; Convert absolute line to 1-based line within extracted source
-                                 (- method-line (dec start-line)))
-                highlight-end-line (when (and method-end-line
-                                              (>= method-end-line start-line)
-                                              (<= method-end-line actual-end-line))
-                                     (- method-end-line (dec start-line)))
+                                   (- method-line (dec start-line)))
+                  highlight-end-line (when (and method-end-line
+                                                (>= method-end-line start-line)
+                                                (<= method-end-line actual-end-line))
+                                       (- method-end-line (dec start-line)))
                 ;; Phase 1.5E.10: Compute deps/dependents
-                dependencies (compute-dependencies ns var-name)
-                dependents (compute-dependents ns var-name)
+                  dependencies (compute-dependencies ns var-name)
+                  dependents (compute-dependents ns var-name)
                 ;; Phase 1.5E.10: Get docstring from cached symbol
-                doc (:doc cached-sym)
+                  doc (:doc cached-sym)
                 ;; Phase 1.5E.8: Compute implementations for protocols/multimethods
-                impl-data (when cached-sym (compute-implementations cached-sym ns var-name))
-                source-data (cond-> {:code code
-                                     :file file-uri
-                                     :ns ns
-                                     :var-name var-name
-                                     :start-line start-line
-                                     :end-line actual-end-line
-                                     :language "clojure"}
+                  impl-data (when cached-sym (compute-implementations cached-sym ns var-name))
+                  source-data (cond-> {:code code
+                                       :file file-uri
+                                       :ns ns
+                                       :var-name var-name
+                                       :start-line start-line
+                                       :end-line actual-end-line
+                                       :language "clojure"}
                               ;; Include highlight lines if available (Phase 1.5E.12)
-                                    highlight-line (assoc :highlight-line highlight-line)
-                                    highlight-end-line (assoc :highlight-end-line highlight-end-line)
+                                      highlight-line (assoc :highlight-line highlight-line)
+                                      highlight-end-line (assoc :highlight-end-line highlight-end-line)
                               ;; Phase 1.5E.10: Include doc and deps
-                                    doc (assoc :doc doc)
-                                    (seq dependencies) (assoc :dependencies dependencies)
-                                    (seq dependents) (assoc :dependents dependents)
+                                      doc (assoc :doc doc)
+                                      (seq dependencies) (assoc :dependencies dependencies)
+                                      (seq dependents) (assoc :dependents dependents)
                               ;; Phase 1.5E.8: Include implementations/definition
-                                    (:implementations impl-data) (assoc :implementations (:implementations impl-data))
-                                    (:definition impl-data) (assoc :definition (:definition impl-data)))
+                                      (:implementations impl-data) (assoc :implementations (:implementations impl-data))
+                                      (:definition impl-data) (assoc :definition (:definition impl-data)))
                 ;; Get cached source to compare
-                cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
-                source-changed? (not= code cached-code)]
+                  cached-code (get-in @!code-browser-state [:source-by-var var-key :code])
+                  source-changed? (not= code cached-code)]
             ;; Update synced atom - ACCUMULATE source by qualified var name
             ;; Only update if source actually changed to prevent unnecessary UI updates
-            (swap! !code-browser-state
-                   (fn [state]
-                     (-> state
-                         (assoc :selected-symbol var-name
-                                :loading? false)
+              (swap! !code-browser-state
+                     (fn [state]
+                       (-> state
+                           (assoc :selected-symbol var-name
+                                  :loading? false)
                          ;; Only update source-by-var if code changed
-                         (cond-> source-changed?
-                                 (assoc-in [:source-by-var var-key] source-data)))))
-            (when source-changed?
-              (log/log! {:level :info
-                         :id ::source-changed
-                         :msg "Source code changed, updating cache"
-                         :data {:var-key var-key}}))
+                           (cond-> source-changed?
+                                   (assoc-in [:source-by-var var-key] source-data)))))
+              (when source-changed?
+                (log/log! {:level :info
+                           :id ::source-changed
+                           :msg "Source code changed, updating cache"
+                           :data {:var-key var-key}}))
             ;; Also return response for legacy event mechanism
-            source-data))))))
+              source-data)))))))
 
 (defn handle-clear-error
   "Handle request to clear error state.
@@ -1437,6 +1907,7 @@
 (defn handle-navigate-to-symbol
   "Handle navigation to a symbol in any namespace.
    Phase 1.5E.10.7: Click deps/callers -> navigate to that symbol.
+   Phase 1.5E.18: Also supports JAR namespaces.
    data: {:ns string :name string}
    First fetches symbols for the namespace (if not cached), then fetches the source."
   [{:keys [ns name]}]
@@ -1444,11 +1915,111 @@
              :id ::navigate-to-symbol
              :msg "Navigating to symbol"
              :data {:ns ns :name name}})
-  ;; First fetch symbols for the namespace (this will update selected-ns and cache symbols)
-  (handle-request-symbols {:ns ns})
-  ;; Then fetch source for the var (without kind - will find first match)
-  (handle-request-var-source {:ns ns :var-name name :kind nil})
-  {:navigated true :ns ns :name name})
+  (if (is-project-namespace? ns)
+    ;; Project namespace - use regular navigation
+    (do
+     (handle-request-symbols {:ns ns})
+     (handle-request-var-source {:ns ns :var-name name :kind nil})
+     {:navigated true :ns ns :name name :from-project true})
+    ;; JAR namespace - use JAR exploration
+    (if-let [jar-path (get-jar-for-namespace ns)]
+            (do
+             (log/log! {:level :debug
+                        :id ::navigate-to-jar-symbol
+                        :msg "Navigating to JAR symbol"
+                        :data {:ns ns :name name :jar-path jar-path}})
+        ;; Load JAR symbols if needed
+             (let [symbols (get-jar-namespace-symbols jar-path ns)]
+               (add-explored-dep! ns)
+               ;; Update both :symbols and :symbols-by-ns so find-cached-symbol works
+               (swap! !code-browser-state
+                      (fn [state]
+                        (-> state
+                            (assoc :selected-ns ns)
+                            (assoc :symbols symbols)
+                            (assoc :selected-symbol name)
+                            (assoc-in [:symbols-by-ns ns] (vec symbols)))))
+               ;; Phase 1.5E.18C: Use handle-request-var-source which extracts JAR source
+               ;; Find the symbol to get its line info for source extraction
+               (when-let [sym (first (filter #(= (:name %) name) symbols))]
+                 (handle-request-var-source {:ns ns
+                                             :var-name name
+                                             :kind (:kind sym)}))
+               {:navigated true :ns ns :name name :from-jar true :jar-path jar-path}))
+      ;; No JAR found
+            (do
+             (log/log! {:level :warn
+                        :id ::jar-not-found-for-symbol
+                        :msg "No JAR found for namespace"
+                        :data {:ns ns}})
+             (swap! !code-browser-state assoc
+                    :error (str "Namespace not found: " ns))
+             {:error (str "Namespace not found: " ns)}))))
+
+;; =============================================================================
+;; Phase 1.5E.18: JAR Dependency Exploration Handler
+;; =============================================================================
+
+(defn handle-explore-jar-dep
+  "Handle request to explore a dependency from a JAR.
+   data: {:ns string} - namespace name from var-usages :to field
+   Analyzes the JAR if needed, caches the analysis, and returns symbols."
+  [{:keys [ns]}]
+  (log/log! {:level :info
+             :id ::explore-jar-dep
+             :msg "Exploring JAR dependency"
+             :data {:ns ns}})
+  (if (is-project-namespace? ns)
+    ;; Project namespace - use regular navigation
+    (do
+     (log/log! {:level :debug
+                :id ::jar-dep-is-project-ns
+                :msg "Namespace is a project namespace, using regular navigation"
+                :data {:ns ns}})
+     (handle-request-symbols {:ns ns}))
+    ;; External dep - try to find in JAR
+    (if-let [jar-path (get-jar-for-namespace ns)]
+            (let [symbols (get-jar-namespace-symbols jar-path ns)]
+        ;; Add to explored deps list
+              (add-explored-dep! ns)
+        ;; Update state with JAR symbols
+              (swap! !code-browser-state
+                     (fn [state]
+                       (-> state
+                           (assoc :selected-ns ns)
+                           (assoc :selected-symbol nil)
+                           (assoc-in [:symbols-by-ns ns] (vec symbols)))))
+              (log/log! {:level :info
+                         :id ::jar-dep-explored
+                         :msg "JAR dependency explored"
+                         :data {:ns ns :jar jar-path :symbol-count (count symbols)}})
+              {:ns ns :symbols symbols :from-jar true :jar-path jar-path})
+      ;; No JAR found
+            (do
+             (log/log! {:level :warn
+                        :id ::jar-not-found
+                        :msg "No JAR found for namespace"
+                        :data {:ns ns}})
+             (swap! !code-browser-state assoc :error (str "Namespace not found in classpath JARs: " ns))
+             {:error (str "Namespace not found: " ns)}))))
+
+(defn handle-request-jar-source
+  "Handle request for source code from a JAR.
+   data: {:ns string :var-name string :line int :end-line int}
+   Returns the source code from the JAR."
+  [{:keys [ns var-name line end-line]}]
+  (log/log! {:level :debug
+             :id ::request-jar-source
+             :msg "Requesting JAR source"
+             :data {:ns ns :var var-name :line line :end-line end-line}})
+  (if-let [jar-path (get-jar-for-namespace ns)]
+          (if-let [source (get-jar-symbol-source jar-path ns var-name line end-line)]
+                  (let [cache-key (str ns "/" var-name)]
+                    (swap! !code-browser-state assoc-in [:source-by-var cache-key] source)
+                    (swap! !code-browser-state assoc :selected-symbol var-name)
+                    {:source source})
+                  {:error "Source not found in JAR"})
+          {:error "JAR not found for namespace"}))
 
 ;; =============================================================================
 ;; Event Dispatch
@@ -1490,6 +2061,13 @@
       :code-browser/add-project
       [:code-browser/project-added (handle-add-project data)]
 
+      ;; Phase 1.5E.18: JAR exploration
+      :code-browser/explore-jar-dep
+      [:code-browser/jar-explored (handle-explore-jar-dep data)]
+
+      :code-browser/request-jar-source
+      [:code-browser/jar-source (handle-request-jar-source data)]
+
       ;; Not a code-browser event
       nil)))
 
@@ -1518,6 +2096,8 @@
        (swap! !code-browser-state assoc :current-project cwd))
      ;; Fetch initial git info (Phase 1.5E.2)
      (refresh-git-info!)
+     ;; Phase 1.5E.18: Build NS -> JAR mapping in background
+     (initialize-ns->jar-mapping!)
      (log/log! {:level :info
                 :id ::enabled
                 :msg "Code browser handlers enabled"
@@ -1536,19 +2116,24 @@
     (lsp-client/remove-notification-callback! :code-browser)
     ;; Unregister on-connect callback
     (atom-sync-server/unregister-on-connect! :code-browser)
-    ;; Reset state (Phase 1.5-Acc shape with Phase 1.5E.3 fields)
+    ;; Reset state (Phase 1.5-Acc shape with Phase 1.5E.3 fields + JAR fields)
     (reset! !code-browser-state
             {:namespaces []
              :selected-ns nil
              :symbols-by-ns {}
              :var-usages-by-ns {}
              :ns-usages-by-ns {}    ;; Phase 1.5E.19/20: NS-level deps/aliases
+             :ns-files {}           ;; Phase 1.5E.11: ALL ns → files
+             :ns-file-counts {}     ;; Phase 1.5E.11: Multi-file namespace info
              :selected-symbol nil
              :source-by-var {}
              :sort-mode :file-order
              :git nil
              :projects []
              :current-project nil
+             :ns->jar {}            ;; Phase 1.5E.18: JAR mapping
+             :jar-analyses {}       ;; Phase 1.5E.18: JAR analysis cache
+             :explored-deps []      ;; Phase 1.5E.18: Explored JAR namespaces
              :loading? false
              :error nil})
     (log/log! {:level :info

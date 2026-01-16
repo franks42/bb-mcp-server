@@ -826,12 +826,12 @@ my-function          function      line 27
 11. ~~**1.5E.14** - Rename 'Vars' panel to 'Symbols'~~ ✅ Complete
 12. ~~**1.5E.15** - Add project via form field~~ ✅ Complete
 13. **1.5E.4** - Branch switching (complex, defer)
-14. **1.5E.11** - Multi-file namespace handling
+14. ~~**1.5E.11** - Multi-file namespace handling~~ ✅ Complete
 15. **1.5E.16** - Directory browser (tree navigation)
 16. **1.5E.17** - Clone git repo from URL
-17. **1.5E.18** - Browse Maven artifact source
-18. **1.5E.19** - Namespace-level dependencies (requires)
-19. **1.5E.20** - Alias reference panel (str → clojure.string)
+17. ~~**1.5E.18** - Browse Maven artifact source~~ ✅ Complete (lazy JAR exploration)
+18. ~~**1.5E.19** - Namespace-level dependencies (requires)~~ ✅ Complete
+19. ~~**1.5E.20** - Alias reference panel (str → clojure.string)~~ ✅ Complete
 
 #### Phase 1.5E.11: Multi-File Namespace Handling
 
@@ -844,35 +844,111 @@ my-function          function      line 27
 
 **Detection:** `(> (count (distinct (map :filename symbols-for-ns))) 1)`
 
+##### Design Decision: Two Different Views for Two Purposes
+
+| View | Purpose | Multi-file handling |
+|------|---------|---------------------|
+| **Alpha-sorted** | Finding things | Merge all vars, sort. File badges optional. |
+| **File/Eval-order** | Understanding structure | Show files in load order with dividers, forms in sequence within. |
+
+##### UI Layout for File-Order View (Multi-File)
+
+```
+📁 foo.bar (File Order)
+──────────────────
+─── core.clj ───────────
+  ns         namespace
+  helper     private-fn
+  fn1        function
+─── extra.clj ──────────
+  ns         namespace   ← Each file has its own ns form!
+  fn2        function
+─── macros.clj ─────────
+  ns         namespace
+  fn3        macro
+```
+
+**Key insight:** Each file has its own `(ns foo.bar ...)` with potentially different `:require` clauses.
+- Aliases/refers may differ per file
+- Show each file's ns form, not a "merged" view
+- Aliases panel could show merged view with file indicators + conflict warnings
+
+##### Inferring File Load Order
+
+**Algorithm:** Build dependency graph from var-usages across files in same ns:
+```clojure
+;; For each file F in namespace N:
+;;   For each var-usage U in F where U.to == N (same ns):
+;;     Find which file D defines that var
+;;     If D != F: Add edge D → F (D must load before F)
+;; Topologically sort files
+```
+
+**Data available from clj-kondo:**
+- `:var-definitions` with `:filename` - which file defines each var
+- `:var-usages` with `:filename`, `:to` (target ns), `:name` - cross-file usage
+
+**Edge cases:**
+- `declare` - forward reference, complicates simple dependency
+- Circular deps - error condition, show warning
+- Independent files - no dependency, use alphabetical fallback
+- Macros - expand at compile time, may not appear in var-usages
+
+##### Alpha-Sorted View (Simpler)
+
+```
+📁 foo.bar (Alpha)
+──────────────────
+  fn1        function     [core.clj]    ← optional file badge
+  fn2        function     [extra.clj]
+  fn3        macro        [macros.clj]
+  helper     private-fn   [core.clj]
+```
+
+- Single merged list, sorted alphabetically
+- NS form shown once (from "primary" file - first alphabetically)
+- Optional `[file.clj]` badge for disambiguation
+
+##### Aliases Panel for Multi-File NS
+
+```
+Aliases (merged from 3 files)
+  str → clojure.string       [core.clj]
+  set → clojure.set          [extra.clj]
+  ⚠️ json → cheshire.core    [core.clj]
+  ⚠️ json → data.json        [extra.clj]  ← CONFLICT!
+```
+
+##### Implementation Tasks
+
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.11.1 | Detect multi-file namespaces from kondo analysis | Pending |
-| 1.5E.11.2 | Show file grouping or badge when ns spans files | Pending |
-| 1.5E.11.3 | Research: Can we determine file load order? | Pending |
-| 1.5E.11.4 | File-order view: Show files in load order, symbols within each | Pending |
-| 1.5E.11.5 | Visual indicator for multi-file namespaces in ns list | Pending |
+| 1.5E.11.0 | Fix (in-ns) namespace detection using clj-kondo project analysis | **DONE** (2026-01-15) |
+| 1.5E.11.1 | Detect multi-file namespaces (count distinct filenames) | **DONE** (compute-ns-file-counts-kondo) |
+| 1.5E.11.2 | Add `(N files)` indicator in namespace list | **DONE** (visible in UI) |
+| 1.5E.11.3 | Build file dependency graph from var-usages | Deferred (alphabetical order sufficient) |
+| 1.5E.11.4 | Topologically sort files (or alphabetical if no deps) | Deferred (kondo order works) |
+| 1.5E.11.5 | File-order view: Add dividers between files | **DONE** (with 3-segment path disambiguation) |
+| 1.5E.11.6 | File-order view: Show each file's ns form | **DONE** (ns symbol shown per file) |
+| 1.5E.11.7 | Alpha view: Add optional `[file.clj]` badges | Future (nice-to-have) |
+| 1.5E.11.8 | Aliases panel: Merge aliases from all files | **DONE** (aliases merged) |
+| 1.5E.11.9 | Aliases panel: Detect and warn about alias conflicts | Future (nice-to-have) |
+| 1.5E.11.10 | Handle edge case: circular dependencies → warning | Deferred (not needed without topo sort) |
 
-**Open questions:**
-- How to determine file load order? (require chain analysis, deps.edn paths order, or unknown?)
-- Display: Nested (ns → file → symbols) vs flat with file badge?
-- Should we warn about `in-ns` usage as potential code smell?
+**Phase 1.5E.11 COMPLETE** - Core multi-file namespace support working.
 
-**Load order complexity:**
-```
-my.namespace (3 files)
-├── core.clj        [loaded 1st via require]
-│   └── symbols in file order...
-├── impl.clj        [loaded 2nd via require in core.clj]
-│   └── symbols in file order...
-└── extra.clj       [loaded 3rd via in-ns]
-    └── symbols in file order...
-```
+**Session notes 2026-01-15:**
+- Fixed critical bug where `(in-ns 'namespace)` patterns weren't detected
+- Root cause: LSP `workspace/symbol` doesn't return `containerName` field
+- Solution: Use clj-kondo project-wide analysis which correctly identifies `:ns` in var-definitions
+- Test file: `test/bb_mcp_server/in_ns_test.clj` - now `bb-mcp-server.target-ns` appears in browser
 
-**Possible data sources for load order:**
-- `:namespace-usages` in kondo (shows require dependencies)
-- Static analysis of require chains
-- deps.edn `:paths` order (first path wins for same-named files)
-- May be unknowable statically in some cases
+**Session notes 2026-01-15 (followup):**
+- Fixed file divider disambiguation: `uri->filename` now shows 3 path segments
+- Fixed ghost artifact bug: React keys now include `selected-ns` + `filename` for proper unmounting
+- Verified: `mock-claude (2 files)` shows both files distinctly, namespace switching works cleanly
+
+**Design doc:** See also `docs/design/static-live-code-revision-history.md` for future vision
 
 #### Phase 1.5E.5: Sync Mode Toggle (Future - If Needed)
 
@@ -1000,35 +1076,100 @@ Decoration.mark({class: "cm-highlighted-range"})
 - Code review of external dependencies
 - Learning from other codebases
 
-#### Phase 1.5E.18: Browse Maven Artifact Source
+#### Phase 1.5E.18: Lazy Dependency Exploration (JAR Browsing)
 
-**Goal:** Allow users to enter Maven coordinates and browse the source JAR.
+**Goal:** Click any external dependency in the Deps tab → instantly see docs, signature, examples, source.
+
+**Refined Design (2026-01-15):** Instead of a separate "JAR browser" mode, integrate into the natural exploration flow. When user clicks a dependency that lives in a JAR, lazily scan that JAR and display the symbol details.
+
+**Key Insight:** clj-kondo already tracks calls to external libraries in `var-usages`. The `:to` field contains the target namespace (e.g., `cheshire.core`, `malli.core`). We just need to:
+1. Detect when clicked namespace isn't in project
+2. Find which JAR contains it
+3. Lazy-scan that JAR with clj-kondo
+4. Display in same Symbol Inspector UI
+
+**Architecture:**
+```
+User clicks cheshire.core/parse-string in Deps tab
+    ↓
+Detect: "cheshire.core" not in scanned namespaces
+    ↓
+Resolve: which JAR contains cheshire.core? (NS → JAR mapping)
+    ↓
+Lazy scan: clj-kondo --lint that-jar.jar (first time only)
+    ↓
+Cache: store results in {:jar-analyses {"cheshire.jar" {...}}}
+    ↓
+Display: Symbol Inspector with Source, Docs, Deps tabs
+```
+
+**Phase 1.5E.18A: NS → JAR Mapping** ✅ COMPLETE
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.18.1 | Parse Maven coordinates (group/artifact:version) | Pending |
-| 1.5E.18.2 | Construct Maven Central URL for `-sources.jar` | Pending |
-| 1.5E.18.3 | Download JAR using `babashka.curl` or `clj-http` | Pending |
-| 1.5E.18.4 | Extract to temp dir using `babashka.fs/unzip` | Pending |
-| 1.5E.18.5 | Add extracted source as project to browse | Pending |
-| 1.5E.18.6 | Handle missing sources JAR gracefully | Pending |
-| 1.5E.18.7 | Cache downloaded JARs to avoid re-downloading | Pending |
+| 1.5E.18A.1 | Build classpath at startup via `clojure -Spath` | ✅ Done |
+| 1.5E.18A.2 | For each JAR, extract namespace list (quick scan) | ✅ Done |
+| 1.5E.18A.3 | Store mapping: `{:ns->jar {"cheshire.core" "/path/to.jar"}}` | ✅ Done |
+| 1.5E.18A.4 | Handle namespace not found gracefully | ✅ Done |
 
-**Maven Central URL pattern:**
-```
-https://repo1.maven.org/maven2/org/clojure/clojure/1.11.1/clojure-1.11.1-sources.jar
-```
+**Phase 1.5E.18B: Lazy JAR Scanning** ✅ COMPLETE
 
-**Input formats to support:**
-- `org.clojure/clojure:1.11.1` (Clojure style)
-- `metosin/malli:0.16.4` (short form)
-- `io.github.clojure/tools.build:0.9.6`
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.18B.1 | On click external dep, check if JAR already scanned | ✅ Done |
+| 1.5E.18B.2 | If not scanned: `clj-kondo --lint jar-path` | ✅ Done |
+| 1.5E.18B.3 | Store in `{:jar-analyses {jar-path {:var-definitions [...]}}}` | ✅ Done |
+| 1.5E.18B.4 | Extract namespace-specific symbols from cached analysis | ✅ Done |
+
+**Phase 1.5E.18C: Source Reading from JAR** ✅ COMPLETE
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.18C.1 | Use Java `JarFile` API to read source without extraction | ✅ Done |
+| 1.5E.18C.2 | Map filename from kondo analysis to JAR entry path | ✅ Done |
+| 1.5E.18C.3 | Handle .clj, .cljs, .cljc files | ✅ Done |
+
+*Functions: `read-source-from-jar`, `ns->jar-entry-path`, `get-jar-symbol-source` - connected to `handle-request-var-source`*
+
+**Bug Fix (2026-01-16):** JAR navigation from Deps tab now works correctly. Fixed two issues:
+1. `handle-navigate-to-symbol` now sets both `:symbols` and `:symbols-by-ns` for proper cache lookup
+2. `jar-source-data` now includes `:start-line` and `:end-line` for proper line number display
+
+**Phase 1.5E.18D: Explored Dependencies UI** ✅ COMPLETE
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.18D.1 | Add "Explored Dependencies" section below project namespaces | ✅ Done |
+| 1.5E.18D.2 | Show JAR namespaces user has visited | ✅ Done |
+| 1.5E.18D.3 | Visual distinction (badge, color) for JAR namespaces | ✅ Done |
+| 1.5E.18D.4 | Allow removing from explored list | Future |
+
+**Phase 1.5E.18E: Documentation Integration (Future)**
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 1.5E.18E.1 | ClojureDocs.org API for `clojure.*` examples | Future |
+| 1.5E.18E.2 | cljdoc.org links for other libraries | Future |
+| 1.5E.18E.3 | Extract docstring/arglists from JAR metadata | Future |
+
+**Technical Notes:**
+- clj-kondo CAN lint JARs directly: `clj-kondo --lint file.jar`
+- Java `JarFile` API reads entries without extraction
+- clojure-lsp workspace/symbol does NOT include JAR deps (by design)
+- clojure-lsp go-to-definition DOES work into JARs (`zipfile://` URIs)
+
+**Benefits:**
+- No upfront JAR scanning (fast startup)
+- Only load what user actually explores
+- Same UI - Symbol Inspector works for project AND JAR symbols
+- Cached - click another fn in same JAR, instant response
+- Natural flow - user doesn't need to know about "JAR mode"
 
 **Use cases:**
-- Explore library internals without cloning full repo
-- Debug issues in dependencies
-- Learn from well-written libraries
-- Quick code review of specific versions
+- Click `cheshire.core/parse-string` → see signature, docs, source
+- Click `clojure.core/map` → see docs, examples from ClojureDocs
+- Click `malli.core/validate` → understand how to use malli
+- 90% of needed reference is clojure.core - make it one click away
 
 #### Phase 1.5E.19: Namespace-Level Dependencies (Requires) ✅ Complete (2026-01-15)
 
@@ -1490,4 +1631,4 @@ Extracted monolithic `streamable-http` into:
 
 ---
 
-*Last Updated: 2026-01-14*
+*Last Updated: 2026-01-16*

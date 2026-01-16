@@ -124,6 +124,19 @@
   [path]
   (send-event! :code-browser/add-project {:path path}))
 
+(defn explore-jar-dep!
+  "Explore a dependency namespace from a JAR.
+   Phase 1.5E.18: Lazy JAR exploration. Server analyzes JAR on demand."
+  [ns-name]
+  (send-event! :code-browser/explore-jar-dep {:ns ns-name}))
+
+(defn request-jar-source!
+  "Request source code for a symbol from a JAR.
+   Phase 1.5E.18: Server reads source from JAR without extraction."
+  [ns-name var-name line end-line]
+  (send-event! :code-browser/request-jar-source
+               {:ns ns-name :var-name var-name :line line :end-line end-line}))
+
 ;; =============================================================================
 ;; Filter Logic
 ;; =============================================================================
@@ -178,23 +191,47 @@
 
 (defn namespace-item
   "Single namespace list item.
-   Reads selected-ns from synced server state."
+   Reads selected-ns from synced server state.
+   Phase 1.5E.11: Shows file count badge for multi-file namespaces."
   [ns-name]
   (let [server-state @(get-server-state)
-        selected? (= ns-name (:selected-ns server-state))]
+        selected? (= ns-name (:selected-ns server-state))
+        ;; Phase 1.5E.11: Get file count for this namespace
+        file-info (get-in server-state [:ns-file-counts ns-name])
+        file-count (:file-count file-info)]
     [:div.list-item
      {:class (when selected? "selected")
       :on-click #(request-symbols! ns-name)}
-     ns-name]))
+     [:span.ns-name ns-name]
+     ;; Show file count badge for multi-file namespaces
+     (when (and file-count (> file-count 1))
+       [:span.file-count-badge (str "(" file-count " files)")])]))
+
+(defn- explored-dep-item
+  "Single explored dependency item.
+   Phase 1.5E.18: Shows JAR namespace with package icon."
+  [ns-name]
+  (let [server-state @(get-server-state)
+        selected? (= ns-name (:selected-ns server-state))]
+    [:div.list-item.explored-dep
+     {:class (when selected? "selected")
+      :on-click #(explore-jar-dep! ns-name)}
+     [:span.external-badge "📦"]
+     [:span.ns-name ns-name]]))
 
 (defn namespace-panel
   "Left panel: namespace list.
-   Dereferences !ui-state here for proper Reagent reactivity."
+   Dereferences !ui-state here for proper Reagent reactivity.
+   Phase 1.5E.18: Shows explored JAR dependencies in separate section."
   []
   (let [layout @!layout
+        server-state @(get-server-state)
+        explored-deps (or (:explored-deps server-state) [])
         ;; Dereference !ui-state HERE so Reagent tracks the dependency
         ns-filter (:ns-filter @!ui-state)
-        nss (filtered-namespaces ns-filter)]
+        nss (filtered-namespaces ns-filter)
+        ;; Filter explored deps too
+        filtered-explored (filter #(matches-filter? % ns-filter) explored-deps)]
     [:div.panel.namespace-panel
      {:style {:width (:ns-width layout)}}
      [:div.panel-header
@@ -202,15 +239,25 @@
       [:button.refresh-btn {:on-click request-namespaces!} "Refresh"]]
      [filter-input :ns-filter "Filter namespaces..."]
      [:div.list-container
+      ;; Project namespaces
       (for [ns-name nss]
-           ^{:key ns-name} [namespace-item ns-name])]
+           ^{:key ns-name} [namespace-item ns-name])
+      ;; Explored JAR dependencies (Phase 1.5E.18)
+      (when (seq filtered-explored)
+        [:div.explored-deps-section
+         [:div.section-header "📦 Explored Dependencies"]
+         (for [ns-name filtered-explored]
+              ^{:key (str "explored-" ns-name)} [explored-dep-item ns-name])])]
      [:div.panel-footer
-      [:span (str (count nss) " namespaces")]]]))
+      [:span (str (count nss) " namespaces"
+                  (when (seq explored-deps)
+                    (str " + " (count explored-deps) " JAR")))]]]))
 
 (defn symbol-item
   "Single symbol list item.
-   Reads selected state from synced server state."
-  [{:keys [name kind]}]
+   Reads selected state from synced server state.
+   Phase 1.5E.11: Can show filename badge in alpha view for multi-file ns."
+  [{:keys [name kind filename]} show-file-badge?]
   (let [server-state @(get-server-state)
         selected? (= name (:selected-symbol server-state))
         selected-ns (:selected-ns server-state)]
@@ -219,7 +266,40 @@
               (clojure.core/name (or kind :unknown))]
       :on-click #(request-var-source! selected-ns name kind)}
      [:span.symbol-name name]
-     [:span.symbol-kind (clojure.core/name (or kind :unknown))]]))
+     [:span.symbol-kind (clojure.core/name (or kind :unknown))]
+     ;; Phase 1.5E.11: Show filename badge in alpha view for multi-file ns
+     (when (and show-file-badge? filename)
+       [:span.symbol-file-badge (str "[" filename "]")])]))
+
+(defn- file-divider
+  "File divider component for multi-file namespace display.
+   Phase 1.5E.11: Visual separator between files in file-order view."
+  [filename]
+  [:div.file-divider
+   [:span.file-divider-line]
+   [:span.file-divider-name filename]
+   [:span.file-divider-line]])
+
+(defn- symbols-with-dividers
+  "Insert file dividers between symbols from different files.
+   Phase 1.5E.11: Returns seq of [:divider filename] and [:symbol sym] items."
+  [symbols]
+  (loop [result []
+         remaining symbols
+         current-file nil]
+        (if (empty? remaining)
+          result
+          (let [sym (first remaining)
+                sym-file (:filename sym)]
+            (if (and sym-file (not= sym-file current-file))
+              ;; New file - add divider then symbol
+              (recur (conj result [:divider sym-file] [:symbol sym])
+                     (rest remaining)
+                     sym-file)
+              ;; Same file - just add symbol
+              (recur (conj result [:symbol sym])
+                     (rest remaining)
+                     current-file))))))
 
 (defn sort-mode-button
   "Toggle button for symbol sort mode.
@@ -238,15 +318,23 @@
 (defn symbols-panel
   "Middle panel: symbols list.
    Reads selected-ns from synced server state.
-   Dereferences !ui-state here for proper Reagent reactivity."
+   Dereferences !ui-state here for proper Reagent reactivity.
+   Phase 1.5E.11: Shows file dividers in file-order mode, file badges in alpha mode."
   []
   (let [layout @!layout
         server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
         sort-mode (or (:sort-mode server-state) :file-order)
+        ;; Phase 1.5E.11: Check if this is a multi-file namespace
+        file-info (get-in server-state [:ns-file-counts selected-ns])
+        is-multi-file? (and file-info (> (:file-count file-info) 1))
         ;; Dereference !ui-state HERE so Reagent tracks the dependency
         symbol-filter (:symbol-filter @!ui-state)
-        syms (filtered-symbols symbol-filter)]
+        syms (filtered-symbols symbol-filter)
+        ;; Phase 1.5E.11: In file-order mode with multi-file ns, add dividers
+        show-dividers? (and is-multi-file? (= sort-mode :file-order))
+        ;; Phase 1.5E.11: In alpha mode with multi-file ns, show file badges
+        show-file-badges? (and is-multi-file? (= sort-mode :alpha))]
     [:div.panel.symbols-panel
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
@@ -257,13 +345,25 @@
      [filter-input :symbol-filter "Filter symbols..."]
      [:div.list-container
       (if selected-ns
-        (doall
-         (for [sym syms]
-           ;; Key must be unique - use name+line since same name can appear multiple times
-              ^{:key (str (:name sym) "-" (:line sym))} [symbol-item sym]))
+        (if show-dividers?
+          ;; File-order with dividers
+          (let [items (symbols-with-dividers syms)]
+            (doall
+             (for [[idx [item-type item]] (map-indexed vector items)]
+                  (case item-type
+                    ;; Include namespace in keys to prevent ghost artifacts when switching ns
+                    :divider ^{:key (str selected-ns "-divider-" item "-" idx)} [file-divider item]
+                    :symbol ^{:key (str selected-ns "-" (:filename item) "-" (:name item) "-" (:line item))} [symbol-item item false]))))
+          ;; Normal list (with optional file badges in alpha mode)
+          (doall
+           (for [sym syms]
+             ;; Key includes namespace + filename to prevent ghost artifacts when switching
+                ^{:key (str selected-ns "-" (:filename sym) "-" (:name sym) "-" (:line sym))} [symbol-item sym show-file-badges?])))
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
-      [:span (str (count syms) " symbols")]
+      [:span (str (count syms) " symbols")
+       (when is-multi-file?
+         (str " in " (:file-count file-info) " files"))]
       [:span.sort-mode-indicator
        (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
 
@@ -303,9 +403,19 @@
        [:pre.docstring doc]
        [:div.empty-message "No docstring available"])]))
 
+(defn- is-project-ns?
+  "Check if a namespace is part of the project (not from JAR).
+   Phase 1.5E.18: Helper for distinguishing project vs JAR deps."
+  [ns-name server-state]
+  (let [namespaces (or (:namespaces server-state) [])
+        explored-deps (or (:explored-deps server-state) [])]
+    (or (some #(= % ns-name) namespaces)
+        (some #(= % ns-name) explored-deps))))
+
 (defn- deps-view
   "Dependencies view - what this symbol calls.
    Phase 1.5E.10.7: Items are clickable for navigation.
+   Phase 1.5E.18: External deps trigger JAR exploration.
    Phase 1.5E.19: For ns symbols, shows namespace-level deps (requires)."
   [source]
   (let [server-state @(get-server-state)
@@ -327,8 +437,14 @@
           [:div.deps-header (str "Requires " (count ns-usages) " namespaces:")]
           (for [{:keys [to alias refer row]} ns-usages]
                ^{:key (str to "-" row)}
-               [:div.ns-dep-item
+               [:div.ns-dep-item.clickable
+                {:on-click #(if (is-project-ns? to server-state)
+                              (navigate-to-symbol! to to)  ;; Navigate to ns itself
+                              (explore-jar-dep! to))
+                 :class (when-not (is-project-ns? to server-state) "external")}
                 [:span.ns-dep-name to]
+                (when-not (is-project-ns? to server-state)
+                  [:span.external-badge "📦"])
                 (when alias
                   [:span.ns-dep-alias (str ":as " alias)])
                 (when (seq refer)
@@ -346,9 +462,13 @@
         (for [{:keys [name ns line]} deps]
              ^{:key (str ns "/" name "-" line)}
              [:div.dep-item.clickable
-              {:on-click #(navigate-to-symbol! ns name)}
+              ;; Phase 1.5E.18: Server handles both project and JAR namespaces
+              {:on-click #(navigate-to-symbol! ns name)
+               :class (when-not (is-project-ns? ns server-state) "external")}
               [:span.dep-name name]
-              [:span.dep-ns ns]])]
+              [:span.dep-ns ns]
+              (when-not (is-project-ns? ns server-state)
+                [:span.external-badge "📦"])])]
 
        :else
        [:div.empty-message "No dependencies found"])]))

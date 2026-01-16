@@ -648,6 +648,102 @@ UI code is NOT hardcoded in HTML. Load iteratively:
 
 ---
 
+## Multi-File Namespace Handling
+
+Some codebases split a single namespace across multiple files (via `in-ns` or split definitions). This requires special handling in both views.
+
+### Detection
+
+```clojure
+;; A namespace spans multiple files if:
+(> (count (distinct (map :filename symbols-for-ns))) 1)
+```
+
+### Two Views, Two Approaches
+
+| View | Purpose | Multi-file handling |
+|------|---------|---------------------|
+| **Alpha-sorted** | Finding things | Merge all vars, sort alphabetically. Optional file badges. |
+| **File/Eval-order** | Understanding structure | Show files in load order with dividers, forms in sequence within. |
+
+### File-Order View Layout (Multi-File)
+
+```
+📁 foo.bar (File Order)
+──────────────────
+─── core.clj ───────────
+  ns         namespace
+  helper     private-fn
+  fn1        function
+─── extra.clj ──────────
+  ns         namespace   ← Each file has its own ns form!
+  fn2        function
+─── macros.clj ─────────
+  ns         namespace
+  fn3        macro
+```
+
+**Key insight:** Each file has its own `(ns foo.bar ...)` with potentially different `:require` clauses.
+- Aliases/refers may differ per file
+- Show each file's ns form separately
+- Aliases panel shows merged view with file indicators + conflict warnings
+
+### Alpha-Sorted View Layout (Simpler)
+
+```
+📁 foo.bar (Alpha)
+──────────────────
+  fn1        function     [core.clj]    ← optional file badge
+  fn2        function     [extra.clj]
+  fn3        macro        [macros.clj]
+  helper     private-fn   [core.clj]
+```
+
+- Single merged list, sorted alphabetically
+- NS form shown once (from "primary" file - first alphabetically)
+- Optional `[file.clj]` badge for disambiguation
+
+### Inferring File Load Order
+
+**Algorithm:** Build dependency graph from var-usages across files in same ns:
+```clojure
+;; For each file F in namespace N:
+;;   For each var-usage U in F where U.to == N (same ns):
+;;     Find which file D defines that var
+;;     If D != F: Add edge D → F (D must load before F)
+;; Topologically sort files
+```
+
+**Data available from clj-kondo:**
+- `:var-definitions` with `:filename` - which file defines each var
+- `:var-usages` with `:filename`, `:to` (target ns), `:name` - cross-file usage
+
+**Edge cases:**
+- `declare` - forward reference, complicates simple dependency analysis
+- Circular deps - error condition, show warning to user
+- Independent files - no dependency detected, use alphabetical fallback
+- Macros - expand at compile time, may not appear in var-usages
+
+### Aliases Panel for Multi-File NS
+
+```
+Aliases (merged from 3 files)
+  str → clojure.string       [core.clj]
+  set → clojure.set          [extra.clj]
+  ⚠️ json → cheshire.core    [core.clj]
+  ⚠️ json → data.json        [extra.clj]  ← CONFLICT!
+```
+
+**Conflict detection:** Same alias pointing to different namespaces across files.
+
+### UI Indicators
+
+- **Namespace list:** `foo.bar (3 files)` - count indicator for multi-file ns
+- **Symbol list:** File dividers in file-order view, badges in alpha view
+- **Aliases panel:** File source indicators, conflict warnings
+
+---
+
 ## Design Decisions Summary
 
 | Question | Decision | Rationale |
@@ -711,4 +807,4 @@ UI code is NOT hardcoded in HTML. Load iteratively:
 
 ---
 
-*Last Updated: 2026-01-01*
+*Last Updated: 2026-01-15*

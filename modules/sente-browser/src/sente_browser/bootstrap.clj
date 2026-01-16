@@ -365,6 +365,23 @@
     .ns-dep-name { color: #333; }
     .ns-dep-alias { color: #1976D2; font-size: 11px; }
     .ns-dep-refers { color: #7B1FA2; font-size: 11px; }
+    /* Phase 1.5E.11: Multi-file namespace display */
+    .file-count-badge { font-size: 10px; color: #888; margin-left: 0.5rem; font-weight: normal; }
+    .file-divider { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; background: #f0f0f0; font-size: 11px; user-select: none; }
+    .file-divider-line { flex: 1; height: 1px; background: #ccc; }
+    .file-divider-name { color: #666; font-family: 'Fira Code', monospace; white-space: nowrap; }
+    .symbol-file-badge { font-size: 10px; color: #888; margin-left: auto; font-style: italic; }
+    .ns-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    /* Phase 1.5E.18: JAR Dependency Exploration */
+    .external-badge { font-size: 11px; margin-right: 0.25rem; }
+    .dep-item.external, .ns-dep-item.external { background: #f5f5ff; border-left: 2px solid #7B68EE; }
+    .dep-item.external:hover, .ns-dep-item.external:hover { background: #ebebff; }
+    .ns-dep-item.clickable { cursor: pointer; }
+    .explored-deps-section { margin-top: 1rem; border-top: 2px solid #7B68EE; padding-top: 0.5rem; }
+    .section-header { padding: 0.3rem 0.5rem; font-size: 12px; font-weight: 600; color: #666; background: #f8f8ff; border-bottom: 1px solid #e0e0e0; }
+    .list-item.explored-dep { background: #f5f5ff; border-left: 2px solid #7B68EE; }
+    .list-item.explored-dep:hover { background: #ebebff; }
+    .list-item.explored-dep .ns-name { color: #5B4B8E; }
   </style>
 </head>
 <body>
