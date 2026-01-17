@@ -167,6 +167,42 @@
                       (is (string? (:ns/name ns-entity)))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Fetch Source Tests
+;;; ---------------------------------------------------------------------------
+
+(deftest fetch-source-test
+         (testing "fetch-source returns nil before scan"
+    ;; Create a fresh source without scanning
+                  (let [source (dir/create-directory-source test-project-root)
+                        uri "dir://bb-mcp-server@test/bb-mcp-server.main/-main"]
+                    (is (nil? (source-proto/fetch-source source uri)))))
+
+         (testing "fetch-source returns source after scan"
+    ;; Scan first to populate cache
+                  (let [{:keys [symbols]} (source-proto/scan-project *test-source*)
+          ;; Find a symbol that should have source
+                        defn-symbol (->> symbols
+                                         (filter #(= :defn (:symbol/type %)))
+                                         (filter #(:symbol/line %))
+                                         first)
+                        uri (:uri/string defn-symbol)]
+                    (when uri
+                      (let [result (source-proto/fetch-source *test-source* uri)]
+                        (is (some? result) "Should return source for scanned symbol")
+                        (is (string? (:content result)) "Should have content")
+                        (is (string? (:file result)) "Should have file path")
+                        (is (number? (:start-line result)) "Should have start-line")
+                        (is (number? (:end-line result)) "Should have end-line")
+          ;; Content should look like Clojure code
+                        (is (or (re-find #"\(defn" (:content result))
+                                (re-find #"\(def" (:content result)))
+                            "Content should contain def form")))))
+
+         (testing "fetch-source returns nil for unknown URI"
+                  (source-proto/scan-project *test-source*)
+                  (is (nil? (source-proto/fetch-source *test-source* "dir://unknown@v1/fake.ns/fake-fn")))))
+
+;;; ---------------------------------------------------------------------------
 ;;; URI Validation Tests
 ;;; ---------------------------------------------------------------------------
 

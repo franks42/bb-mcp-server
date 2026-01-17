@@ -85,7 +85,7 @@
               nil)))))
 
 (defn- compute-ns-files
-  "Compute namespace → files mapping from var-definitions.
+  "Compute namespace -> files mapping from var-definitions.
    Returns {ns-name [file1 file2 ...]}."
   [var-defs]
   (->> var-defs
@@ -99,10 +99,43 @@
        (into {})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Source Extraction
+;;; ---------------------------------------------------------------------------
+
+(defn- read-file-lines
+  "Read a file and return a vector of its lines."
+  [file-path]
+  (try
+   (vec (str/split-lines (slurp file-path)))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::read-file-error
+                     :msg "Failed to read file"
+                     :data {:file file-path
+                            :error (ex-message e)}})
+          nil)))
+
+(defn- extract-source-lines
+  "Extract source lines from a file given line range.
+   Line numbers are 1-indexed (from clj-kondo)."
+  [file-path start-line end-line]
+  (when-let [lines (read-file-lines file-path)]
+            (let [start-idx (dec start-line)  ; Convert to 0-indexed
+                  end-idx (if end-line (dec end-line) start-idx)
+          ;; Clamp to valid range
+                  start-idx (max 0 start-idx)
+                  end-idx (min (dec (count lines)) end-idx)]
+              (when (and (>= end-idx start-idx) (< start-idx (count lines)))
+                (->> lines
+                     (drop start-idx)
+                     (take (inc (- end-idx start-idx)))
+                     (str/join "\n"))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; DirectorySource Record
 ;;; ---------------------------------------------------------------------------
 
-(defrecord DirectorySource [root-path project-name version uri-base]
+(defrecord DirectorySource [root-path project-name version uri-base symbol-cache]
            proto/IProjectSource
 
            (scan-project [_this]
@@ -117,16 +150,16 @@
                                          var-usages (:var-usages analysis)
                                          ns-defs (:namespace-definitions analysis)
                                          ns-usages (:namespace-usages analysis)
-          ;; Compute namespace → files mapping
+            ;; Compute namespace -> files mapping
                                          ns-files (compute-ns-files var-defs)
-          ;; Build project entity
+            ;; Build project entity
                                          project {:uri/string uri-base
                                                   :uri/source :dir
                                                   :uri/project project-name
                                                   :uri/version version
                                                   :uri/version-type :static
                                                   :project/root-path root-path}
-          ;; Build namespace entities
+            ;; Build namespace entities
                                          namespaces (for [ns-def ns-defs
                                                           :let [ns-name (str (:name ns-def))
                                                                 files (get ns-files ns-name [(:filename ns-def)])]]
@@ -139,7 +172,7 @@
                                                            :uri/parent [:uri/string uri-base]
                                                            :ns/aliases (proto/extract-aliases-from-usages ns-usages ns-name)
                                                            :ns/refers (proto/extract-refers-from-usages ns-usages ns-name)}))
-          ;; Build symbol entities from var-definitions
+            ;; Build symbol entities from var-definitions
                                          symbols-from-vars (for [var-def var-defs]
                                                                 (merge
                                                                  (proto/kondo-var->symbol-map var-def uri-base)
@@ -148,7 +181,7 @@
                                                                   :uri/version version
                                                                   :uri/version-type :static
                                                                   :uri/parent [:uri/string (str uri-base "/" (:ns var-def))]}))
-          ;; Extract defmethod symbols from var-usages
+            ;; Extract defmethod symbols from var-usages
                                          defmethods (->> var-usages
                                                          (filter :defmethod)
                                                          (map (fn [usage]
@@ -158,29 +191,44 @@
                                                                   :uri/project project-name
                                                                   :uri/version version
                                                                   :uri/version-type :static}))))
-                                         all-symbols (concat symbols-from-vars defmethods)]
+                                         all-symbols (concat symbols-from-vars defmethods)
+            ;; Populate symbol cache for fetch-source
+                                         cache-entries (into {}
+                                                             (map (fn [sym]
+                                                                    [(:uri/string sym)
+                                                                     {:file (:symbol/file sym)
+                                                                      :line (:symbol/line sym)
+                                                                      :end-line (:symbol/end-line sym)}])
+                                                                  all-symbols))]
+                                     (reset! symbol-cache cache-entries)
                                      (log/log! {:level :info
                                                 :id ::scan-complete
                                                 :msg "Directory scan complete"
                                                 :data {:project-name project-name
                                                        :namespace-count (count namespaces)
-                                                       :symbol-count (count all-symbols)}})
+                                                       :symbol-count (count all-symbols)
+                                                       :cache-size (count cache-entries)}})
                                      {:project project
                                       :namespaces (vec namespaces)
                                       :symbols (vec all-symbols)})))
 
            (fetch-source [_this uri-string]
-                         (when-let [parsed (uri/parse uri-string)]
-                                   (when-let [sym-name (:uri/symbol parsed)]
-            ;; For now, we need to look up the symbol in the database to get file/line info
-            ;; This will be enhanced when we integrate with the DB
-                                             (log/log! {:level :debug
-                                                        :id ::fetch-source
-                                                        :msg "Fetching source for symbol"
-                                                        :data {:uri uri-string
-                                                               :symbol sym-name}})
-            ;; TODO: Implement source extraction using file coordinates
-                                             nil)))
+                         (log/log! {:level :debug
+                                    :id ::fetch-source
+                                    :msg "Fetching source"
+                                    :data {:uri uri-string}})
+                         (when-let [sym-info (get @symbol-cache uri-string)]
+                                   (let [{:keys [file line end-line]} sym-info
+            ;; Resolve relative path to absolute
+                                         abs-file (if (fs/absolute? file)
+                                                    file
+                                                    (str root-path "/" file))]
+                                     (when (and file line)
+                                       (when-let [content (extract-source-lines abs-file line end-line)]
+                                                 {:content content
+                                                  :file abs-file
+                                                  :start-line line
+                                                  :end-line (or end-line line)})))))
 
            (watch! [_this _callback]
     ;; TODO: Implement file watching with fs/watch
@@ -221,7 +269,8 @@
    (let [abs-path (str (fs/absolutize root-path))
          proj-name (or project-name (get-project-name abs-path))
          ver (or version (get-git-sha abs-path) "local")
-         uri-base (uri/build {:source :dir :project proj-name :version ver})]
+         uri-base (uri/build {:source :dir :project proj-name :version ver})
+         cache (atom {})]
      (log/log! {:level :info
                 :id ::creating-directory-source
                 :msg "Creating directory source"
@@ -229,4 +278,4 @@
                        :project-name proj-name
                        :version ver
                        :uri-base uri-base}})
-     (->DirectorySource abs-path proj-name ver uri-base))))
+     (->DirectorySource abs-path proj-name ver uri-base cache))))
