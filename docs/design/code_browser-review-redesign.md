@@ -544,13 +544,60 @@ Versions are essential for:
 - Switch over when ready, delete old code
 - Freedom to redesign everything
 
-### D2: Datascript as State Backend
-- Server uses Datascript for all state
+### D2: Datalevin as State Backend (with Portable Interface)
+- Server uses **Datalevin** for metadata (persistence, full-text search)
+- Portable `IDatalogDB` protocol allows swapping Datascript for tests or future needs
 - URI as entity `:db/id` - natural fit
 - Datalog queries for relationships (deps, callers, cross-project)
 - Export views as plain maps for atom-sync to browser
 - Browser stays simple (Reagent atoms) initially
-- Can evolve to browser-side Datascript later if needed
+
+### D5: Separate Metadata from Content (Post-Review)
+**All three reviewers (Gemini, GPT-5.2, Grok) strongly recommended this.**
+
+- **Datascript/Datalevin: metadata only** - names, types, line numbers, file paths, relationships
+- **Content store: separate** - source code strings, docs, examples in LRU cache or on-demand fetch
+- **Rationale:** Datascript optimized for indexed metadata queries, not large blobs. Storing source strings would bloat DB, degrade query performance, explode memory.
+
+```clojure
+;; IN Datalog DB (metadata)
+{:uri/string "dir://proj@v/ns/sym"
+ :symbol/name "register!"
+ :symbol/type :defn
+ :symbol/line 42
+ :symbol/file "src/proj/core.clj"  ; pointer, not content
+ :symbol/deps [...refs...]}
+
+;; SEPARATE (content store)
+(def !content-cache (atom {}))  ; LRU or bounded cache
+
+(defn get-source [uri]
+  (or (get @!content-cache uri)
+      (let [content (fetch-from-file-or-jar uri)]
+        (swap! !content-cache assoc uri content)
+        content)))
+```
+
+### D6: Layered Server + Feature Slices UI (Post-Review)
+**Reviewers noted Feature Slices alone can lead to circular dependencies on server.**
+
+- **Server: Layered architecture**
+  ```
+  Infrastructure (LSP, file IO, shell)
+       ↓
+  Domain (analysis, git, jar-reading)
+       ↓
+  Application (handlers, state, sync)
+       ↓
+  Presentation (atom-sync exports, event routing)
+  ```
+
+- **Client: Feature slices** - projects/, namespaces/, symbols/, detail/ components
+
+### D7: Isolate Volatile Sources (Post-Review)
+- Static sources (dir, jar, github): can share caches, persist across sessions
+- Temporal sources (nREPL): isolated cache, never persisted, tagged with UUIDv7 snapshot
+- UI shows "Live" badge for volatile sources to indicate links may rot
 
 ### D3: URI-Centric Design
 - Every element addressable via URI
@@ -708,6 +755,130 @@ Current leaning: **Option 3 (Hybrid)** - keep atom-sync for now, add query proto
 
 ---
 
+## Datascript vs Datalevin
+
+Both are Datalog databases with similar query languages. Key differences:
+
+### Datascript
+
+| Aspect | Details |
+|--------|---------|
+| **Storage** | In-memory only |
+| **Persistence** | Manual (serialize to EDN/Transit, restore on startup) |
+| **Size limit** | Must fit in JVM heap |
+| **ClojureScript** | ✅ Yes - can run in browser |
+| **Babashka** | ✅ Yes (via pod or built-in) |
+| **Performance** | Very fast for small-medium datasets |
+| **Maturity** | Battle-tested, widely used |
+| **Full-text search** | ❌ No (would need external) |
+
+### Datalevin
+
+| Aspect | Details |
+|--------|---------|
+| **Storage** | LMDB-backed (memory-mapped files) |
+| **Persistence** | Built-in, automatic |
+| **Size limit** | Can exceed RAM (memory-mapped) |
+| **ClojureScript** | ❌ No - JVM/Babashka only |
+| **Babashka** | ✅ Yes (native support) |
+| **Performance** | Fast reads, durable writes |
+| **Maturity** | Newer but production-ready |
+| **Full-text search** | ✅ Built-in |
+
+### For Code Browser Use Case
+
+| Requirement | Datascript | Datalevin | Notes |
+|-------------|------------|-----------|-------|
+| Babashka compatible | ✅ | ✅ | Both work |
+| Browser-side option | ✅ | ❌ | If we want client Datalog later |
+| Persistence | Manual | Automatic | Datalevin wins for "remember projects" |
+| Large codebases | ⚠️ | ✅ | Datalevin handles bigger datasets |
+| Full-text search | ❌ | ✅ | Useful for "find in all sources" |
+| Simplicity | ✅ | ✅ | Both have clean APIs |
+
+### Recommendation
+
+**Datalevin** seems better suited for code browser because:
+1. **Persistence** - Don't re-analyze projects on every server restart
+2. **Size** - Can handle monorepos and many projects without heap pressure
+3. **Full-text search** - "Find symbol by name across all projects" is a natural fit
+4. **Babashka native** - No pod overhead
+
+**Trade-off:** Lose browser-side Datalog option. But we're planning browser atoms + atom-sync anyway, so this is acceptable.
+
+**Alternative:** Start with Datascript (simpler, in-memory), migrate to Datalevin if persistence/scale becomes important. APIs are similar enough.
+
+### Decision: Datalevin with Portable Interface
+
+**Decision:** Start with Datalevin, but keep Datalog interface portable.
+
+Both libraries share nearly identical query APIs:
+
+```clojure
+;; These work identically in both Datascript and Datalevin:
+(d/q '[:find ?e :where [?e :symbol/name "foo"]] db)
+(d/pull db '[*] eid)
+(d/transact conn [[:db/add eid :symbol/name "bar"]])
+```
+
+**Differences to abstract:**
+
+| Operation | Datascript | Datalevin |
+|-----------|------------|-----------|
+| Create DB | `(d/create-conn schema)` | `(d/get-conn path schema)` |
+| Get DB value | `@conn` | `(d/db conn)` |
+| Close | N/A (GC) | `(d/close conn)` |
+| Full-text | N/A | `(d/fulltext-datoms db ...)` |
+
+**Portable interface:**
+
+```clojure
+(ns code-browser.db.protocol
+  "Portable Datalog interface - works with Datascript or Datalevin")
+
+(defprotocol IDatalogDB
+  (q [this query] [this query args] "Execute Datalog query")
+  (pull [this pattern eid] "Pull entity")
+  (transact! [this tx-data] "Transact data")
+  (db [this] "Get current DB value")
+  (close! [this] "Close connection (no-op for Datascript)"))
+
+;; Datalevin implementation
+(defrecord DatalevinDB [conn]
+  IDatalogDB
+  (q [_ query] (d/q query (d/db conn)))
+  (q [_ query args] (apply d/q query (d/db conn) args))
+  (pull [_ pattern eid] (d/pull (d/db conn) pattern eid))
+  (transact! [_ tx-data] (d/transact! conn tx-data))
+  (db [_] (d/db conn))
+  (close! [_] (d/close conn)))
+
+;; Datascript implementation (if needed for testing/browser)
+(defrecord DatascriptDB [conn]
+  IDatalogDB
+  (q [_ query] (d/q query @conn))
+  (q [_ query args] (apply d/q query @conn args))
+  (pull [_ pattern eid] (d/pull @conn pattern eid))
+  (transact! [_ tx-data] (d/transact! conn tx-data))
+  (db [_] @conn)
+  (close! [_] nil))  ; no-op
+
+;; Factory
+(defn create-db
+  [{:keys [backend path schema]}]
+  (case backend
+    :datalevin (->DatalevinDB (dl/get-conn path schema))
+    :datascript (->DatascriptDB (ds/create-conn schema))))
+```
+
+**Benefits:**
+- Start with Datalevin (persistence, full-text)
+- Tests can use Datascript (faster, no disk)
+- Future browser option remains open
+- Easy to switch if needed
+
+---
+
 ## Questions Still Open
 
 1. **Sync approach:** atom-sync vs query protocol vs hybrid (leaning hybrid)
@@ -718,7 +889,11 @@ Current leaning: **Option 3 (Hybrid)** - keep atom-sync for now, add query proto
 
 4. **Testing strategy:** Unit tests per module? Integration tests? Browser tests?
 
-5. **Datascript schema:** Define upfront or let it emerge?
+5. **Schema approach:** Define upfront or let it emerge?
+
+## Decisions Finalized
+
+- **DB choice:** ✅ Datalevin with portable `IDatalogDB` interface
 
 ---
 
@@ -791,13 +966,14 @@ modules/sente-browser/src/
    :ns/aliases      {:db/cardinality :db.cardinality/many}  ; [{:alias x :ns y}]
    :ns/refers       {:db/cardinality :db.cardinality/many}
 
-   ;; Symbol attributes
+   ;; Symbol attributes (METADATA ONLY - no source code strings!)
    :symbol/name     {}
    :symbol/type     {}  ; :def | :defn | :defmacro | :defmulti | etc
-   :symbol/source   {}  ; source code string
-   :symbol/doc      {}  ; docstring
+   :symbol/file     {}  ; file path (content fetched on demand)
+   :symbol/line     {}  ; start line
+   :symbol/end-line {}  ; end line (for extracting source)
+   :symbol/doc      {}  ; docstring (small, ok to store)
    :symbol/arglists {}
-   :symbol/line     {}
    :symbol/deps     {:db/valueType :db.type/ref
                      :db/cardinality :db.cardinality/many}
    :symbol/callers  {:db/valueType :db.type/ref
@@ -933,4 +1109,39 @@ modules/sente-browser/src/
 - URI module (parsing, generation, validation)
 - Datascript schema
 - Directory source adapter
+
+---
+
+### 2026-01-17: External Review Feedback
+
+**Reviewers:** Gemini 3 Pro, GPT-5.2 Codex, Grok
+
+**Unanimous endorsements:**
+- Clean slate rewrite ✅
+- URI-centric design ✅ ("Excellent", "Brilliant")
+- Datalog DB for relationships ✅
+- Hybrid sync strategy ✅
+
+**Critical unanimous recommendation: Separate metadata from content**
+- All three reviewers flagged `symbol/source` in Datascript as risky
+- Datascript/Datalevin optimized for indexed metadata, not large blobs
+- Source strings would bloat DB, degrade performance, explode memory
+- **Action:** Store metadata in DB, fetch content on-demand with LRU cache
+
+**Architecture refinement:**
+- Server: Layered architecture (to avoid circular dependencies between features)
+- Client: Feature slices (natural for UI component tree)
+
+**Additional recommendations incorporated:**
+- D5: Separate metadata from content
+- D6: Layered server + feature slices UI
+- D7: Isolate volatile (nREPL) sources from static caches
+- Source adapter protocol: `list-namespaces`, `get-symbols`, `fetch-source`
+- UI "Live" badge for volatile sources
+
+**New question raised:** Datascript vs Datalevin
+- Datalevin offers persistence, larger datasets, full-text search
+- Trade-off: No browser-side option (acceptable given atom-sync plan)
+- **Decision:** Start with Datalevin, use portable `IDatalogDB` protocol
+- Portable interface allows: Datascript for tests, future flexibility, same query code everywhere
 
