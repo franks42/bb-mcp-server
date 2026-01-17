@@ -16,6 +16,7 @@
     (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [sente-browser.code-browser :as code-browser]
+              [code-browser.core :as code-browser-v2]
               [atom-sync.server :as atom-sync]
               [nrepl.state.connection :as conn-state]
               [nrepl.state.messages :as msg-state]
@@ -299,11 +300,29 @@
                                      :id ::code-browser-sent
                                      :msg "Response sent"
                                      :data {:sent? sent?}}))))
-        ;; Unknown event - log it
-                    (log/log! {:level :debug
-                               :id ::unknown-event
-                               :msg "Unknown browser event"
-                               :data {:event-id event-id}})))))
+
+        ;; Try code-browser-v2 dispatch
+                    (if-let [[response-event-id response-data] (code-browser-v2/dispatch-event event-id data)]
+          ;; Code browser v2 event handled - send response
+                            (let [conn-info (get @!browser-connections sente-conn-id)]
+                              (log/log! {:level :info
+                                         :id ::code-browser-v2-response
+                                         :msg "Sending code-browser-v2 response"
+                                         :data {:response-event response-event-id
+                                                :status (:status conn-info)
+                                                :sente-conn-id sente-conn-id}})
+                              (when (= :validated (:status conn-info))
+                                (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
+                                  (log/log! {:level :info
+                                             :id ::code-browser-v2-sent
+                                             :msg "Response sent"
+                                             :data {:sent? sent?}}))))
+
+          ;; Unknown event - log it
+                            (log/log! {:level :debug
+                                       :id ::unknown-event
+                                       :msg "Unknown browser event"
+                                       :data {:event-id event-id}}))))))
 
 ;; =============================================================================
 ;; Public API
