@@ -879,21 +879,53 @@ Both libraries share nearly identical query APIs:
 
 ---
 
-## Questions Still Open
+## All Decisions Finalized
 
-1. **Sync approach:** atom-sync vs query protocol vs hybrid (leaning hybrid)
+### Core Architecture (D1-D7)
+- **D1:** Clean slate rewrite
+- **D2:** Datalevin with portable `IDatalogDB` interface
+- **D3:** URI-centric design
+- **D4:** Static vs Temporal source distinction
+- **D5:** Separate metadata from content
+- **D6:** Layered server + feature slices UI
+- **D7:** Isolate volatile sources
 
-2. **Async handling:** Futures vs core.async vs promises?
+### Implementation Decisions (D8-D12)
 
-3. **Event protocol:** Keep current keywords or formalize with specs?
+**D8: Sync Approach → Hybrid**
+- Start with atom-sync (proven infrastructure)
+- Add query protocol when needed for fine-grained data
+- atom-sync for lists (projects, namespaces, symbols)
+- Query protocol for heavy content (source, relationships)
 
-4. **Testing strategy:** Unit tests per module? Integration tests? Browser tests?
+**D9: Async Handling → Futures**
+- Simple, Babashka-compatible, no extra dependencies
+- `(future ...)` for background work
+- `@` or `deref` with timeout for results
 
-5. **Schema approach:** Define upfront or let it emerge?
+**D10: Event Protocol → Specs**
+- Define specs for all events
+- Catches typos at development time
+- Self-documenting protocol
+- Example:
+  ```clojure
+  (s/def ::select-ns (s/keys :req-un [::ns-uri]))
+  (s/def ::event (s/or :select-ns ::select-ns ...))
+  ```
 
-## Decisions Finalized
+**D11: Testing Strategy → Layered + Automated**
+- **Unit tests:** URI parsing, Datalog queries, pure functions
+- **Integration tests:** Source adapters (dir, jar, github, nrepl)
+- **Browser tests:** Automated (not manual!) - part of CI/test suite
+- Use Playwright or similar for browser automation
+- Run browser tests with every system/integration test
 
-- **DB choice:** ✅ Datalevin with portable `IDatalogDB` interface
+**D12: Schema Approach → Minimal + Documented**
+- Define minimal schema upfront (URI, project, ns, symbol basics)
+- Extend as needed during implementation
+- **Maintain schema in separate doc:** `docs/design/code-browser-schema.md`
+- Update schema doc with every extension
+- Schema doc serves as single source of truth for data model
 
 ---
 
