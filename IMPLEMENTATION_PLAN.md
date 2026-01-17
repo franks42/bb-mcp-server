@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1.5 Complete (synced atoms, file watching, epoch detection) + Enhancements In Progress
-**Version:** v1.14.0
-**Last Updated:** 2026-01-15
+**Version:** v1.14.1
+**Last Updated:** 2026-01-16
 
 ---
 
@@ -1056,6 +1056,13 @@ Decoration.mark({class: "cm-highlighted-range"})
 | 1.5E.16.3 | Browser: Tree component for navigating filesystem | ✅ Done |
 | 1.5E.16.4 | Start from home directory, allow drill-down | ✅ Done |
 | 1.5E.16.5 | Visual indicator for directories that are valid projects | ✅ Done |
+| 1.5E.16.6 | **Fix:** Namespace auto-loading after project selection | ✅ Done |
+
+**Bug Fix (2026-01-16):** Namespaces now auto-load immediately after selecting a project via directory browser - no manual Refresh button click needed.
+- **Problem:** Namespace loading waited for LSP init (35+ seconds) before running
+- **Root cause:** `handle-request-namespaces` was inside the same `future` block as LSP init
+- **Solution:** Moved namespace loading to a separate `future` block to run in parallel with LSP
+- **Result:** Namespaces appear within ~2-3 seconds (clj-kondo analysis time)
 
 **Implementation:**
 - New module: `modules/directory-browser/` with `core.clj` implementing filesystem operations

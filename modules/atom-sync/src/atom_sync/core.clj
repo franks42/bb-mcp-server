@@ -361,6 +361,37 @@
   (swap! expected-seqs assoc key seq))
 
 ;; =============================================================================
+;; Force Sync (Server-Side)
+;; =============================================================================
+
+(defn force-full-sync!
+  "Force broadcast of full state for an atom.
+   Use after async operations that may have caused seq gaps on clients.
+   Generates a full state op (path []) and notifies all subscribers.
+
+   Args:
+     key - atom key
+
+   Returns: count of ops sent, or nil if key not registered"
+  [key]
+  (when-let [{:keys [atom seq]} (get @!synced-atoms key)]
+            (let [epoch @!server-epoch
+                  new-seq (inc seq)
+                  op [:sync/op {:key key
+                                :seq new-seq
+                                :epoch epoch
+                                :op :assoc-in
+                                :path []
+                                :value @atom}]]
+      ;; Update seq tracking
+              (swap! !synced-atoms update key assoc
+                     :seq new-seq
+                     :last-value @atom)
+      ;; Notify subscribers
+              (notify-subscribers! [op])
+              1)))
+
+;; =============================================================================
 ;; Heartbeat / Sync Check (Server-Side)
 ;; =============================================================================
 

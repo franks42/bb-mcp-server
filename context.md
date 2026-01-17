@@ -5,7 +5,7 @@
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-16
-**Version:** v1.14.0
+**Version:** v1.14.1
 
 ---
 
@@ -65,12 +65,35 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 ## Recent Commits
 
 ```
+[pending] fix(code-browser): Fix namespace auto-loading after project selection
 bb6494e docs: Add Phase 1.5E.12 source code highlighting to roadmap
 62ae470 fix(code-browser): Symbol filter and protocol impl source display
 05c6f87 fix(code-browser): Show full protocol for protocol methods
 983ad9a feat(code-browser): Add protocol implementation display (Phase 1.5E.7)
 e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 ```
+
+### Fix: Namespace Auto-Loading After Project Selection (2026-01-16)
+
+**Problem:** After selecting a project via directory browser, namespace list stayed empty until user clicked Refresh button manually.
+
+**Root Cause:** In `handle-set-project-root`, the `handle-request-namespaces` call was inside the same `(future ...)` block as LSP initialization, positioned AFTER the try/catch. This meant namespace loading waited for LSP to complete/fail (35+ seconds) before running.
+
+**Fix:** Moved namespace loading to a SEPARATE `(future ...)` block:
+```clojure
+;; LSP init in its own future (can take 30+ seconds)
+(future
+  (try ... LSP init ... (catch ...)))
+
+;; Namespace loading in separate future (runs in parallel, ~2 seconds via clj-kondo)
+(future
+  (refresh-git-info!)
+  (handle-request-namespaces {}))
+```
+
+**Result:** Namespaces now auto-load within ~2-3 seconds of project selection (clj-kondo analysis time) instead of waiting 35+ seconds for LSP.
+
+**File:** `modules/sente-browser/src/sente_browser/code_browser.clj` - `handle-set-project-root` function
 
 ---
 

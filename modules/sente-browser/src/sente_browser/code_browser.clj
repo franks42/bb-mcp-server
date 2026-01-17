@@ -288,22 +288,46 @@
 (defn- analyze-project-with-kondo
   "Run clj-kondo on src and test directories to get all var-definitions.
    Returns map with :var-definitions containing all vars with their :ns field.
-   This correctly identifies namespaces even for (in-ns ...) patterns."
+   This correctly identifies namespaces even for (in-ns ...) patterns.
+   Uses the current project root from !code-browser-state."
   []
   (try
-   (let [;; Analyze src and test directories
-         result (shell {:out :string :err :string :continue true}
-                       "clj-kondo" "--lint" "src" "--lint" "test" "--lint" "modules"
-                       "--config" "{:output {:analysis {:var-definitions true} :format :edn}}")
-         output (:out result)]
-     (when (seq output)
-       (let [analysis (edn/read-string output)
-             var-defs (get-in analysis [:analysis :var-definitions])]
-         (log/log! {:level :debug
-                    :id ::kondo-project-analysis
-                    :msg "clj-kondo project analysis complete"
-                    :data {:var-count (count var-defs)}})
-         {:var-definitions var-defs})))
+   (let [;; Get current project root (or fall back to cwd)
+         project-root (or (:current-project @!code-browser-state)
+                          (System/getProperty "user.dir"))
+         ;; Build list of source directories that exist in the project
+         src-dir (str project-root "/src")
+         test-dir (str project-root "/test")
+         modules-dir (str project-root "/modules")
+         lint-paths (filterv #(fs/exists? %)
+                             [src-dir test-dir modules-dir])
+         _ (log/log! {:level :debug
+                      :id ::kondo-project-paths
+                      :msg "Running clj-kondo on project paths"
+                      :data {:project-root project-root
+                             :lint-paths lint-paths}})]
+     (if (empty? lint-paths)
+       (do
+        (log/log! {:level :warn
+                   :id ::kondo-no-source-dirs
+                   :msg "No source directories found in project"
+                   :data {:project-root project-root}})
+        nil)
+       ;; Build command with --lint for each path
+       (let [cmd-args (concat ["clj-kondo"]
+                              (mapcat #(vector "--lint" %) lint-paths)
+                              ["--config" "{:output {:analysis {:var-definitions true} :format :edn}}"])
+             result (apply shell {:out :string :err :string :continue true} cmd-args)
+             output (:out result)]
+         (when (seq output)
+           (let [analysis (edn/read-string output)
+                 var-defs (get-in analysis [:analysis :var-definitions])]
+             (log/log! {:level :debug
+                        :id ::kondo-project-analysis
+                        :msg "clj-kondo project analysis complete"
+                        :data {:project-root project-root
+                               :var-count (count var-defs)}})
+             {:var-definitions var-defs})))))
    (catch Exception e
           (log/log! {:level :warn
                      :id ::kondo-project-error
@@ -1013,29 +1037,36 @@
      (clear-project-caches!)
       ;; 2. Update current project in state
      (swap! !code-browser-state assoc :current-project path)
-      ;; 3. Reinitialize LSP with new project (async)
+      ;; 3. Reinitialize LSP with new project (async - can take a long time)
      (future
       (try
-        ;; Shutdown existing LSP if running
+         ;; Shutdown existing LSP if running
        (when (lsp-server/initialized?)
          (log/log! {:level :info :id ::lsp-shutdown :msg "Shutting down LSP for project switch"})
          (lsp-watcher/stop!)
          (lsp-server/stop!))
-        ;; Init with new project
+         ;; Init with new project
        (log/log! {:level :info :id ::lsp-reinit :msg "Reinitializing LSP" :data {:project path}})
        (lsp-server/init! {:project-root path})
-        ;; Restart file watcher
+         ;; Restart file watcher
        (lsp-watcher/start!)
        (log/log! {:level :info :id ::lsp-reinit-complete :msg "LSP reinitialized for new project"})
-        ;; Refresh git info for new project
-       (refresh-git-info!)
-        ;; Auto-refresh namespaces after LSP is ready
-       (handle-request-namespaces {})
        (catch Exception e
-              (log/log! {:level :error
+              (log/log! {:level :warn
                          :id ::lsp-reinit-failed
-                         :msg "LSP reinitialization failed"
+                         :msg "LSP reinitialization failed (namespace loading will use clj-kondo)"
                          :data {:error (ex-message e)}}))))
+      ;; 4. Immediately refresh namespaces in separate future (don't wait for LSP)
+      ;;    Uses clj-kondo which doesn't need LSP
+     (log/log! {:level :info
+                :id ::starting-namespace-future
+                :msg "About to start namespace refresh future"})
+     (future
+      (log/log! {:level :info
+                 :id ::namespace-future-started
+                 :msg "Namespace refresh future started (should be immediate)"})
+      (refresh-git-info!)
+      (handle-request-namespaces {}))
      {:success true :path path :name (project-basename path)})))
 
 (defn handle-add-project
@@ -1408,6 +1439,16 @@
                                              (some #(str/starts-with? var-key (str % "/"))
                                                    stale-namespaces))
                                            source-cache))))))))
+    ;; Log after swap to confirm it completed
+    (log/log! {:level :info
+               :id ::namespaces-swap-complete
+               :msg "Namespace swap complete (atom-sync should broadcast)"
+               :data {:namespace-count (count namespaces)
+                      :current-state-ns-count (count (:namespaces @!code-browser-state))}})
+    ;; Force a full sync broadcast to ensure browsers receive the update
+    ;; This is especially important when called from async context (future)
+    ;; where incremental diffs may cause seq gaps on the browser side
+    (atom-sync/force-full-sync! :code-browser)
     ;; Also return response for legacy event mechanism
     {:namespaces namespaces
      :count (count namespaces)
