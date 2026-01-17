@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1.5 Complete (synced atoms, file watching, epoch detection) + Enhancements In Progress
-**Version:** v1.14.1
+**Version:** v1.14.2
 **Last Updated:** 2026-01-16
 
 ---

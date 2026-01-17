@@ -5,7 +5,7 @@
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
 **Last Updated:** 2026-01-16
-**Version:** v1.14.1
+**Version:** v1.14.2
 
 ---
 
