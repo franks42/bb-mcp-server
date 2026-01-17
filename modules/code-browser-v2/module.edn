@@ -1,0 +1,12 @@
+{:name "code-browser-v2"
+ :version "0.1.0"
+ :description "Code Browser v2 - URI-centric architecture with Datalevin backend"
+
+ :entry code-browser.core
+
+ :requires [datalevin-pod
+            atom-sync]
+
+ :paths ["src" "resources"]
+
+ :test-paths ["test"]}
