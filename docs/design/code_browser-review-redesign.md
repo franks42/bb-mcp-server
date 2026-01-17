@@ -978,6 +978,49 @@ Both libraries share nearly identical query APIs:
 - Update schema doc with every extension
 - Schema doc serves as single source of truth for data model
 
+**D13: Browser Module Loading → Explicit Order + Documented**
+
+With modular browser code (multiple smaller Scittle files), load order is critical.
+Dependencies must load before dependents. This must be:
+1. Explicitly documented
+2. Repeatable for every deployment
+3. Understandable by any new Claude instance
+
+**Browser file load order (dependencies first):**
+
+```clojure
+;; In HTML or bootstrap loader - ORDER MATTERS!
+(def browser-modules
+  ["code_browser/uri.cljs"           ; 1. Pure functions, no deps
+   "code_browser/state.cljs"         ; 2. Atoms, depends on uri
+   "code_browser/events.cljs"        ; 3. Event helpers, depends on state
+   "code_browser/components/list.cljs"      ; 4. Generic list component
+   "code_browser/components/projects.cljs"  ; 5. Uses list
+   "code_browser/components/namespaces.cljs"; 6. Uses list
+   "code_browser/components/symbols.cljs"   ; 7. Uses list
+   "code_browser/components/detail.cljs"    ; 8. Detail panel
+   "code_browser/main.cljs"])        ; 9. Entry point, requires all above
+```
+
+**Load order rules:**
+1. Pure utility modules first (uri, helpers)
+2. State atoms before anything that uses them
+3. Event handlers after state
+4. Generic components before specialized ones
+5. Specialized components can load in any order (peers)
+6. Main entry point always last
+
+**Deployment checklist:**
+- [ ] Verify all files exist in `resources/public/js/code_browser/`
+- [ ] Verify load order in HTML/bootstrap matches dependency graph
+- [ ] Test in browser: no "undefined" errors from missing deps
+- [ ] Document any new files with their position in load order
+
+**Where this is documented:**
+- `modules/code-browser-v2/resources/public/js/load-order.edn` (machine-readable)
+- `modules/code-browser-v2/README.md` (human-readable)
+- This design doc (rationale)
+
 ---
 
 ## New Architecture: Clean Slate Design
