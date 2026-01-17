@@ -1065,7 +1065,7 @@
       (some #(= % trimmed-path) (:projects @!code-browser-state))
       {:success false :error "Project already in list"}
 
-      ;; Valid - add to list
+      ;; Valid - add to list and auto-select
       :else
       (do
        (swap! !code-browser-state update :projects conj trimmed-path)
@@ -1073,6 +1073,9 @@
                   :id ::project-added
                   :msg "Project added to list"
                   :data {:path trimmed-path :name (project-basename trimmed-path)}})
+        ;; Auto-select the newly added project (Phase 1.5E.16 enhancement)
+        ;; This triggers LSP reinit and namespace loading
+       (handle-set-project-root {:path trimmed-path})
        {:success true :path trimmed-path :name (project-basename trimmed-path)}))))
 
 (defn- extract-ns-symbols-kondo

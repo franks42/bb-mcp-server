@@ -22,6 +22,7 @@
            "nrepl-test-server"
            "mcp-http"
            "clojure-lsp"
+           "directory-browser"  ;; Phase 1.5E.16: Required by sente-browser
            "sente-browser"
            "nrepl-proxy-server"]
 
