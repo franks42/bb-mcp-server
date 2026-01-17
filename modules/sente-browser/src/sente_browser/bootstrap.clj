@@ -274,8 +274,8 @@
     .cm-editor .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.25); }
     .cm-editor.cm-focused .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.35); }
 
-    /* Code Browser three-panel layout */
-    .code-browser { display: flex; flex-direction: column; height: calc(100vh - 200px); }
+    /* Code Browser three-panel layout (v1 and v2) */
+    .code-browser, .code-browser-v2 { display: flex; flex-direction: column; height: calc(100vh - 200px); }
     .panels-container { display: flex; flex: 1; overflow: hidden; border: 1px solid #ddd; }
     .panel { display: flex; flex-direction: column; border-right: 1px solid #ddd; overflow: hidden; }
     .panel:last-child { border-right: none; }

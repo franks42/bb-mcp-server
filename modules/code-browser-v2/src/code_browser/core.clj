@@ -217,3 +217,12 @@
   "Unregister auto-enable callback."
   []
   (sync/unregister-on-connect!))
+
+;;; ---------------------------------------------------------------------------
+;;; Module Initialization
+;;; ---------------------------------------------------------------------------
+
+;; Register auto-enable callback at namespace load time.
+;; When a browser connects and requests :code-browser-v2 atom, this enables
+;; the module if a database has been configured via init! or init-with!.
+(register-auto-enable!)
