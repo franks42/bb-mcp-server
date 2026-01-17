@@ -259,34 +259,51 @@
                           :probe-id (:probe-id conn-info)
                           :response-keys (keys data)}})))
 
+    ;; Phase 1.5E.17: Clone repo - special async handling
+    :code-browser/clone-repo
+    (let [conn-info (get @!browser-connections sente-conn-id)]
+      (when (= :validated (:status conn-info))
+        (log/log! {:level :info
+                   :id ::clone-repo-requested
+                   :msg "Clone repo requested"
+                   :data {:url (:url data)}})
+        ;; Run clone in future to avoid blocking
+        (future
+         (let [send-progress-fn (fn [progress]
+                                  (send-to-browser! sente-conn-id
+                                                    [:code-browser/clone-progress progress]))
+               result (code-browser/handle-clone-repo data send-progress-fn)]
+            ;; Send final result
+           (send-to-browser! sente-conn-id [:code-browser/clone-result result])))))
+
     ;; Try atom-sync dispatch first
     (if-let [[response-event-id response-data] (atom-sync/dispatch-event event-id data)]
       ;; Atom-sync event handled - send response
-      (let [conn-info (get @!browser-connections sente-conn-id)]
-        (when (= :validated (:status conn-info))
-          (send-to-browser! sente-conn-id [response-event-id response-data])))
+            (let [conn-info (get @!browser-connections sente-conn-id)]
+              (when (= :validated (:status conn-info))
+                (send-to-browser! sente-conn-id [response-event-id response-data])))
 
       ;; Try code-browser dispatch
-      (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
+            (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
         ;; Code browser event handled - send response
-        (let [conn-info (get @!browser-connections sente-conn-id)]
-          (log/log! {:level :info
-                     :id ::code-browser-response
-                     :msg "Sending code-browser response"
-                     :data {:response-event response-event-id
-                            :status (:status conn-info)
-                            :sente-conn-id sente-conn-id}})
-          (when (= :validated (:status conn-info))
-            (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
-              (log/log! {:level :info
-                         :id ::code-browser-sent
-                         :msg "Response sent"
-                         :data {:sent? sent?}}))))
+                    (let [conn-info (get @!browser-connections sente-conn-id)]
+                      (log/log! {:level :info
+                                 :id ::code-browser-response
+                                 :msg "Sending code-browser response"
+                                 :data {:response-event response-event-id
+                                        :status (:status conn-info)
+                                        :sente-conn-id sente-conn-id}})
+                      (when (= :validated (:status conn-info))
+                        (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
+                          (log/log! {:level :info
+                                     :id ::code-browser-sent
+                                     :msg "Response sent"
+                                     :data {:sent? sent?}}))))
         ;; Unknown event - log it
-        (log/log! {:level :debug
-                   :id ::unknown-event
-                   :msg "Unknown browser event"
-                   :data {:event-id event-id}})))))
+                    (log/log! {:level :debug
+                               :id ::unknown-event
+                               :msg "Unknown browser event"
+                               :data {:event-id event-id}})))))
 
 ;; =============================================================================
 ;; Public API

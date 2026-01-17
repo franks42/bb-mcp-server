@@ -4,14 +4,14 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > Also read `docs/claude-cookbook-suggestions.md` for interface patterns and recommendations.
 
-**Last Updated:** 2026-01-16
-**Version:** v1.14.2
+**Last Updated:** 2026-01-17
+**Version:** v1.14.3
 
 ---
 
 ## Current State
 
-Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, **server epoch detection**, **aliases/refers panel with shadow warnings**, **multi-file namespace support with file dividers**, and **lazy JAR dependency exploration**.
+Code browser with synced atoms, accumulated state, reactive auto-init, live file watching, clj-kondo rich var classification, **defmethod display**, **top-level forms**, **server epoch detection**, **aliases/refers panel with shadow warnings**, **multi-file namespace support with file dividers**, **lazy JAR dependency exploration**, and **git repo cloning from URL**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -32,6 +32,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.11 | Multi-file NS + (in-ns) detection | **COMPLETE** |
 | 1.5E.18 | Lazy JAR Dependency Exploration | **COMPLETE** |
 | 1.5E.16 | Directory Browser (tree navigation) | **COMPLETE** |
+| 1.5E.17 | Clone Git Repo from URL | **COMPLETE** |
 
 ---
 
@@ -101,11 +102,10 @@ e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 
 | Priority | Phase | Description | Notes |
 |----------|-------|-------------|-------|
-| 1 | **1.5E.17** | Clone git repo from URL | Clone to temp, browse remotely |
-| 2 | **1.5E.4** | Branch switching | Complex, defer for now |
-| 3 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
+| 1 | **1.5E.4** | Branch switching | Complex, defer for now |
+| 2 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
 
-**Phase 1.5E.17 (Clone git repo)** is the next feature to enable quick exploration of remote repositories.
+**Phase 1.5E.17 (Clone git repo from URL)** is now complete. Next priority is Phase 2 (Live Mode) for nREPL introspection.
 
 ---
 
@@ -444,6 +444,49 @@ bb lint && bb format
 - `modules/sente-browser/src/browser/code_browser.cljs` - Browser UI
 
 **Phase 1.5E.16 is now COMPLETE.**
+
+### Session 2026-01-17: Phase 1.5E.17 - Clone Git Repo from URL
+
+**Goal:** Allow users to enter a git repository URL, clone it to a temp directory, and browse it.
+
+**Implementation:**
+- **Browser (code_browser.cljs):**
+  - Added `clone-repo!` function to send clone request to server
+  - Added `git-url?` helper to detect git URLs (github.com, gitlab.com, bitbucket.org, .git suffix, git@, https://, ssh://)
+  - Added event handlers for `:code-browser/clone-progress` and `:code-browser/clone-result`
+  - Added `clone-repo-input` UI component with input field, clone button, and status messages
+  - UI shows hourglass during clone, success/error message on completion
+  - Integrated into `git-status-bar` component
+
+- **Server (code_browser.clj):**
+  - Added `extract-repo-name` function to parse repo name from URL (handles https://, git@, etc.)
+  - Added `handle-clone-repo` function that:
+    - Creates temp directory with `babashka.fs/create-temp-dir`
+    - Runs `git clone --depth 1` for fast shallow clone
+    - Adds cloned project to projects list
+    - Sets as current project (triggers namespace loading)
+    - Returns success/error result
+
+- **Server Event Handling (server.clj):**
+  - Added special case for `:code-browser/clone-repo` in `on-browser-message`
+  - Runs clone in `(future ...)` to avoid blocking WebSocket
+  - Sends progress and result events back via `send-to-browser!`
+
+**Test verification:**
+- Entered `https://github.com/taoensso/trove` in URL input
+- Clone button enabled (detected as git URL)
+- Clicked clone → UI showed "⏳ Cloning trove..."
+- Clone completed → "Cloned to trove" message
+- Project switched to "trove" automatically
+- 10 namespaces from trove library loaded and displayed
+- Git branch shows "main" with 🌿 indicator
+
+**Files modified:**
+- `modules/sente-browser/src/browser/code_browser.cljs` - Clone UI and event handling
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Clone handler
+- `modules/sente-browser/src/sente_browser/server.clj` - Async clone dispatch
+
+**Phase 1.5E.17 is now COMPLETE.**
 
 ---
 

@@ -153,6 +153,36 @@
   [path]
   (send-event! :code-browser/find-projects {:path path}))
 
+;; =============================================================================
+;; Git Clone API (Phase 1.5E.17)
+;; =============================================================================
+
+(defn clone-repo!
+  "Clone a git repository from URL.
+   Phase 1.5E.17: Server clones to temp dir and adds to projects.
+   Response arrives via :code-browser/clone-result event."
+  [url]
+  (swap! !ui-state assoc
+         :clone-status :cloning
+         :clone-url url
+         :clone-error nil)
+  (send-event! :code-browser/clone-repo {:url url}))
+
+(defn- git-url?
+  "Check if string looks like a git repository URL.
+   Matches: github.com, gitlab.com, bitbucket.org, .git suffix, git@ prefix"
+  [s]
+  (when (and s (not (clojure.string/blank? s)))
+    (let [s (clojure.string/trim s)]
+      (or (clojure.string/includes? s "github.com")
+          (clojure.string/includes? s "gitlab.com")
+          (clojure.string/includes? s "bitbucket.org")
+          (clojure.string/ends-with? s ".git")
+          (clojure.string/starts-with? s "git@")
+          (clojure.string/starts-with? s "https://")
+          (clojure.string/starts-with? s "http://")
+          (clojure.string/starts-with? s "ssh://")))))
+
 (defn get-breadcrumbs!
   "Get breadcrumb navigation for a path.
    Response arrives via :code-browser/breadcrumbs event."
@@ -179,6 +209,27 @@
 
     :code-browser/breadcrumbs
     (swap! !ui-state assoc :dir-browser-breadcrumbs (:breadcrumbs data))
+
+    ;; Phase 1.5E.17: Clone result events
+    :code-browser/clone-progress
+    (do
+     (js/console.log "[clone] Progress:" (pr-str (:message data)))
+     (swap! !ui-state assoc :clone-message (:message data)))
+
+    :code-browser/clone-result
+    (if (:success data)
+      (do
+       (js/console.log "[clone] Success! Cloned to:" (:path data))
+       (swap! !ui-state assoc
+              :clone-status :success
+              :clone-message (str "Cloned to " (:name data))
+              :clone-url ""))
+      (do
+       (js/console.log "[clone] Failed:" (:error data))
+       (swap! !ui-state assoc
+              :clone-status :error
+              :clone-error (:error data)
+              :clone-message nil)))
 
     ;; Ignore other events
     nil))
@@ -207,8 +258,8 @@
   "Select current directory as project and close browser."
   []
   (when-let [path (:dir-browser-path @!ui-state)]
-    (add-project! path)
-    (close-dir-browser!)))
+            (add-project! path)
+            (close-dir-browser!)))
 
 (defn explore-jar-dep!
   "Explore a dependency namespace from a JAR.
@@ -808,6 +859,41 @@
        :title "Browse directories"}
       "📁"]]))
 
+(defn- clone-repo-input
+  "Input field for cloning a git repository.
+   Phase 1.5E.17: Clone git repos from URL to temp directory."
+  []
+  (let [ui @!ui-state
+        url (:clone-url ui "")
+        status (:clone-status ui)
+        message (:clone-message ui)
+        error (:clone-error ui)
+        cloning? (= status :cloning)
+        is-git-url (git-url? url)]
+    [:div.clone-repo-input
+     [:input
+      {:type "text"
+       :placeholder "Clone git URL (e.g., https://github.com/user/repo)"
+       :value url
+       :disabled cloning?
+       :on-change #(swap! !ui-state assoc :clone-url (-> % .-target .-value))
+       :on-key-down #(when (and (= (.-key %) "Enter") is-git-url (not cloning?))
+                       (clone-repo! url))}]
+     [:button.clone-btn
+      {:on-click #(when (and is-git-url (not cloning?))
+                    (clone-repo! url))
+       :disabled (or (not is-git-url) cloning?)
+       :title (cond
+                cloning? "Cloning..."
+                (not is-git-url) "Enter a valid git URL"
+                :else "Clone repository")}
+      (if cloning? "⏳" "📥")]
+     ;; Status message
+     (when message
+       [:span.clone-message {:class (when (= status :success) "success")} message])
+     (when error
+       [:span.clone-error error])]))
+
 ;; =============================================================================
 ;; Directory Browser Dialog (Phase 1.5E.16)
 ;; =============================================================================
@@ -827,7 +913,7 @@
                 :windsurf "windsurf"
                 :idea "idea"}]
     (when-let [label (get labels prop)]
-      [:span.dir-prop-badge {:class (name prop) :title (name prop)} label])))
+              [:span.dir-prop-badge {:class (name prop) :title (name prop)} label])))
 
 (defn- dir-entry-row
   "Render a single directory entry row."
@@ -847,21 +933,21 @@
      (when (= :directory (:type entry))
        [:span.dir-entry-props
         (for [prop (or (:properties entry) #{})]
-          ^{:key (name prop)}
-          [property-badge prop])])]))
+             ^{:key (name prop)}
+             [property-badge prop])])]))
 
 (defn- dir-breadcrumbs
   "Render breadcrumb navigation."
   [breadcrumbs]
   [:div.dir-breadcrumbs
    (for [[idx crumb] (map-indexed vector breadcrumbs)]
-     ^{:key idx}
-     [:<>
-      (when (pos? idx) [:span.breadcrumb-sep "/"])
-      [:span.breadcrumb-item
-       {:on-click #(list-directory! (:path crumb)
-                                    :show-hidden (:dir-browser-show-hidden @!ui-state))}
-       (:name crumb)]])])
+        ^{:key idx}
+        [:<>
+         (when (pos? idx) [:span.breadcrumb-sep "/"])
+         [:span.breadcrumb-item
+          {:on-click #(list-directory! (:path crumb)
+                                       :show-hidden (:dir-browser-show-hidden @!ui-state))}
+          (:name crumb)]])])
 
 (defn- dir-browser-dialog
   "Modal dialog for browsing directories.
@@ -891,8 +977,8 @@
          [:span.current-path (or path "Loading...")]
          [:span.path-props
           (for [prop properties]
-            ^{:key (name prop)}
-            [property-badge prop])]]
+               ^{:key (name prop)}
+               [property-badge prop])]]
 
         ;; Error display
         (when error
@@ -905,8 +991,8 @@
          (if (empty? entries)
            [:div.empty-dir "Empty directory"]
            (for [entry entries]
-             ^{:key (:path entry)}
-             [dir-entry-row entry]))]
+                ^{:key (:path entry)}
+                [dir-entry-row entry]))]
 
         ;; Footer with actions
         [:div.dir-browser-footer
@@ -914,8 +1000,8 @@
           [:input {:type "checkbox"
                    :checked show-hidden
                    :on-change #(do
-                                 (swap! !ui-state assoc :dir-browser-show-hidden (not show-hidden))
-                                 (list-directory! path :show-hidden (not show-hidden)))}]
+                                (swap! !ui-state assoc :dir-browser-show-hidden (not show-hidden))
+                                (list-directory! path :show-hidden (not show-hidden)))}]
           "Show hidden"]
          [:div.dir-browser-actions
           [:button.cancel-btn {:on-click #(close-dir-browser!)} "Cancel"]
@@ -933,7 +1019,8 @@
   "Header bar showing project path, git branch, and dirty status.
    Reads from synced server state :git field.
    Phase 1.5E.3: Includes project selector dropdown.
-   Phase 1.5E.15: Includes add project input."
+   Phase 1.5E.15: Includes add project input.
+   Phase 1.5E.17: Includes clone from URL input."
   []
   (let [server-state @(get-server-state)
         git-info (:git server-state)
@@ -950,6 +1037,8 @@
                   project-name]))
      ;; Add project input (Phase 1.5E.15)
      [add-project-input]
+     ;; Clone from URL input (Phase 1.5E.17)
+     [clone-repo-input]
      ;; Git branch info
      (when-let [branch (:branch git-info)]
                [:span.branch-info
@@ -993,7 +1082,7 @@
   "Unmount code browser.
    Clears local UI state. Server state is managed by synced atom."
   []
-  ;; Clear local filter state (including Phase 1.5E.20 aliases panel and Phase 1.5E.16 dir browser)
+  ;; Clear local filter state (including Phase 1.5E.20 aliases panel, Phase 1.5E.16 dir browser, Phase 1.5E.17 clone)
   (reset! !ui-state {:ns-filter ""
                      :symbol-filter ""
                      :add-project-path ""
@@ -1004,5 +1093,10 @@
                      :dir-browser-breadcrumbs []
                      :dir-browser-properties #{}
                      :dir-browser-show-hidden false
-                     :dir-browser-error nil})
+                     :dir-browser-error nil
+                     ;; Phase 1.5E.17: Clone from URL state
+                     :clone-url ""
+                     :clone-status nil
+                     :clone-message nil
+                     :clone-error nil})
   (js/console.log "[code-browser] UI state reset"))

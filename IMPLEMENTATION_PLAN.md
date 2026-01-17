@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser Phase 1.5 Complete (synced atoms, file watching, epoch detection) + Enhancements In Progress
-**Version:** v1.14.2
-**Last Updated:** 2026-01-16
+**Version:** v1.14.3
+**Last Updated:** 2026-01-17
 
 ---
 
@@ -828,7 +828,7 @@ my-function          function      line 27
 13. **1.5E.4** - Branch switching (complex, defer)
 14. ~~**1.5E.11** - Multi-file namespace handling~~ ✅ Complete
 15. ~~**1.5E.16** - Directory browser (tree navigation)~~ ✅ Complete
-16. **1.5E.17** - Clone git repo from URL
+16. ~~**1.5E.17** - Clone git repo from URL~~ ✅ Complete
 17. ~~**1.5E.18** - Browse Maven artifact source~~ ✅ Complete (lazy JAR exploration)
 18. ~~**1.5E.19** - Namespace-level dependencies (requires)~~ ✅ Complete
 19. ~~**1.5E.20** - Alias reference panel (str → clojure.string)~~ ✅ Complete
@@ -1077,19 +1077,31 @@ Decoration.mark({class: "cm-highlighted-range"})
 - `modules/directory-browser/module.edn` - Module configuration
 - `modules/directory-browser/src/directory_browser/core.clj` - Core functionality
 
-#### Phase 1.5E.17: Clone Git Repo from URL
+#### Phase 1.5E.17: Clone Git Repo from URL ✅ Complete (2026-01-17)
 
 **Goal:** Allow users to enter a git repository URL, clone it to a temp directory, and browse it.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.17.1 | Add URL input field (detect git URL pattern) | Pending |
-| 1.5E.17.2 | Server: Create temp directory with `babashka.fs/create-temp-dir` | Pending |
-| 1.5E.17.3 | Server: Clone repo using `git clone --depth 1` for speed | Pending |
-| 1.5E.17.4 | Add cloned project to projects list | Pending |
-| 1.5E.17.5 | Display progress indicator during clone | Pending |
-| 1.5E.17.6 | Handle clone errors gracefully | Pending |
-| 1.5E.17.7 | Optional: Cleanup temp dirs on server shutdown | Pending |
+| 1.5E.17.1 | Add URL input field (detect git URL pattern) | ✅ Done |
+| 1.5E.17.2 | Server: Create temp directory with `babashka.fs/create-temp-dir` | ✅ Done |
+| 1.5E.17.3 | Server: Clone repo using `git clone --depth 1` for speed | ✅ Done |
+| 1.5E.17.4 | Add cloned project to projects list | ✅ Done |
+| 1.5E.17.5 | Display progress indicator during clone | ✅ Done |
+| 1.5E.17.6 | Handle clone errors gracefully | ✅ Done |
+| 1.5E.17.7 | Optional: Cleanup temp dirs on server shutdown | Deferred (low priority) |
+
+**Implementation:**
+- Browser: `clone-repo!` function, `git-url?` detection, `clone-repo-input` component
+- Server: `extract-repo-name`, `handle-clone-repo` with async execution in `(future ...)`
+- Supports: github.com, gitlab.com, bitbucket.org, .git suffix, git@ prefix, https://, ssh://
+- Progress: Shows hourglass during clone, success/error message on completion
+- Auto-switches to cloned project and loads namespaces
+
+**Files modified:**
+- `modules/sente-browser/src/browser/code_browser.cljs` - Clone UI and events
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Clone handler
+- `modules/sente-browser/src/sente_browser/server.clj` - Async dispatch
 
 **Use cases:**
 - Quick exploration of open source projects

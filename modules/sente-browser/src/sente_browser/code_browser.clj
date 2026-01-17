@@ -19,6 +19,7 @@
    - :code-browser/list-home {:show-hidden boolean}                   ; Phase 1.5E.16
    - :code-browser/find-projects {:path string}                       ; Phase 1.5E.16
    - :code-browser/get-breadcrumbs {:path string}                     ; Phase 1.5E.16
+   - :code-browser/clone-repo {:url string}                           ; Phase 1.5E.17
 
    Events to browser (legacy, kept during migration):
    - :code-browser/namespaces {:namespaces [...]}
@@ -28,6 +29,8 @@
    - :code-browser/directory-listing {:path :parent :entries :properties :error}
    - :code-browser/projects-found {:path :projects}
    - :code-browser/breadcrumbs {:path :breadcrumbs}
+   - :code-browser/clone-progress {:message string}                   ; Phase 1.5E.17
+   - :code-browser/clone-result {:success bool :path string :name string :error string} ; Phase 1.5E.17
 
    Synced Atom State Shape:
    {:namespaces [\"ns.a\" \"ns.b\" ...]
@@ -2163,6 +2166,102 @@
              :data {:path path}})
   (let [crumbs (dir-browser/breadcrumbs path)]
     {:path path :breadcrumbs crumbs}))
+
+;; =============================================================================
+;; Git Clone (Phase 1.5E.17)
+;; =============================================================================
+
+(defn- extract-repo-name
+  "Extract repository name from git URL.
+   Handles: github.com/user/repo, github.com/user/repo.git, git@github.com:user/repo.git"
+  [url]
+  (let [url (str/trim url)]
+    (cond
+      ;; git@github.com:user/repo.git or git@gitlab.com:user/repo.git
+      (str/starts-with? url "git@")
+      (-> url
+          (str/replace #"^git@[^:]+:" "")
+          (str/replace #"\.git$" "")
+          (str/split #"/")
+          last)
+
+      ;; https://github.com/user/repo or https://github.com/user/repo.git
+      (or (str/starts-with? url "https://")
+          (str/starts-with? url "http://"))
+      (-> url
+          (str/replace #"^https?://[^/]+/" "")
+          (str/replace #"\.git$" "")
+          (str/split #"/")
+          last)
+
+      ;; Default: take last path segment
+      :else
+      (-> url
+          (str/replace #"\.git$" "")
+          (str/split #"/")
+          last
+          (or "cloned-repo")))))
+
+(defn handle-clone-repo
+  "Handle request to clone a git repository.
+   data: {:url string}
+   Clones to temp directory, adds to projects, sets as current.
+   Returns {:success true :path string :name string} or {:success false :error string}"
+  [{:keys [url]} send-progress-fn]
+  (log/log! {:level :info
+             :id ::clone-repo-start
+             :msg "Starting git clone"
+             :data {:url url}})
+  (try
+   (let [;; Extract repo name for directory
+         repo-name (extract-repo-name url)
+          ;; Create temp directory
+         temp-dir (fs/create-temp-dir {:prefix "bb-code-browser-"})
+         clone-path (str temp-dir "/" repo-name)]
+
+      ;; Send progress notification
+     (when send-progress-fn
+       (send-progress-fn {:message (str "Cloning " repo-name "...")}))
+
+      ;; Clone with depth 1 for speed
+     (log/log! {:level :debug
+                :id ::clone-repo-exec
+                :msg "Executing git clone"
+                :data {:url url :path clone-path}})
+     (let [result (shell {:out :string :err :string :continue true}
+                         "git" "clone" "--depth" "1" url clone-path)]
+       (if (zero? (:exit result))
+         (do
+          (log/log! {:level :info
+                     :id ::clone-repo-success
+                     :msg "Git clone successful"
+                     :data {:url url :path clone-path}})
+            ;; Add to projects list
+          (swap! !code-browser-state update :projects
+                 (fn [projects]
+                   (if (some #(= % clone-path) projects)
+                     projects
+                     (conj (vec projects) clone-path))))
+            ;; Set as current project (triggers namespace loading)
+          (handle-set-project-root {:path clone-path})
+          {:success true :path clone-path :name repo-name})
+          ;; Clone failed
+         (let [error-msg (or (not-empty (:err result))
+                             (str "git clone exited with code " (:exit result)))]
+           (log/log! {:level :warn
+                      :id ::clone-repo-failed
+                      :msg "Git clone failed"
+                      :data {:url url :error error-msg}})
+            ;; Clean up temp directory
+           (fs/delete-tree temp-dir)
+           {:success false :error error-msg}))))
+   (catch Exception e
+          (let [error-msg (ex-message e)]
+            (log/log! {:level :error
+                       :id ::clone-repo-error
+                       :msg "Git clone error"
+                       :data {:url url :error error-msg}})
+            {:success false :error error-msg}))))
 
 ;; =============================================================================
 ;; Event Dispatch
