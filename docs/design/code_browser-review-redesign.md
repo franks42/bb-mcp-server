@@ -538,11 +538,62 @@ Versions are essential for:
 
 ## Decisions Made
 
-### D1: Clean Slate Rewrite
-- No incremental migration
-- New namespace structure alongside old
-- Switch over when ready, delete old code
+### D1: Clean Slate Rewrite (Separate Source Tree)
+- **New module entirely:** `modules/code-browser-v2/` (not in sente-browser)
+- Old code untouched: `modules/sente-browser/src/sente_browser/code_browser.clj`
+- Old code untouched: `modules/sente-browser/src/browser/code_browser.cljs`
+- Develop in parallel, test independently
+- Switch over when ready, then delete old code
 - Freedom to redesign everything
+
+```
+modules/
+├── sente-browser/                    # OLD - do not touch
+│   └── src/
+│       ├── sente_browser/
+│       │   └── code_browser.clj      # OLD server (2,458 lines)
+│       └── browser/
+│           └── code_browser.cljs     # OLD client (1,101 lines)
+│
+└── code-browser-v2/                  # NEW - clean slate
+    ├── src/
+    │   └── code_browser/
+    │       ├── uri.cljc              # URI parsing/generation
+    │       ├── schema.cljc           # Datalevin schema
+    │       ├── db/
+    │       │   ├── protocol.clj      # IDatalogDB
+    │       │   └── datalevin.clj     # Datalevin impl
+    │       ├── content.clj           # Content cache (source, docs)
+    │       ├── sources/
+    │       │   ├── protocol.clj      # IProjectSource
+    │       │   ├── directory.clj
+    │       │   ├── jar.clj
+    │       │   ├── github.clj
+    │       │   └── nrepl.clj
+    │       ├── handlers.clj          # Event handlers
+    │       ├── sync.clj              # atom-sync exports
+    │       └── core.clj              # Public API, init
+    ├── resources/
+    │   └── public/
+    │       └── js/                   # Browser code (Scittle)
+    │           ├── code_browser/
+    │           │   ├── state.cljs
+    │           │   ├── events.cljs
+    │           │   └── components/
+    │           │       ├── list.cljs
+    │           │       ├── projects.cljs
+    │           │       ├── namespaces.cljs
+    │           │       ├── symbols.cljs
+    │           │       └── detail.cljs
+    │           └── main.cljs
+    ├── test/
+    │   └── code_browser/
+    │       ├── uri_test.clj
+    │       ├── db_test.clj
+    │       └── sources/
+    │           └── directory_test.clj
+    └── deps.edn                      # Module dependencies
+```
 
 ### D2: Datalevin as State Backend (with Portable Interface)
 - Server uses **Datalevin** for metadata (persistence, full-text search)
