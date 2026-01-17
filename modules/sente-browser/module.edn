@@ -3,7 +3,8 @@
  :description "Browser nREPL via sente-lite WebSocket - enables Claude to eval in browser Scittle"
 
  ;; Depends on nrepl module for connection/message state
- :requires ["nrepl"]
+ ;; Phase 1.5E.16: directory-browser for local filesystem navigation
+ :requires ["nrepl" "directory-browser"]
 
  ;; Entry point
  :entry "sente-browser.core/module"

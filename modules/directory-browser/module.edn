@@ -1,0 +1,7 @@
+{:name "directory-browser"
+ :version "0.1.0"
+ :description "Directory browser with project/IDE detection"
+ :requires []
+ :entry "directory-browser.core/module"
+ :defaults {:show-hidden false
+            :follow-symlinks false}}

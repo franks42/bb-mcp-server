@@ -382,6 +382,45 @@
     .list-item.explored-dep { background: #f5f5ff; border-left: 2px solid #7B68EE; }
     .list-item.explored-dep:hover { background: #ebebff; }
     .list-item.explored-dep .ns-name { color: #5B4B8E; }
+    /* Phase 1.5E.16: Directory Browser Dialog */
+    .browse-btn { background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; padding: 0.15rem 0.4rem; margin-left: 0.25rem; }
+    .browse-btn:hover { background: #e8e8e8; }
+    .dir-browser-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .dir-browser-dialog { background: white; border-radius: 8px; width: 600px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .dir-browser-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #ddd; }
+    .dir-browser-header h3 { margin: 0; font-size: 16px; }
+    .dir-browser-header .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; }
+    .dir-browser-header .close-btn:hover { color: #333; }
+    .dir-breadcrumbs { padding: 0.5rem 1rem; background: #f5f5f5; border-bottom: 1px solid #ddd; font-family: 'Fira Code', monospace; font-size: 12px; }
+    .breadcrumb-item { cursor: pointer; color: #1976D2; }
+    .breadcrumb-item:hover { text-decoration: underline; }
+    .breadcrumb-sep { color: #888; margin: 0 0.25rem; }
+    .dir-browser-path-bar { padding: 0.5rem 1rem; background: #fafafa; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 0.5rem; }
+    .current-path { font-family: 'Fira Code', monospace; font-size: 12px; color: #666; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .path-props { display: flex; gap: 0.25rem; }
+    .dir-prop-badge { font-size: 10px; padding: 0.1rem 0.4rem; border-radius: 3px; background: #e3f2fd; color: #1565C0; }
+    .dir-prop-badge.git { background: #fce4ec; color: #c2185b; }
+    .dir-prop-badge.clojure-project { background: #e8f5e9; color: #2e7d32; }
+    .dir-prop-badge.node-project { background: #fff3e0; color: #e65100; }
+    .dir-prop-badge.vscode, .dir-prop-badge.cursor, .dir-prop-badge.windsurf { background: #ede7f6; color: #5e35b1; }
+    .dir-browser-error { padding: 0.5rem 1rem; background: #ffebee; color: #c62828; font-size: 13px; }
+    .dir-browser-list { flex: 1; overflow-y: auto; min-height: 200px; max-height: 400px; }
+    .dir-entry { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-family: 'Fira Code', monospace; font-size: 13px; }
+    .dir-entry:hover { background: #f5f5f5; }
+    .dir-entry.is-dir { font-weight: 500; }
+    .dir-entry.is-hidden { opacity: 0.6; }
+    .dir-entry-icon { width: 20px; }
+    .dir-entry-name { flex: 1; }
+    .dir-entry-props { display: flex; gap: 0.25rem; }
+    .empty-dir { padding: 2rem; text-align: center; color: #888; font-style: italic; }
+    .dir-browser-footer { padding: 0.75rem 1rem; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .show-hidden { font-size: 12px; color: #666; display: flex; align-items: center; gap: 0.25rem; cursor: pointer; }
+    .dir-browser-actions { display: flex; gap: 0.5rem; }
+    .cancel-btn { padding: 0.4rem 1rem; border: 1px solid #ccc; border-radius: 4px; background: white; cursor: pointer; }
+    .cancel-btn:hover { background: #f5f5f5; }
+    .select-btn { padding: 0.4rem 1rem; border: none; border-radius: 4px; background: #4CAF50; color: white; cursor: pointer; }
+    .select-btn:hover { background: #388E3C; }
+    .select-btn:disabled { background: #ccc; cursor: not-allowed; }
   </style>
 </head>
 <body>

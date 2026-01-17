@@ -45,7 +45,15 @@
          (r/atom {:ns-filter ""
                   :symbol-filter ""
                   :add-project-path ""
-                  :aliases-expanded true}))  ;; Phase 1.5E.20: Aliases panel state
+                  :aliases-expanded true      ;; Phase 1.5E.20: Aliases panel state
+                  ;; Phase 1.5E.16: Directory browser dialog state
+                  :dir-browser-open? false
+                  :dir-browser-path nil
+                  :dir-browser-entries []
+                  :dir-browser-breadcrumbs []
+                  :dir-browser-properties #{}
+                  :dir-browser-show-hidden false
+                  :dir-browser-error nil}))
 
 #_{:clj-kondo/ignore [:missing-docstring]}
 (defonce !layout
@@ -123,6 +131,84 @@
    Phase 1.5E.15: Server validates directory and adds to list."
   [path]
   (send-event! :code-browser/add-project {:path path}))
+
+;; =============================================================================
+;; Directory Browser API (Phase 1.5E.16)
+;; =============================================================================
+
+(defn list-directory!
+  "Request directory listing from server.
+   Response arrives via :code-browser/directory-listing event."
+  [path & {:keys [show-hidden] :or {show-hidden false}}]
+  (send-event! :code-browser/list-directory {:path path :show-hidden show-hidden}))
+
+(defn list-home!
+  "Request home directory listing from server."
+  [& {:keys [show-hidden] :or {show-hidden false}}]
+  (send-event! :code-browser/list-home {:show-hidden show-hidden}))
+
+(defn find-projects!
+  "Find project directories in a path.
+   Response arrives via :code-browser/projects-found event."
+  [path]
+  (send-event! :code-browser/find-projects {:path path}))
+
+(defn get-breadcrumbs!
+  "Get breadcrumb navigation for a path.
+   Response arrives via :code-browser/breadcrumbs event."
+  [path]
+  (send-event! :code-browser/get-breadcrumbs {:path path}))
+
+;; Directory browser event handler (updates local UI state)
+(defn- handle-directory-event
+  "Handle directory browser response events.
+   Updates local !ui-state instead of synced atom."
+  [[event-id data]]
+  (js/console.log "[dir-browser] Event:" (pr-str event-id))
+  (case event-id
+    :code-browser/directory-listing
+    (swap! !ui-state merge
+           {:dir-browser-path (:path data)
+            :dir-browser-entries (or (:entries data) [])
+            :dir-browser-breadcrumbs (or (:breadcrumbs data) [])
+            :dir-browser-properties (or (:properties data) #{})
+            :dir-browser-error (:error data)})
+
+    :code-browser/projects-found
+    (js/console.log "[dir-browser] Projects found:" (pr-str (:projects data)))
+
+    :code-browser/breadcrumbs
+    (swap! !ui-state assoc :dir-browser-breadcrumbs (:breadcrumbs data))
+
+    ;; Ignore other events
+    nil))
+
+(defn open-dir-browser!
+  "Open directory browser dialog at specified path (or home if nil)."
+  [& [path]]
+  (swap! !ui-state assoc :dir-browser-open? true :dir-browser-error nil)
+  (if path
+    (list-directory! path :show-hidden (:dir-browser-show-hidden @!ui-state))
+    (list-home! :show-hidden (:dir-browser-show-hidden @!ui-state))))
+
+(defn close-dir-browser!
+  "Close directory browser dialog."
+  []
+  (swap! !ui-state assoc :dir-browser-open? false))
+
+(defn select-dir-entry!
+  "Handle click on a directory entry.
+   If directory, navigate into it. If file, ignore."
+  [entry]
+  (when (= :directory (:type entry))
+    (list-directory! (:path entry) :show-hidden (:dir-browser-show-hidden @!ui-state))))
+
+(defn select-dir-as-project!
+  "Select current directory as project and close browser."
+  []
+  (when-let [path (:dir-browser-path @!ui-state)]
+    (add-project! path)
+    (close-dir-browser!)))
 
 (defn explore-jar-dep!
   "Explore a dependency namespace from a JAR.
@@ -697,7 +783,8 @@
 
 (defn- add-project-input
   "Input field + button for adding a new project.
-   Phase 1.5E.15: Simple form to add project directories."
+   Phase 1.5E.15: Simple form to add project directories.
+   Phase 1.5E.16: Browse button for directory browser."
   []
   (let [path (:add-project-path @!ui-state)]
     [:div.add-project-input
@@ -715,7 +802,132 @@
                     (add-project! path)
                     (swap! !ui-state assoc :add-project-path ""))
        :title "Add project directory"}
-      "+"]]))
+      "+"]
+     [:button.browse-btn
+      {:on-click #(open-dir-browser!)
+       :title "Browse directories"}
+      "📁"]]))
+
+;; =============================================================================
+;; Directory Browser Dialog (Phase 1.5E.16)
+;; =============================================================================
+
+(defn- property-badge
+  "Render a property badge (git, project type, etc.)."
+  [prop]
+  (let [labels {:git "git"
+                :clojure-project "clj"
+                :node-project "node"
+                :python-project "py"
+                :rust-project "rust"
+                :go-project "go"
+                :java-project "java"
+                :vscode "vscode"
+                :cursor "cursor"
+                :windsurf "windsurf"
+                :idea "idea"}]
+    (when-let [label (get labels prop)]
+      [:span.dir-prop-badge {:class (name prop) :title (name prop)} label])))
+
+(defn- dir-entry-row
+  "Render a single directory entry row."
+  [entry]
+  (let [type-icon (case (:type entry)
+                    :directory "📁"
+                    :symlink "🔗"
+                    "📄")]
+    [:div.dir-entry
+     {:class [(when (= :directory (:type entry)) "is-dir")
+              (when (:hidden? entry) "is-hidden")]
+      :on-click #(select-dir-entry! entry)
+      :on-double-click #(when (= :directory (:type entry))
+                          (select-dir-entry! entry))}
+     [:span.dir-entry-icon type-icon]
+     [:span.dir-entry-name (:name entry)]
+     (when (= :directory (:type entry))
+       [:span.dir-entry-props
+        (for [prop (or (:properties entry) #{})]
+          ^{:key (name prop)}
+          [property-badge prop])])]))
+
+(defn- dir-breadcrumbs
+  "Render breadcrumb navigation."
+  [breadcrumbs]
+  [:div.dir-breadcrumbs
+   (for [[idx crumb] (map-indexed vector breadcrumbs)]
+     ^{:key idx}
+     [:<>
+      (when (pos? idx) [:span.breadcrumb-sep "/"])
+      [:span.breadcrumb-item
+       {:on-click #(list-directory! (:path crumb)
+                                    :show-hidden (:dir-browser-show-hidden @!ui-state))}
+       (:name crumb)]])])
+
+(defn- dir-browser-dialog
+  "Modal dialog for browsing directories.
+   Phase 1.5E.16: Point & click directory navigation."
+  []
+  (let [ui @!ui-state
+        open? (:dir-browser-open? ui)
+        path (:dir-browser-path ui)
+        entries (:dir-browser-entries ui)
+        breadcrumbs (:dir-browser-breadcrumbs ui)
+        properties (:dir-browser-properties ui)
+        show-hidden (:dir-browser-show-hidden ui)
+        error (:dir-browser-error ui)]
+    (when open?
+      [:div.dir-browser-overlay {:on-click #(close-dir-browser!)}
+       [:div.dir-browser-dialog {:on-click #(.stopPropagation %)}
+        [:div.dir-browser-header
+         [:h3 "Browse Directories"]
+         [:button.close-btn {:on-click #(close-dir-browser!)} "×"]]
+
+        ;; Breadcrumb navigation
+        (when (seq breadcrumbs)
+          [dir-breadcrumbs breadcrumbs])
+
+        ;; Current path and properties
+        [:div.dir-browser-path-bar
+         [:span.current-path (or path "Loading...")]
+         [:span.path-props
+          (for [prop properties]
+            ^{:key (name prop)}
+            [property-badge prop])]]
+
+        ;; Error display
+        (when error
+          [:div.dir-browser-error
+           [:span.error-icon "⚠️"]
+           [:span (or (:message error) (str error))]])
+
+        ;; Directory listing
+        [:div.dir-browser-list
+         (if (empty? entries)
+           [:div.empty-dir "Empty directory"]
+           (for [entry entries]
+             ^{:key (:path entry)}
+             [dir-entry-row entry]))]
+
+        ;; Footer with actions
+        [:div.dir-browser-footer
+         [:label.show-hidden
+          [:input {:type "checkbox"
+                   :checked show-hidden
+                   :on-change #(do
+                                 (swap! !ui-state assoc :dir-browser-show-hidden (not show-hidden))
+                                 (list-directory! path :show-hidden (not show-hidden)))}]
+          "Show hidden"]
+         [:div.dir-browser-actions
+          [:button.cancel-btn {:on-click #(close-dir-browser!)} "Cancel"]
+          [:button.select-btn
+           {:on-click #(select-dir-as-project!)
+            :disabled (nil? path)}
+           "Select as Project"]]]]])))
+
+(defn- register-dir-browser-handler!
+  "Register event handler for directory browser responses."
+  []
+  (bootstrap/register-event-handler! :code-browser handle-directory-event))
 
 (defn git-status-bar
   "Header bar showing project path, git branch, and dirty status.
@@ -757,7 +969,9 @@
    [:div.panels-container
     [namespace-panel]
     [symbols-panel]
-    [source-panel]]])
+    [source-panel]]
+   ;; Phase 1.5E.16: Directory browser dialog (renders as overlay when open)
+   [dir-browser-dialog]])
 
 ;; =============================================================================
 ;; Lifecycle
@@ -766,8 +980,11 @@
 (defn mount!
   "Mount code browser to #code-browser-root element.
    Uses bootstrap/mount-root! which wraps rdom/render with error boundary.
-   Server state is synced via atom-sync (no legacy handler registration needed)."
+   Server state is synced via atom-sync (no legacy handler registration needed).
+   Phase 1.5E.16: Registers directory browser event handler."
   []
+  ;; Register directory browser event handler before mounting
+  (register-dir-browser-handler!)
   (bootstrap/mount-root! [main-panel])
   (request-namespaces!)
   (js/console.log "[code-browser] Mounted"))
@@ -776,6 +993,16 @@
   "Unmount code browser.
    Clears local UI state. Server state is managed by synced atom."
   []
-  ;; Clear local filter state (including Phase 1.5E.20 aliases panel state)
-  (reset! !ui-state {:ns-filter "" :symbol-filter "" :add-project-path "" :aliases-expanded true})
+  ;; Clear local filter state (including Phase 1.5E.20 aliases panel and Phase 1.5E.16 dir browser)
+  (reset! !ui-state {:ns-filter ""
+                     :symbol-filter ""
+                     :add-project-path ""
+                     :aliases-expanded true
+                     :dir-browser-open? false
+                     :dir-browser-path nil
+                     :dir-browser-entries []
+                     :dir-browser-breadcrumbs []
+                     :dir-browser-properties #{}
+                     :dir-browser-show-hidden false
+                     :dir-browser-error nil})
   (js/console.log "[code-browser] UI state reset"))

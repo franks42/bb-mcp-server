@@ -827,7 +827,7 @@ my-function          function      line 27
 12. ~~**1.5E.15** - Add project via form field~~ ✅ Complete
 13. **1.5E.4** - Branch switching (complex, defer)
 14. ~~**1.5E.11** - Multi-file namespace handling~~ ✅ Complete
-15. **1.5E.16** - Directory browser (tree navigation)
+15. ~~**1.5E.16** - Directory browser (tree navigation)~~ ✅ Complete
 16. **1.5E.17** - Clone git repo from URL
 17. ~~**1.5E.18** - Browse Maven artifact source~~ ✅ Complete (lazy JAR exploration)
 18. ~~**1.5E.19** - Namespace-level dependencies (requires)~~ ✅ Complete
@@ -1045,17 +1045,30 @@ Decoration.mark({class: "cm-highlighted-range"})
 
 **Implementation:** User enters path, server validates it's a directory and a Clojure project, then adds to the projects dropdown. Errors displayed if validation fails.
 
-#### Phase 1.5E.16: Directory Browser (Future Enhancement)
+#### Phase 1.5E.16: Directory Browser ✅ Complete (2026-01-16)
 
 **Goal:** Provide tree-based directory navigation instead of manual path entry.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1.5E.16.1 | Add "Browse..." button next to path input | Pending |
-| 1.5E.16.2 | Server: Implement `list-directories` using `babashka.fs` | Pending |
-| 1.5E.16.3 | Browser: Tree component for navigating filesystem | Pending |
-| 1.5E.16.4 | Start from home directory, allow drill-down | Pending |
-| 1.5E.16.5 | Visual indicator for directories that are valid projects | Pending |
+| 1.5E.16.1 | Add "Browse..." button next to path input | ✅ Done |
+| 1.5E.16.2 | Server: Implement `list-directories` using `babashka.fs` | ✅ Done |
+| 1.5E.16.3 | Browser: Tree component for navigating filesystem | ✅ Done |
+| 1.5E.16.4 | Start from home directory, allow drill-down | ✅ Done |
+| 1.5E.16.5 | Visual indicator for directories that are valid projects | ✅ Done |
+
+**Implementation:**
+- New module: `modules/directory-browser/` with `core.clj` implementing filesystem operations
+- `list-directory` - Lists directory contents with metadata (size, modified, type)
+- `get-directory-properties` - Detects project types (clojure, node, python, rust, go, java)
+- `breadcrumbs` - Generates navigation path segments
+- Workspace detection: git, vscode, cursor, windsurf, idea, eclipse
+- Browser: Dialog with directory tree, breadcrumbs, property badges, show-hidden toggle
+- Click folder to navigate, click "Select as Project" to add project
+
+**Files created:**
+- `modules/directory-browser/module.edn` - Module configuration
+- `modules/directory-browser/src/directory_browser/core.clj` - Core functionality
 
 #### Phase 1.5E.17: Clone Git Repo from URL
 

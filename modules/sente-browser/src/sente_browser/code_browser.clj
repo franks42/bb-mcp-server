@@ -15,12 +15,19 @@
    - :code-browser/select-var {:var-name string} ; Phase 1.5-Pre action
    - :code-browser/toggle-sort-mode {}           ; Phase 1.5E.1 - toggle alpha/file-order
    - :code-browser/set-sort-mode {:mode keyword} ; Phase 1.5E.1 - set to :alpha or :file-order
+   - :code-browser/list-directory {:path string :show-hidden boolean} ; Phase 1.5E.16
+   - :code-browser/list-home {:show-hidden boolean}                   ; Phase 1.5E.16
+   - :code-browser/find-projects {:path string}                       ; Phase 1.5E.16
+   - :code-browser/get-breadcrumbs {:path string}                     ; Phase 1.5E.16
 
    Events to browser (legacy, kept during migration):
    - :code-browser/namespaces {:namespaces [...]}
    - :code-browser/symbols {:symbols [...]}
    - :code-browser/source {:code string :file string :language string}
    - :code-browser/sort-mode-changed {:sort-mode keyword}
+   - :code-browser/directory-listing {:path :parent :entries :properties :error}
+   - :code-browser/projects-found {:path :projects}
+   - :code-browser/breadcrumbs {:path :breadcrumbs}
 
    Synced Atom State Shape:
    {:namespaces [\"ns.a\" \"ns.b\" ...]
@@ -43,6 +50,7 @@
               [clojure.java.io :as io]
               [clojure.set :as set]
               [clojure.string :as str]
+              [directory-browser.core :as dir-browser]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -1942,9 +1950,9 @@
                ;; Phase 1.5E.18C: Use handle-request-var-source which extracts JAR source
                ;; Find the symbol to get its line info for source extraction
                (when-let [sym (first (filter #(= (:name %) name) symbols))]
-                 (handle-request-var-source {:ns ns
-                                             :var-name name
-                                             :kind (:kind sym)}))
+                         (handle-request-var-source {:ns ns
+                                                     :var-name name
+                                                     :kind (:kind sym)}))
                {:navigated true :ns ns :name name :from-jar true :jar-path jar-path}))
       ;; No JAR found
             (do
@@ -2022,6 +2030,97 @@
           {:error "JAR not found for namespace"}))
 
 ;; =============================================================================
+;; Directory Browser (Phase 1.5E.16)
+;; =============================================================================
+
+(defn- convert-sets-to-vecs
+  "Convert sets to vectors for JSON serialization."
+  [data]
+  (cond
+    (set? data) (vec data)
+    (map? data) (into {} (map (fn [[k v]] [k (convert-sets-to-vecs v)]) data))
+    (sequential? data) (mapv convert-sets-to-vecs data)
+    :else data))
+
+(defn handle-list-directory
+  "Handle request to list directory contents.
+   data: {:path string, :show-hidden boolean}
+   Returns directory listing with properties and breadcrumbs."
+  [{:keys [path show-hidden]}]
+  (log/log! {:level :debug
+             :id ::list-directory
+             :msg "Listing directory"
+             :data {:path path :show-hidden show-hidden}})
+  (let [target-path (or path (dir-browser/home-directory))
+        result (dir-browser/list-directory
+                target-path
+                {:show-hidden (boolean show-hidden)
+                 :enrich true})
+        ;; Add breadcrumbs
+        breadcrumbs (dir-browser/breadcrumbs (:path result))
+        ;; Convert sets to vectors for JSON serialization
+        serializable (-> result
+                         (assoc :breadcrumbs breadcrumbs)
+                         convert-sets-to-vecs)]
+    (if (:error result)
+      (do
+       (log/log! {:level :warn
+                  :id ::list-directory-error
+                  :msg "Directory listing failed"
+                  :data {:path path :error (:error result)}})
+       serializable)
+      (do
+       (log/log! {:level :debug
+                  :id ::list-directory-success
+                  :msg "Directory listed"
+                  :data {:path (:path result)
+                         :entry-count (count (:entries result))
+                         :breadcrumb-count (count breadcrumbs)}})
+       serializable))))
+
+(defn handle-list-home
+  "Handle request to list home directory.
+   data: {:show-hidden boolean}"
+  [{:keys [show-hidden]}]
+  (log/log! {:level :debug
+             :id ::list-home
+             :msg "Listing home directory"})
+  (let [result (dir-browser/list-home {:show-hidden (boolean show-hidden) :enrich true})
+        breadcrumbs (dir-browser/breadcrumbs (:path result))]
+    (-> result
+        (assoc :breadcrumbs breadcrumbs)
+        convert-sets-to-vecs)))
+
+(defn handle-find-projects
+  "Handle request to find projects in a directory.
+   data: {:path string}
+   Returns list of project directories found."
+  [{:keys [path]}]
+  (log/log! {:level :debug
+             :id ::find-projects
+             :msg "Finding projects"
+             :data {:path path}})
+  (let [target-path (or path (str (dir-browser/home-directory) "/Development"))
+        projects (dir-browser/find-projects-in target-path)]
+    (log/log! {:level :debug
+               :id ::projects-found
+               :msg "Projects found"
+               :data {:path target-path :count (count projects)}})
+    {:path target-path :projects (or projects [])}))
+
+(defn handle-get-breadcrumbs
+  "Handle request to get breadcrumb navigation for path.
+   data: {:path string}
+   Returns vector of breadcrumb segments."
+  [{:keys [path]}]
+  (log/log! {:level :debug
+             :id ::get-breadcrumbs
+             :msg "Getting breadcrumbs"
+             :data {:path path}})
+  (let [crumbs (dir-browser/breadcrumbs path)]
+    {:path path :breadcrumbs crumbs}))
+
+;; =============================================================================
 ;; Event Dispatch
 ;; =============================================================================
 
@@ -2067,6 +2166,19 @@
 
       :code-browser/request-jar-source
       [:code-browser/jar-source (handle-request-jar-source data)]
+
+      ;; Phase 1.5E.16: Directory browser
+      :code-browser/list-directory
+      [:code-browser/directory-listing (handle-list-directory data)]
+
+      :code-browser/list-home
+      [:code-browser/directory-listing (handle-list-home data)]
+
+      :code-browser/find-projects
+      [:code-browser/projects-found (handle-find-projects data)]
+
+      :code-browser/get-breadcrumbs
+      [:code-browser/breadcrumbs (handle-get-breadcrumbs data)]
 
       ;; Not a code-browser event
       nil)))

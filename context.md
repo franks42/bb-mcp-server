@@ -31,6 +31,7 @@ Code browser with synced atoms, accumulated state, reactive auto-init, live file
 | 1.5E.20 | Aliases & Refers panel with shadow detection | **COMPLETE** |
 | 1.5E.11 | Multi-file NS + (in-ns) detection | **COMPLETE** |
 | 1.5E.18 | Lazy JAR Dependency Exploration | **COMPLETE** |
+| 1.5E.16 | Directory Browser (tree navigation) | **COMPLETE** |
 
 ---
 
@@ -77,11 +78,11 @@ e9ef9fd feat(atom-sync): Add server epoch for stale data detection
 
 | Priority | Phase | Description | Notes |
 |----------|-------|-------------|-------|
-| 1 | **1.5E.10** | Symbol inspector | Multi-view: Source, Doc, Examples, Deps |
-| 2 | **1.5E.3** | Project selector | Browse multiple projects |
+| 1 | **1.5E.17** | Clone git repo from URL | Clone to temp, browse remotely |
+| 2 | **1.5E.4** | Branch switching | Complex, defer for now |
 | 3 | **Phase 2** | Live Mode | nREPL introspection (inspired by clj-ns-browser) |
 
-**Phase 1.5E.10 (Symbol inspector)** is the next significant feature.
+**Phase 1.5E.17 (Clone git repo)** is the next feature to enable quick exploration of remote repositories.
 
 ---
 
@@ -385,6 +386,41 @@ bb lint && bb format
 - `modules/sente-browser/src/sente_browser/code_browser.clj`:
   - `handle-navigate-to-symbol` - update both `:symbols` and `:symbols-by-ns`
   - `handle-request-var-source` - add line numbers to `jar-source-data`
+
+### Session 2026-01-16: Phase 1.5E.16 - Directory Browser
+
+**Goal:** Add tree-based directory navigation to select project directories visually.
+
+**Implementation:**
+- Created new module: `modules/directory-browser/`
+- `directory-browser.core` provides filesystem operations:
+  - `list-directory` - Lists directory with metadata (type, size, modified, readable/writable)
+  - `get-directory-properties` - Detects project/workspace types
+  - `breadcrumbs` - Generates navigation path segments
+  - `expand-path` - Handles `~` and `$ENV` expansion
+- Project detection: clojure (deps.edn, bb.edn, project.clj, shadow-cljs.edn), node, python, rust, go, java
+- Workspace detection: git, vscode, cursor, windsurf, idea, eclipse
+
+**Browser UI:**
+- 📁 button next to project path input opens dialog
+- Dialog shows: breadcrumb navigation, directory tree, property badges
+- Property badges: `git`, `clj`, `py`, `node`, `java`, `vscode`, etc.
+- "Show hidden" checkbox toggle
+- "Select as Project" button to add directory as project
+
+**Module integration fixes:**
+- Fixed `module.edn` format: changed `:namespace`/`:dependencies` to `:entry`/`:requires`
+- Fixed `start` function signature: `[config]` → `[_deps config]` for module protocol
+- Added `convert-sets-to-vecs` for JSON serialization of Clojure sets
+- Added breadcrumbs to server response
+
+**Files created/modified:**
+- `modules/directory-browser/module.edn` - Module configuration
+- `modules/directory-browser/src/directory_browser/core.clj` - Core functionality
+- `modules/sente-browser/src/sente_browser/code_browser.clj` - Server handlers
+- `modules/sente-browser/src/browser/code_browser.cljs` - Browser UI
+
+**Phase 1.5E.16 is now COMPLETE.**
 
 ---
 
