@@ -93,6 +93,34 @@
            (sort-by (juxt :symbol/type :symbol/name))
            vec))))
 
+(defn- query-aliases
+  "Query aliases for a namespace from Datalevin."
+  [db ns-name]
+  (when (and db ns-name)
+    (let [results (db-proto/q db
+                              '[:find (pull ?a [:uri/string :alias/name :alias/to-ns])
+                                :in $ ?ns-name
+                                :where [?a :alias/from-ns ?ns-name]]
+                              ns-name)]
+      (->> results
+           (map first)
+           (sort-by :alias/name)
+           vec))))
+
+(defn- query-refers
+  "Query refers for a namespace from Datalevin."
+  [db ns-name]
+  (when (and db ns-name)
+    (let [results (db-proto/q db
+                              '[:find (pull ?r [:uri/string :refer/symbol :refer/from-ns-source])
+                                :in $ ?ns-name
+                                :where [?r :refer/from-ns ?ns-name]]
+                              ns-name)]
+      (->> results
+           (map first)
+           (sort-by :refer/symbol)
+           vec))))
+
 (defn- fetch-source
   "Fetch source for a symbol using registered source adapters."
   [symbol-uri]
@@ -156,7 +184,7 @@
           {:success false :error (ex-message e)})))
 
 (defn handle-select-namespace!
-  "Select a namespace and load its symbols."
+  "Select a namespace and load its symbols, aliases, and refers."
   [ns-uri]
   (log/log! {:level :info
              :id ::select-namespace
@@ -165,9 +193,17 @@
   (sync/set-loading! true)
   (try
    (if-let [db (get-db)]
-           (let [symbols (query-symbols db ns-uri)]
-             (sync/select-namespace! ns-uri symbols)
-             {:success true :count (count symbols)})
+     ;; Extract ns-name from the namespace entity
+           (let [ns-entity (db-proto/pull db '[:ns/name] [:uri/string ns-uri])
+                 ns-name (:ns/name ns-entity)
+                 symbols (query-symbols db ns-uri)
+                 aliases (when ns-name (query-aliases db ns-name))
+                 refers (when ns-name (query-refers db ns-name))]
+             (sync/select-namespace! ns-uri symbols aliases refers)
+             {:success true
+              :symbols (count symbols)
+              :aliases (count aliases)
+              :refers (count refers)})
            (do
             (sync/set-error! "No database configured")
             {:success false :error "No database configured"}))

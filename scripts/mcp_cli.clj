@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 
 (ns mcp-cli
-  "MCP CLI - Generic command-line interface for MCP tool operations.
+    "MCP CLI - Generic command-line interface for MCP tool operations.
 
    Usage: bb scripts/mcp_cli.clj <subcommand> [args] [options]
 
@@ -17,9 +17,9 @@
      --mcp NAME        Server nickname (auto-detects if single server)
      --port PORT       Server port number
      --pprint          Pretty-print output"
-  (:require [bb-mcp-server.mcp-client :as client]
-            [cheshire.core :as json]
-            [clojure.pprint :as pp]))
+    (:require [bb-mcp-server.mcp-client :as client]
+              [cheshire.core :as json]
+              [clojure.pprint :as pp]))
 
 ;; =============================================================================
 ;; Argument Parsing
@@ -33,7 +33,8 @@
                :positional []
                :mcp nil
                :port nil
-               :pprint false}]
+               :pprint false
+               :args-file nil}]
         (if (empty? args)
           opts
           (let [arg (first args)
@@ -48,6 +49,9 @@
 
               (= arg "--pprint")
               (recur rest-args (assoc opts :pprint true))
+
+              (= arg "--args-file")
+              (recur (rest rest-args) (assoc opts :args-file (first rest-args)))
 
               ;; First non-option is subcommand
               (nil? (:subcommand opts))
@@ -154,15 +158,24 @@
 
 (defn cmd-call
   "Call a tool with JSON arguments."
-  [{:keys [positional pprint] :as opts}]
+  [{:keys [positional pprint args-file] :as opts}]
   (let [tool-name (first positional)
-        args-json (second positional)]
+        args-json-positional (second positional)
+        ;; args-file takes precedence, then positional arg
+        args-json (cond
+                    args-file (slurp args-file)
+                    args-json-positional args-json-positional
+                    :else nil)]
     (when-not tool-name
-      (println "Usage: bb mcp call <name> [json-args]")
+      (println "Usage: bb mcp call <name> [json-args] [--args-file FILE]")
+      (println)
+      (println "Options:")
+      (println "  --args-file FILE  Read JSON arguments from file (avoids shell escaping)")
       (println)
       (println "Examples:")
       (println "  bb mcp call echo.echo '{\"message\":\"hello\"}'")
       (println "  bb mcp call calculate.calculate '{\"expr\":\"(+ 1 2 3)\"}'")
+      (println "  bb mcp call local-eval.local-eval --args-file /tmp/args.json")
       (System/exit 1))
     (try
      (let [port (resolve-server opts)
@@ -198,6 +211,7 @@
   (println "  --mcp NAME        Server nickname (auto-detects if single server)")
   (println "  --port PORT       Server port number")
   (println "  --pprint          Pretty-print output")
+  (println "  --args-file FILE  Read JSON arguments from file (avoids shell escaping)")
   (println)
   (println "Examples:")
   (println "  # List running servers")
@@ -214,7 +228,11 @@
   (println)
   (println "  # Call a tool")
   (println "  bb mcp call echo.echo '{\"message\":\"hello\"}'")
-  (println "  bb mcp call calculate.calculate '{\"expr\":\"(+ 1 2 3)\"}'"))
+  (println "  bb mcp call calculate.calculate '{\"expr\":\"(+ 1 2 3)\"}'")
+  (println)
+  (println "  # Call with special chars (use --args-file to avoid shell escaping)")
+  (println "  echo '{\"code\":\"(enable!)\"}' > /tmp/args.json")
+  (println "  bb mcp call local-eval.local-eval --args-file /tmp/args.json"))
 
 ;; =============================================================================
 ;; Main Entry Point

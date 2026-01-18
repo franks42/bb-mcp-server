@@ -64,7 +64,8 @@
   (log/log! {:level :info
              :id ::scan-and-populate
              :msg "Scanning source and populating database"})
-  (when-let [{:keys [project namespaces symbols]} (source-proto/scan-project source)]
+  (when-let [{:keys [project namespaces symbols aliases refers]}
+             (source-proto/scan-project source)]
             (let [project-uri (:uri/string project)]
       ;; Register source for fetch-source
               (handlers/register-source! project-uri source)
@@ -81,16 +82,28 @@
                        (db-proto/transact! db (mapv clean-entity ns-batch)))
         ;; Transact symbols in batches
                 (doseq [sym-batch (partition-all 100 symbols)]
-                       (db-proto/transact! db (mapv clean-entity sym-batch))))
+                       (db-proto/transact! db (mapv clean-entity sym-batch)))
+        ;; Transact aliases in batches
+                (when (seq aliases)
+                  (doseq [alias-batch (partition-all 100 aliases)]
+                         (db-proto/transact! db (mapv clean-entity alias-batch))))
+        ;; Transact refers in batches
+                (when (seq refers)
+                  (doseq [refer-batch (partition-all 100 refers)]
+                         (db-proto/transact! db (mapv clean-entity refer-batch)))))
               (log/log! {:level :info
                          :id ::scan-complete
                          :msg "Source scan and database population complete"
                          :data {:project project-uri
                                 :namespaces (count namespaces)
-                                :symbols (count symbols)}})
+                                :symbols (count symbols)
+                                :aliases (count aliases)
+                                :refers (count refers)}})
               {:project project-uri
                :namespaces (count namespaces)
-               :symbols (count symbols)})))
+               :symbols (count symbols)
+               :aliases (count aliases)
+               :refers (count refers)})))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Public API

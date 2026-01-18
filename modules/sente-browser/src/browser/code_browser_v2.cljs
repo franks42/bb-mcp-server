@@ -1,5 +1,5 @@
 (ns code-browser-v2
-  "Browser-side Code Browser v2.
+    "Browser-side Code Browser v2.
 
    URI-centric architecture with atom-sync integration.
 
@@ -15,10 +15,10 @@
    Usage (load via nREPL):
      (require '[code-browser-v2 :as cb])
      (cb/mount!)"
-  (:require [reagent.core :as r]
-            [clojure.string :as str]
-            [sente-lite.client-scittle :as client]
-            [code-browser.bootstrap :as bootstrap]))
+    (:require [reagent.core :as r]
+              [clojure.string :as str]
+              [sente-lite.client-scittle :as client]
+              [code-browser.bootstrap :as bootstrap]))
 
 ;; =============================================================================
 ;; Server State Access
@@ -46,17 +46,19 @@
 ;; =============================================================================
 
 (defonce ^{:doc "Local UI state - not synced to server"}
-  !ui-state
-  (r/atom {:ns-filter ""
-           :symbol-filter ""
-           :project-filter ""}))
+ !ui-state
+         (r/atom {:ns-filter ""
+                  :symbol-filter ""
+                  :project-filter ""
+                  :alias-filter ""
+                  :inspector-tab :source}))  ;; :source | :doc | :aliases | :deps | :callers
 
 (defonce ^{:doc "Layout configuration"}
-  !layout
-  (r/atom {:projects-width "20%"
-           :ns-width "20%"
-           :symbols-width "25%"
-           :source-width "35%"}))
+ !layout
+         (r/atom {:projects-width "20%"
+                  :ns-width "20%"
+                  :symbols-width "25%"
+                  :source-width "35%"}))
 
 ;; =============================================================================
 ;; Event Dispatch
@@ -67,7 +69,7 @@
    Uses the client-id from code-browser.bootstrap."
   [event-id data]
   (when-let [client-id @bootstrap/!client-id]
-    (client/send! client-id [event-id data])))
+            (client/send! client-id [event-id data])))
 
 (defn load-projects!
   "Request project list reload from server."
@@ -127,6 +129,88 @@
             symbols)))
 
 ;; =============================================================================
+;; Inspector Tab Components
+;; =============================================================================
+
+(defn- inspector-tab-bar
+  "Tab bar for symbol inspector."
+  []
+  (let [current-tab (:inspector-tab @!ui-state)]
+    [:div.inspector-tabs
+     (for [[tab-key label] [[:source "Source"]
+                            [:doc "Doc"]
+                            [:aliases "Aliases"]
+                            [:deps "Deps"]
+                            [:callers "Callers"]]]
+          ^{:key tab-key}
+          [:button.tab-btn
+           {:class (when (= tab-key current-tab) "active")
+            :on-click #(swap! !ui-state assoc :inspector-tab tab-key)}
+           label])]))
+
+(defn- source-view
+  "Source code view for selected symbol."
+  []
+  (let [server-state @(get-server-state)
+        source (:source server-state)]
+    (if source
+      [:div.source-view
+       [:pre.source-code (:content source)]
+       [:div.source-info
+        [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
+      [:div.empty-message "Select a symbol to view source"])))
+
+(defn- doc-view
+  "Documentation view for selected symbol."
+  []
+  (let [server-state @(get-server-state)
+        selected-uri (:selected-symbol server-state)
+        symbols (:symbols server-state)
+        ;; Find the selected symbol in the list
+        selected-sym (->> symbols
+                          (filter #(= (:uri/string %) selected-uri))
+                          first)]
+    (if selected-sym
+      [:div.doc-view
+       [:div.symbol-header
+        [:span.symbol-name (:symbol/name selected-sym)]
+        (when-let [kind (:symbol/type selected-sym)]
+                  [:span.symbol-kind (name kind)])]
+       (when-let [arglists (:symbol/arglists selected-sym)]
+                 [:div.arglists
+                  [:strong "Args: "]
+                  [:code (pr-str arglists)]])
+       (if-let [doc (:symbol/doc selected-sym)]
+               [:div.docstring
+                [:pre doc]]
+               [:div.no-doc "No documentation available"])]
+      [:div.empty-message "Select a symbol to view documentation"])))
+
+(defn- deps-view
+  "Dependencies view for selected symbol."
+  []
+  (let [server-state @(get-server-state)
+        selected-uri (:selected-symbol server-state)]
+    ;; TODO: R3.1 - Fetch deps from server when available
+    (if selected-uri
+      [:div.deps-view
+       [:div.placeholder "Dependencies view coming in next iteration"]
+       [:div.hint "This will show symbols that this symbol calls/uses"]]
+      [:div.empty-message "Select a symbol to view dependencies"])))
+
+(defn- callers-view
+  "Callers view for selected symbol."
+  []
+  (let [server-state @(get-server-state)
+        selected-uri (:selected-symbol server-state)]
+    ;; TODO: R3.1 - Fetch callers from server when available
+    (if selected-uri
+      [:div.callers-view
+       [:div.placeholder "Callers view coming in next iteration"]
+       [:div.hint "This will show symbols that call/use this symbol"]]
+      [:div.empty-message "Select a symbol to view callers"])))
+
+;; =============================================================================
 ;; Components
 ;; =============================================================================
 
@@ -138,6 +222,60 @@
     :placeholder placeholder
     :value (get @!ui-state value-key "")
     :on-change #(swap! !ui-state assoc value-key (-> % .-target .-value))}])
+
+(defn- alias-item
+  "Single alias list item."
+  [alias-entity]
+  [:div.alias-item
+   [:span.alias-name (:alias/name alias-entity)]
+   [:span.alias-arrow " → "]
+   [:span.alias-target (:alias/to-ns alias-entity)]])
+
+(defn- refer-item
+  "Single refer list item."
+  [refer-entity]
+  [:div.refer-item
+   [:span.refer-name (:refer/symbol refer-entity)]
+   [:span.refer-from (str " (from " (:refer/from-ns-source refer-entity) ")")]])
+
+(defn- aliases-view
+  "Aliases and refers view for selected namespace."
+  []
+  (let [server-state @(get-server-state)
+        selected-ns (:selected-ns server-state)
+        aliases (or (:aliases server-state) [])
+        refers (or (:refers server-state) [])
+        filter-text (:alias-filter @!ui-state)
+        filtered-aliases (if (str/blank? filter-text)
+                           aliases
+                           (filter #(or (matches-filter? (:alias/name %) filter-text)
+                                        (matches-filter? (:alias/to-ns %) filter-text))
+                                   aliases))
+        filtered-refers (if (str/blank? filter-text)
+                          refers
+                          (filter #(or (matches-filter? (:refer/symbol %) filter-text)
+                                       (matches-filter? (:refer/from-ns-source %) filter-text))
+                                  refers))]
+    (if selected-ns
+      [:div.aliases-view
+       [filter-input :alias-filter "Filter aliases/refers..."]
+       [:div.aliases-section
+        [:h4 (str "Aliases (" (count filtered-aliases) ")")]
+        (if (seq filtered-aliases)
+          [:div.alias-list
+           (for [a filtered-aliases]
+                ^{:key (:uri/string a)}
+                [alias-item a])]
+          [:div.empty-hint "No aliases"])]
+       [:div.refers-section
+        [:h4 (str "Refers (" (count filtered-refers) ")")]
+        (if (seq filtered-refers)
+          [:div.refer-list
+           (for [r filtered-refers]
+                ^{:key (:uri/string r)}
+                [refer-item r])]
+          [:div.empty-hint "No refers"])]]
+      [:div.empty-message "Select a namespace to view aliases"])))
 
 (defn project-item
   "Single project list item."
@@ -164,8 +302,8 @@
      [filter-input :project-filter "Filter projects..."]
      [:div.list-container
       (for [project projects]
-        ^{:key (:uri/string project)}
-        [project-item project])]
+           ^{:key (:uri/string project)}
+           [project-item project])]
      [:div.panel-footer
       [:span (str (count projects) " projects")]]]))
 
@@ -197,8 +335,8 @@
      [:div.list-container
       (if selected-project
         (for [ns-entity namespaces]
-          ^{:key (:uri/string ns-entity)}
-          [namespace-item ns-entity])
+             ^{:key (:uri/string ns-entity)}
+             [namespace-item ns-entity])
         [:div.empty-message "Select a project"])]
      [:div.panel-footer
       [:span (str (count namespaces) " namespaces")]]]))
@@ -234,30 +372,36 @@
      [:div.list-container
       (if selected-ns
         (for [sym-entity symbols]
-          ^{:key (:uri/string sym-entity)}
-          [symbol-item sym-entity])
+             ^{:key (:uri/string sym-entity)}
+             [symbol-item sym-entity])
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
       [:span (str (count symbols) " symbols")]]]))
 
 (defn source-panel
-  "Source code panel - displays selected symbol's source."
+  "Symbol inspector panel - displays source, docs, aliases, deps, callers in tabs."
   []
   (let [layout @!layout
         server-state @(get-server-state)
-        source (:source server-state)
-        selected-symbol (:selected-symbol server-state)]
+        selected-symbol (:selected-symbol server-state)
+        selected-ns (:selected-ns server-state)
+        current-tab (:inspector-tab @!ui-state)]
     [:div.panel.source-panel
      {:style {:width (:source-width layout)}}
      [:div.panel-header
-      [:h3 (or selected-symbol "Source")]]
-     [:div.source-container
-      (if source
-        [:pre.source-code (:content source)]
-        [:div.empty-message "Select a symbol to view source"])]
-     (when source
-       [:div.panel-footer
-        [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]])]))
+      [:h3 (cond selected-symbol "Inspector"
+                 selected-ns "Namespace Info"
+                 :else "Source")]]
+     (when (or selected-symbol selected-ns)
+       [inspector-tab-bar])
+     [:div.inspector-content
+      (case current-tab
+        :source [source-view]
+        :doc [doc-view]
+        :aliases [aliases-view]
+        :deps [deps-view]
+        :callers [callers-view]
+        [source-view])]]))
 
 (defn loading-indicator
   "Loading indicator overlay."

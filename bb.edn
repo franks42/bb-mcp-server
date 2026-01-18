@@ -86,6 +86,19 @@
                      :task (apply shell "bb" "scripts/start_wait_server.clj" *command-line-args*)}
 
   ;; ==========================================================================
+  ;; Datalevin Pod Management
+  ;; ==========================================================================
+
+  datalevin:status {:doc "Show running Datalevin pod processes and lock files"
+                    :task (shell "bb" "scripts/datalevin_manager.clj" "status")}
+
+  datalevin:stop {:doc "Stop all Datalevin pod processes"
+                  :task (shell "bb" "scripts/datalevin_manager.clj" "stop")}
+
+  datalevin:cleanup {:doc "Stop pods and remove lock files"
+                     :task (shell "bb" "scripts/datalevin_manager.clj" "cleanup")}
+
+  ;; ==========================================================================
   ;; HTTP Test Tasks
   ;; ==========================================================================
 

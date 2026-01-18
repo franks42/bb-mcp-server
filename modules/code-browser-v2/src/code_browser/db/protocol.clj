@@ -84,10 +84,18 @@
       :ns/symbols      {:db/valueType :db.type/ref
                         :db/cardinality :db.cardinality/many
                         :db/doc "Symbols defined in this namespace"}
-      :ns/aliases      {:db/cardinality :db.cardinality/many
-                        :db/doc "Alias mappings [{:alias x :ns y}]"}
-      :ns/refers       {:db/cardinality :db.cardinality/many
-                        :db/doc "Referred symbols [{:sym x :from-ns y}]"}
+
+   ;; === Alias Entities ===
+   ;; URI: dir://proj@v/ns.name#alias:str
+      :alias/from-ns   {:db/doc "Namespace name where alias is defined"}
+      :alias/name      {:db/doc "Alias name (e.g., 'str')"}
+      :alias/to-ns     {:db/doc "Target namespace (e.g., 'clojure.string')"}
+
+   ;; === Refer Entities ===
+   ;; URI: dir://proj@v/ns.name#refer:join
+      :refer/from-ns   {:db/doc "Namespace name where refer is used"}
+      :refer/symbol    {:db/doc "Symbol name being referred (e.g., 'join')"}
+      :refer/from-ns-source {:db/doc "Namespace the symbol comes from"}
 
    ;; === Symbol Attributes (METADATA ONLY - D5) ===
       :symbol/name     {:db/doc "Symbol name"}
@@ -165,4 +173,14 @@
       :find-symbol-by-name
       '[:find [(pull ?sym [:uri/string :symbol/name :symbol/type :uri/namespace]) ...]
         :in $ ?name
-        :where [?sym :symbol/name ?name]]})
+        :where [?sym :symbol/name ?name]]
+
+      :aliases-for-namespace
+      '[:find [(pull ?a [:uri/string :alias/name :alias/to-ns]) ...]
+        :in $ ?ns-name
+        :where [?a :alias/from-ns ?ns-name]]
+
+      :refers-for-namespace
+      '[:find [(pull ?r [:uri/string :refer/symbol :refer/from-ns-source]) ...]
+        :in $ ?ns-name
+        :where [?r :refer/from-ns ?ns-name]]})

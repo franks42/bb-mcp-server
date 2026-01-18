@@ -159,7 +159,7 @@
                                                   :uri/version version
                                                   :uri/version-type :static
                                                   :project/root-path root-path}
-            ;; Build namespace entities
+            ;; Build namespace entities (without nested aliases/refers)
                                          namespaces (for [ns-def ns-defs
                                                           :let [ns-name (str (:name ns-def))
                                                                 files (get ns-files ns-name [(:filename ns-def)])]]
@@ -169,9 +169,33 @@
                                                            :uri/project project-name
                                                            :uri/version version
                                                            :uri/version-type :static
-                                                           :uri/parent [:uri/string uri-base]
-                                                           :ns/aliases (proto/extract-aliases-from-usages ns-usages ns-name)
-                                                           :ns/refers (proto/extract-refers-from-usages ns-usages ns-name)}))
+                                                           :uri/parent [:uri/string uri-base]}))
+            ;; Build alias entities from namespace-usages
+                                         aliases (for [ns-def ns-defs
+                                                       :let [ns-name (str (:name ns-def))
+                                                             ns-uri (str uri-base "/" ns-name)]
+                                                       alias-map (proto/extract-aliases-from-usages ns-usages ns-name)]
+                                                      {:uri/string (str ns-uri "#alias:" (:alias alias-map))
+                                                       :uri/source :dir
+                                                       :uri/project project-name
+                                                       :uri/version version
+                                                       :uri/version-type :static
+                                                       :alias/from-ns ns-name
+                                                       :alias/name (:alias alias-map)
+                                                       :alias/to-ns (:ns alias-map)})
+            ;; Build refer entities from namespace-usages
+                                         refers (for [ns-def ns-defs
+                                                      :let [ns-name (str (:name ns-def))
+                                                            ns-uri (str uri-base "/" ns-name)]
+                                                      refer-map (proto/extract-refers-from-usages ns-usages ns-name)]
+                                                     {:uri/string (str ns-uri "#refer:" (:sym refer-map))
+                                                      :uri/source :dir
+                                                      :uri/project project-name
+                                                      :uri/version version
+                                                      :uri/version-type :static
+                                                      :refer/from-ns ns-name
+                                                      :refer/symbol (:sym refer-map)
+                                                      :refer/from-ns-source (:from-ns refer-map)})
             ;; Build symbol entities from var-definitions
                                          symbols-from-vars (for [var-def var-defs]
                                                                 (merge
@@ -207,10 +231,14 @@
                                                 :data {:project-name project-name
                                                        :namespace-count (count namespaces)
                                                        :symbol-count (count all-symbols)
+                                                       :alias-count (count aliases)
+                                                       :refer-count (count refers)
                                                        :cache-size (count cache-entries)}})
                                      {:project project
                                       :namespaces (vec namespaces)
-                                      :symbols (vec all-symbols)})))
+                                      :symbols (vec all-symbols)
+                                      :aliases (vec aliases)
+                                      :refers (vec refers)})))
 
            (fetch-source [_this uri-string]
                          (log/log! {:level :debug

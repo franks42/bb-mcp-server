@@ -10,6 +10,8 @@
     :namespaces        []       ;; Namespaces for selected project
     :selected-ns       nil      ;; URI string of selected namespace
     :symbols           []       ;; Symbols for selected namespace
+    :aliases           []       ;; Aliases for selected namespace
+    :refers            []       ;; Refers for selected namespace
     :selected-symbol   nil      ;; URI string of selected symbol
     :source            nil      ;; {:content ... :file ... :start-line ...}
     :loading?          false
@@ -30,6 +32,8 @@
                 :namespaces []
                 :selected-ns nil
                 :symbols []
+                :aliases []
+                :refers []
                 :selected-symbol nil
                 :source nil
                 :loading? false
@@ -89,7 +93,7 @@
 
 (defn select-project!
   "Select a project and update namespaces.
-   Clears downstream selections (namespace, symbol, source)."
+   Clears downstream selections (namespace, symbol, source, aliases, refers)."
   [project-uri namespaces]
   (log/log! {:level :debug
              :id ::select-project
@@ -101,27 +105,37 @@
          :namespaces (vec namespaces)
          :selected-ns nil
          :symbols []
+         :aliases []
+         :refers []
          :selected-symbol nil
          :source nil
          :loading? false
          :error nil))
 
 (defn select-namespace!
-  "Select a namespace and update symbols.
-   Clears downstream selections (symbol, source)."
-  [ns-uri symbols]
-  (log/log! {:level :debug
-             :id ::select-namespace
-             :msg "Selecting namespace"
-             :data {:uri ns-uri
-                    :symbol-count (count symbols)}})
-  (swap! !state assoc
-         :selected-ns ns-uri
-         :symbols (vec symbols)
-         :selected-symbol nil
-         :source nil
-         :loading? false
-         :error nil))
+  "Select a namespace and update symbols, aliases, and refers.
+   Clears downstream selections (symbol, source).
+   Can be called with 2 args (ns-uri, symbols) for backwards compatibility,
+   or with a map of all data."
+  ([ns-uri symbols]
+   (select-namespace! ns-uri symbols [] []))
+  ([ns-uri symbols aliases refers]
+   (log/log! {:level :debug
+              :id ::select-namespace
+              :msg "Selecting namespace"
+              :data {:uri ns-uri
+                     :symbol-count (count symbols)
+                     :alias-count (count aliases)
+                     :refer-count (count refers)}})
+   (swap! !state assoc
+          :selected-ns ns-uri
+          :symbols (vec symbols)
+          :aliases (vec aliases)
+          :refers (vec refers)
+          :selected-symbol nil
+          :source nil
+          :loading? false
+          :error nil)))
 
 (defn select-symbol!
   "Select a symbol and update source."
@@ -148,6 +162,8 @@
                   :namespaces []
                   :selected-ns nil
                   :symbols []
+                  :aliases []
+                  :refers []
                   :selected-symbol nil
                   :source nil
                   :loading? false

@@ -1,14 +1,14 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser v2 Redesign - Architecture Finalized
-**Version:** v1.14.3
-**Last Updated:** 2026-01-17
+**Status:** Code Browser v2 Redesign - Phase R0-R2 Complete, R3.1-R3.2 Done
+**Version:** v1.14.4
+**Last Updated:** 2026-01-18
 
 ---
 
 ## Current State
 
-Production-ready MCP server with complete Code Browser v1 feature set. Now starting clean-slate redesign for v2.
+Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 foundation complete (R0-R2). Ready for Phase R3: Feature Parity.
 
 **Code Browser v1 (Complete):** 3,500 lines across server + client with synced atoms, live file watching, JAR exploration, git cloning, multi-file namespace support, symbol inspector with deps/callers tabs.
 
@@ -122,46 +122,63 @@ modules/code-browser-v2/
 
 ### Implementation Phases
 
-#### Phase R0: Foundation (Current Focus)
+#### Phase R0: Foundation ✅ COMPLETE
 
 | Task | Description | Status |
 |------|-------------|--------|
-| R0.1 | Create `modules/code-browser-v2/` directory structure | Pending |
-| R0.2 | Create `docs/design/code-browser-schema.md` | Pending |
-| R0.3 | Implement `code_browser.uri` (parse, generate, validate) | Pending |
-| R0.4 | Implement `code_browser.db.protocol` (IDatalogDB) | Pending |
-| R0.5 | Implement Datalevin backend | Pending |
-| R0.6 | Write unit tests for URI + DB protocol | Pending |
+| R0.1 | Create `modules/code-browser-v2/` directory structure | ✅ Done |
+| R0.2 | Create `docs/design/code-browser-schema.md` | ✅ Done |
+| R0.3 | Implement `code_browser.uri` (parse, generate, validate) | ✅ Done |
+| R0.4 | Implement `code_browser.db.protocol` (IDatalogDB) | ✅ Done |
+| R0.5 | Implement Datalevin backend | ✅ Done |
+| R0.6 | Write unit tests for URI + DB protocol | ✅ Done |
 
-#### Phase R1: Directory Source Adapter
-
-| Task | Description | Status |
-|------|-------------|--------|
-| R1.1 | Define `IProjectSource` protocol | Pending |
-| R1.2 | Implement directory adapter (port clj-kondo logic) | Pending |
-| R1.3 | Populate Datalevin with namespace/symbol metadata | Pending |
-| R1.4 | Implement content cache for source fetching | Pending |
-| R1.5 | Write integration tests | Pending |
-
-#### Phase R2: Minimal End-to-End
+#### Phase R1: Directory Source Adapter ✅ COMPLETE
 
 | Task | Description | Status |
 |------|-------------|--------|
-| R2.1 | Wire atom-sync exports from Datalevin views | Pending |
-| R2.2 | Build browser state + events | Pending |
-| R2.3 | Build generic list component | Pending |
-| R2.4 | Wire project → namespace → symbol → source flow | Pending |
-| R2.5 | Manual testing: basic navigation works | Pending |
+| R1.1 | Define `IProjectSource` protocol | ✅ Done |
+| R1.2 | Implement directory adapter (port clj-kondo logic) | ✅ Done |
+| R1.3 | Populate Datalevin with namespace/symbol metadata | ✅ Done |
+| R1.4 | Implement content cache for source fetching | ✅ Done |
+| R1.5 | Write integration tests | ✅ Done |
+
+#### Phase R2: Minimal End-to-End ✅ COMPLETE
+
+| Task | Description | Status |
+|------|-------------|--------|
+| R2.1 | Wire atom-sync exports from Datalevin views | ✅ Done |
+| R2.2 | Build browser state + events | ✅ Done |
+| R2.3 | Build generic list component | ✅ Done |
+| R2.4 | Wire project → namespace → symbol → source flow | ✅ Done |
+| R2.5 | Manual testing: basic navigation works | ✅ Done |
+
+**Notes from R2:**
+- `--args-file` option added to `bb mcp call` to bypass bash `!` escaping
+- `bb datalevin:status/stop/cleanup` tasks added for pod management
 
 #### Phase R3: Feature Parity
 
 | Task | Description | Status |
 |------|-------------|--------|
-| R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | Pending |
-| R3.2 | Aliases panel | Pending |
+| R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done |
+| R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
 | R3.3 | Multi-file namespace support | Pending |
 | R3.4 | File watching / cache invalidation | Pending |
 | R3.5 | Git status display | Pending |
+
+**Notes from R3.1:**
+- Tab bar with Source/Doc/Deps/Callers implemented in browser
+- Source view shows `:content`, `:file`, `:start-line`, `:end-line`
+- Doc view shows `:symbol/name`, `:symbol/type`, `:symbol/arglists`, `:symbol/doc`
+- Deps/Callers are placeholder views pending server-side support
+
+**Notes from R3.2:**
+- Used separate entities approach for aliases/refers (Datalevin can't store nested maps)
+- Schema: `:alias/from-ns`, `:alias/name`, `:alias/to-ns` and `:refer/from-ns`, `:refer/symbol`, `:refer/from-ns-source`
+- URI fragment syntax: `dir://proj@v/ns.name#alias:str`, `dir://proj@v/ns.name#refer:join`
+- Browser "Aliases" tab shows both aliases and refers with filtering
+- 588 aliases extracted from bb-mcp-server project
 
 #### Phase R4: Additional Sources
 
@@ -246,4 +263,4 @@ Click any symbol in source viewer → navigate to definition:
 
 ---
 
-*Last Updated: 2026-01-17*
+*Last Updated: 2026-01-18*

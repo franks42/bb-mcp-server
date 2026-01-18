@@ -94,13 +94,20 @@
 ;;; Datalevin Integration Tests
 ;;; ---------------------------------------------------------------------------
 
+;; Attributes that contain nested maps which Datalevin can't store directly
+;; TODO: Properly model these as separate entities or serialize as EDN strings
+(def ^:private unsupported-attrs
+  #{:uri/parent      ;; lookup refs have issues in batch transacts
+    :ns/aliases      ;; nested maps [{:alias x :ns y}] not supported
+    :ns/refers})     ;; nested maps [{:sym x :from-ns y}] not supported
+
 (defn- clean-entity
-  "Remove nil values and convert lookup refs to just URI strings for cleaner transact.
-   Datalevin has issues with lookup refs in batch transacts via pod."
+  "Remove nil values and unsupported nested-map attributes for Datalevin transact.
+   Datalevin via pod can't serialize nested maps or handle lookup refs in batches."
   [entity]
   (->> entity
        (remove (fn [[_k v]] (nil? v)))
-       (remove (fn [[k _v]] (= k :uri/parent)))  ;; Skip parent refs for now
+       (remove (fn [[k _v]] (unsupported-attrs k)))
        (into {})))
 
 (defn- populate-db!
