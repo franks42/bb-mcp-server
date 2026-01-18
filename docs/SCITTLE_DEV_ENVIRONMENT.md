@@ -508,3 +508,115 @@ When ending a session, update `context.md` with:
 2. Any loaded files
 3. State of the code browser (mounted?)
 4. Any errors encountered
+
+---
+
+## Code Browser v2 Testing
+
+> ⚠️ **CRITICAL WARNING:** The browser at port 8091 shows **Code Browser v1** by default!
+> v1 ALSO has multi-file namespace support, sort modes, file dividers, etc.
+> If you're testing v2 features, you MUST verify you're actually seeing v2 data.
+
+### v1 vs v2 Architecture
+
+| Aspect | Code Browser v1 | Code Browser v2 |
+|--------|-----------------|-----------------|
+| **Server code** | `sente-browser/code_browser.clj` | `code-browser-v2/src/code_browser/*.clj` |
+| **Browser code** | `sente-browser/browser/code_browser.cljs` | `sente-browser/browser/code_browser_v2.cljs` |
+| **Data store** | In-memory atoms | Datalevin database |
+| **Sync atom key** | `:code-browser-state` | `:code-browser-v2` |
+| **Config** | `bb-code-browser-dev-system.edn` | `system-cb-v2-test.edn` |
+
+### Visual Differences (How to Tell Them Apart)
+
+| Feature | v1 | v2 |
+|---------|----|----|
+| Project selector | Dropdown with git controls (🌿 branch, ↑ ahead) | Simple list panel |
+| "Add project" input | Text input + 📁 browse button | Not implemented |
+| Git branch display | Shows branch name + dirty indicator | Not implemented (R3.5) |
+| Clone git URL input | Present with 📥 button | Not implemented |
+
+**If you see git controls and "Add project path..." input → You're looking at v1!**
+
+### Testing Code Browser v2
+
+**Use a DIFFERENT config and server nickname:**
+
+```bash
+# 1. Check/cleanup any existing Datalevin pods (v2 uses Datalevin!)
+bb datalevin:status     # Show running pods
+bb datalevin:stop       # Stop all pods (if needed)
+bb datalevin:cleanup    # Stop pods + remove lock files (if stuck)
+
+# 2. Start v2 test server (DIFFERENT config than v1!)
+bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+
+# 3. Initialize v2 backend (REQUIRED - unlike v1 which auto-inits)
+cat > /tmp/init-v2.json << 'EOF'
+{"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+
+# 4. Open browser at http://localhost:8091
+# 5. Click "Load Code Browser"
+```
+
+### Datalevin Pod Management
+
+Code Browser v2 uses Datalevin for metadata storage. Datalevin runs as a Babashka pod.
+
+```bash
+bb datalevin:status     # Show running Datalevin pod processes
+bb datalevin:stop       # Stop all Datalevin pods gracefully
+bb datalevin:cleanup    # Stop pods + remove lock files (use if DB is stuck)
+```
+
+**Common Datalevin issues:**
+| Issue | Symptom | Fix |
+|-------|---------|-----|
+| Multiple pods | Resource contention, slow queries | `bb datalevin:stop`, restart server |
+| Lock file stuck | "Database is locked" error | `bb datalevin:cleanup` |
+| Pod not starting | v2 init fails | Check `bb datalevin:status`, restart server |
+
+**Database location:** `/tmp/cb-v2-test` (configurable in `system-cb-v2-test.edn`)
+
+### Verify You're Testing v2
+
+**Check the sync state keys:**
+```bash
+cat > /tmp/check-v2.json << 'EOF'
+{"code": "(keys @code-browser.sync/!state)"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
+```
+
+**v2 state keys:** `(:projects :selected-project :namespaces :selected-ns :symbols :aliases :refers :selected-symbol :source :sort-mode :loading? :error)`
+
+**v1 state keys:** Different structure - check `sente-browser.code-browser/!code-browser-state`
+
+### Common v2 Testing Mistakes
+
+| Mistake | Symptom | Prevention |
+|---------|---------|------------|
+| Testing v1 thinking it's v2 | See git controls, "Add project" input | Look for v1-only UI elements |
+| Forgetting to init v2 | v2 panels empty, only v1 works | Run init command after server start |
+| Using wrong config | Mixed v1/v2 behavior | Use `system-cb-v2-test.edn` for v2 |
+| Using wrong server nickname | Commands fail or hit wrong server | Use `cb-v2-test` for v2, `code-browser-dev` for v1 |
+
+### v2 Files for Reference
+
+| File | Purpose |
+|------|---------|
+| `modules/code-browser-v2/src/code_browser/core.clj` | v2 public API, `init!` |
+| `modules/code-browser-v2/src/code_browser/sync.clj` | v2 sync state atom |
+| `modules/code-browser-v2/src/code_browser/handlers.clj` | v2 event handlers |
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | v2 browser UI |
+| `system-cb-v2-test.edn` | v2 test server config |
+
+### Running v2 Unit Tests
+
+```bash
+bb test:module code-browser-v2   # 30 tests, 459 assertions
+```
+
+These tests verify the server-side v2 logic (Datalevin, handlers, etc.) without browser.

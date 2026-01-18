@@ -54,11 +54,55 @@ bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 # Run tests
 bb test:module code-browser-v2
 bb lint && bb format
-
-# MCP CLI with ! functions (use --args-file)
-echo '{"code": "(code-browser.core/init!)"}' > /tmp/cmd.json
-bb mcp call local-eval --args-file /tmp/cmd.json --mcp cb-v2-test
 ```
+
+---
+
+## Browser Testing for Code Browser v2
+
+> **WARNING:** Port 8091 shows **Code Browser v1** by default! v1 also has multi-file
+> namespace support, so you might think you're testing v2 when you're actually seeing v1.
+
+### How to Test v2 in Browser
+
+1. **Start the v2 test server** (if not running):
+   ```bash
+   bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+   ```
+
+2. **Initialize Code Browser v2** (required every server restart):
+   ```bash
+   cat > /tmp/init-v2.json << 'EOF'
+   {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
+   EOF
+   bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+   ```
+
+3. **Open browser** at http://localhost:8091
+
+4. **Click "Load Code Browser"** - This loads the UI
+
+### How to Tell v1 vs v2 Apart
+
+| Feature | v1 | v2 |
+|---------|----|----|
+| Project selector | Dropdown + git controls | List panel (no git yet) |
+| Add project | Text input + buttons | Not implemented |
+| Git branch display | Shows branch + dirty status | Not implemented (R3.5) |
+| Namespace list source | `sente-browser.code-browser` server | `code-browser.handlers` + Datalevin |
+| Synced atom key | `:code-browser-state` | `:code-browser-v2` |
+
+### Verify You're Testing v2
+
+Check the atom-sync state via MCP:
+```bash
+cat > /tmp/check-v2.json << 'EOF'
+{"code": "(keys @code-browser.sync/!state)"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
+```
+
+Expected v2 keys: `(:projects :selected-project :namespaces :selected-ns :symbols :aliases :refers :selected-symbol :source :sort-mode :loading? :error)`
 
 ---
 
