@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser v2 Redesign - Phase R0-R2 Complete, R3.1-R3.2 Done
+**Status:** Code Browser v2 Redesign - Phase R0-R2 Complete, R3.1-R3.3 Done
 **Version:** v1.14.4
 **Last Updated:** 2026-01-18
 
@@ -163,7 +163,7 @@ modules/code-browser-v2/
 |------|-------------|--------|
 | R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done |
 | R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
-| R3.3 | Multi-file namespace support | Pending |
+| R3.3 | Multi-file namespace support | ✅ Done |
 | R3.4 | File watching / cache invalidation | Pending |
 | R3.5 | Git status display | Pending |
 
@@ -179,6 +179,14 @@ modules/code-browser-v2/
 - URI fragment syntax: `dir://proj@v/ns.name#alias:str`, `dir://proj@v/ns.name#refer:join`
 - Browser "Aliases" tab shows both aliases and refers with filtering
 - 588 aliases extracted from bb-mcp-server project
+
+**Notes from R3.3:**
+- `:ns/files` already populated from clj-kondo analysis via `compute-ns-files`
+- `:symbol/file` already available on symbol entities
+- Added `:sort-mode` to sync state (:file-order | :alpha) with `toggle-sort-mode!`
+- Browser shows file count badge on multi-file namespaces
+- File-order mode: file dividers between symbols from different files
+- Alpha mode: file badges on each symbol showing source file
 
 #### Phase R4: Additional Sources
 

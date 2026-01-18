@@ -91,6 +91,11 @@
   [symbol-uri]
   (send-event! :code-browser-v2/select-symbol {:uri symbol-uri}))
 
+(defn toggle-sort-mode!
+  "Toggle symbol sort mode between file-order and alpha."
+  []
+  (send-event! :code-browser-v2/toggle-sort-mode {}))
+
 ;; =============================================================================
 ;; Filtering
 ;; =============================================================================
@@ -121,12 +126,17 @@
             namespaces)))
 
 (defn filtered-symbols
-  "Get symbols matching current filter."
+  "Get symbols matching current filter.
+   Sorts by file-order (file + line) or alpha (type + name) based on sort-mode."
   [filter-text]
   (let [server-state @(get-server-state)
-        symbols (or (:symbols server-state) [])]
-    (filter #(matches-filter? (:symbol/name %) filter-text)
-            symbols)))
+        symbols (or (:symbols server-state) [])
+        sort-mode (or (:sort-mode server-state) :file-order)
+        filtered (filter #(matches-filter? (:symbol/name %) filter-text) symbols)]
+    (if (= sort-mode :alpha)
+      (sort-by (juxt :symbol/type :symbol/name) filtered)
+      ;; file-order: sort by file then line number
+      (sort-by (juxt :symbol/file :symbol/line) filtered))))
 
 ;; =============================================================================
 ;; Inspector Tab Components
@@ -308,15 +318,21 @@
       [:span (str (count projects) " projects")]]]))
 
 (defn namespace-item
-  "Single namespace list item."
+  "Single namespace list item.
+   Shows file count badge for multi-file namespaces."
   [ns-entity]
   (let [server-state @(get-server-state)
         uri (:uri/string ns-entity)
-        selected? (= uri (:selected-ns server-state))]
+        selected? (= uri (:selected-ns server-state))
+        files (:ns/files ns-entity)
+        file-count (count files)]
     [:div.list-item
      {:class (when selected? "selected")
       :on-click #(select-namespace! uri)}
-     [:span.ns-name (:ns/name ns-entity)]]))
+     [:span.ns-name (:ns/name ns-entity)]
+     ;; Show file count badge for multi-file namespaces
+     (when (> file-count 1)
+       [:span.file-count-badge (str "(" file-count " files)")])]))
 
 (defn namespaces-panel
   "Namespaces panel - list for selected project."
@@ -342,41 +358,119 @@
       [:span (str (count namespaces) " namespaces")]]]))
 
 (defn symbol-item
-  "Single symbol list item."
-  [sym-entity]
+  "Single symbol list item.
+   Optionally shows file badge in alpha mode for multi-file namespaces."
+  [sym-entity show-file-badge?]
   (let [server-state @(get-server-state)
         uri (:uri/string sym-entity)
         selected? (= uri (:selected-symbol server-state))
-        kind (:symbol/type sym-entity)]
+        kind (:symbol/type sym-entity)
+        filename (:symbol/file sym-entity)]
     [:div.list-item
      {:class [(when selected? "selected")
               (when kind (name kind))]
       :on-click #(select-symbol! uri)}
      [:span.symbol-name (:symbol/name sym-entity)]
-     [:span.symbol-kind (when kind (name kind))]]))
+     [:span.symbol-kind (when kind (name kind))]
+     ;; Show filename badge in alpha mode for multi-file ns
+     (when (and show-file-badge? filename)
+       [:span.symbol-file-badge (str "[" (last (str/split filename #"/")) "]")])]))
+
+(defn- file-divider
+  "File divider component for multi-file namespace display.
+   Visual separator between files in file-order view."
+  [filename]
+  [:div.file-divider
+   [:span.file-divider-line]
+   [:span.file-divider-name (or (last (str/split filename #"/")) filename)]
+   [:span.file-divider-line]])
+
+(defn- symbols-with-dividers
+  "Insert file dividers between symbols from different files.
+   Returns seq of [:divider filename] and [:symbol sym] items."
+  [symbols]
+  (loop [result []
+         remaining symbols
+         current-file nil]
+        (if (empty? remaining)
+          result
+          (let [sym (first remaining)
+                sym-file (:symbol/file sym)]
+            (if (and sym-file (not= sym-file current-file))
+              ;; New file - add divider then symbol
+              (recur (conj result [:divider sym-file] [:symbol sym])
+                     (rest remaining)
+                     sym-file)
+              ;; Same file - just add symbol
+              (recur (conj result [:symbol sym])
+                     (rest remaining)
+                     current-file))))))
+
+(defn sort-mode-button
+  "Toggle button for symbol sort mode.
+   Shows current mode and toggles on click."
+  []
+  (let [server-state @(get-server-state)
+        sort-mode (or (:sort-mode server-state) :file-order)
+        label (if (= sort-mode :alpha) "A→Z" "↓")]
+    [:button.sort-mode-btn
+     {:on-click toggle-sort-mode!
+      :title (if (= sort-mode :alpha)
+               "Sorted alphabetically. Click for file order."
+               "Sorted by file order. Click for alphabetical.")}
+     label]))
 
 (defn symbols-panel
-  "Symbols panel - list for selected namespace."
+  "Symbols panel - list for selected namespace.
+   Shows file dividers in file-order mode, file badges in alpha mode for multi-file ns."
   []
   (let [layout @!layout
         server-state @(get-server-state)
         selected-ns (:selected-ns server-state)
+        sort-mode (or (:sort-mode server-state) :file-order)
+        ;; Find the selected namespace entity to check file count
+        namespaces (:namespaces server-state)
+        selected-ns-entity (->> namespaces
+                                (filter #(= (:uri/string %) selected-ns))
+                                first)
+        files (or (:ns/files selected-ns-entity) [])
+        is-multi-file? (> (count files) 1)
+        ;; In file-order mode with multi-file ns, add dividers
+        show-dividers? (and is-multi-file? (= sort-mode :file-order))
+        ;; In alpha mode with multi-file ns, show file badges
+        show-file-badges? (and is-multi-file? (= sort-mode :alpha))
         filter-text (:symbol-filter @!ui-state)
         symbols (filtered-symbols filter-text)]
     [:div.panel.symbols-panel
      {:style {:width (:symbols-width layout)}}
      [:div.panel-header
-      [:h3 (if selected-ns "Symbols" "Select Namespace")]]
+      [:h3 (if selected-ns "Symbols" "Select Namespace")]
+      (when selected-ns [sort-mode-button])]
      (when selected-ns
        [filter-input :symbol-filter "Filter symbols..."])
      [:div.list-container
       (if selected-ns
-        (for [sym-entity symbols]
-             ^{:key (:uri/string sym-entity)}
-             [symbol-item sym-entity])
+        (if show-dividers?
+          ;; File-order with dividers
+          (let [items (symbols-with-dividers symbols)]
+            (doall
+             (for [[idx [item-type item]] (map-indexed vector items)]
+                  (case item-type
+                    :divider ^{:key (str selected-ns "-divider-" item "-" idx)} [file-divider item]
+                    :symbol ^{:key (str selected-ns "-" (:symbol/file item) "-" (:symbol/name item) "-" (:symbol/line item))}
+                    [symbol-item item false]))))
+          ;; Normal list (with optional file badges in alpha mode)
+          (doall
+           (for [sym symbols]
+                ^{:key (str selected-ns "-" (:symbol/file sym) "-" (:symbol/name sym) "-" (:symbol/line sym))}
+                [symbol-item sym show-file-badges?])))
         [:div.empty-message "Select a namespace"])]
      [:div.panel-footer
-      [:span (str (count symbols) " symbols")]]]))
+      [:span (str (count symbols) " symbols")
+       (when is-multi-file?
+         (str " in " (count files) " files"))]
+      [:span.sort-mode-indicator
+       (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
 
 (defn source-panel
   "Symbol inspector panel - displays source, docs, aliases, deps, callers in tabs."

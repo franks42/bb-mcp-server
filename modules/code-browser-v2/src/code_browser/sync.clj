@@ -14,6 +14,7 @@
     :refers            []       ;; Refers for selected namespace
     :selected-symbol   nil      ;; URI string of selected symbol
     :source            nil      ;; {:content ... :file ... :start-line ...}
+    :sort-mode         :file-order ;; :file-order or :alpha
     :loading?          false
     :error             nil}"
     (:require [atom-sync.core :as atom-sync]
@@ -36,6 +37,7 @@
                 :refers []
                 :selected-symbol nil
                 :source nil
+                :sort-mode :file-order
                 :loading? false
                 :error nil}))
 
@@ -151,6 +153,18 @@
          :loading? false
          :error nil))
 
+(defn toggle-sort-mode!
+  "Toggle sort mode between :file-order and :alpha."
+  []
+  (let [current (:sort-mode @!state)
+        new-mode (if (= current :alpha) :file-order :alpha)]
+    (log/log! {:level :debug
+               :id ::toggle-sort-mode
+               :msg "Toggling sort mode"
+               :data {:from current :to new-mode}})
+    (swap! !state assoc :sort-mode new-mode)
+    new-mode))
+
 (defn reset-state!
   "Reset state to initial values."
   []
@@ -166,6 +180,7 @@
                   :refers []
                   :selected-symbol nil
                   :source nil
+                  :sort-mode :file-order
                   :loading? false
                   :error nil}))
 

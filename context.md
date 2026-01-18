@@ -11,9 +11,9 @@
 
 ## Current Focus: Code Browser v2 - Phase R3
 
-**Status:** R0-R2 Complete. R3.1-R3.2 Done. Continuing R3.
+**Status:** R0-R2 Complete. R3.1-R3.3 Done. Continuing R3.
 
-### What's Done (R0-R3.2)
+### What's Done (R0-R3.3)
 
 | Phase | Summary |
 |-------|---------|
@@ -22,6 +22,7 @@
 | **R2** | atom-sync wiring, browser state/events, generic list, navigation flow |
 | **R3.1** | Symbol inspector tabs (Source, Doc, Deps placeholder, Callers placeholder) |
 | **R3.2** | Aliases panel - separate alias/refer entities, browser UI with filter |
+| **R3.3** | Multi-file namespace support - file count badges, sort modes, dividers |
 
 ### Infrastructure Improvements (This Session)
 
@@ -67,17 +68,20 @@ bb mcp call local-eval --args-file /tmp/cmd.json --mcp cb-v2-test
 |------|-------------|--------|
 | R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done |
 | R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
-| R3.3 | Multi-file namespace support | Pending |
+| R3.3 | Multi-file namespace support | ✅ Done |
 | R3.4 | File watching / cache invalidation | Pending |
 | R3.5 | Git status display | Pending |
 
-### R3.2 Implementation Summary
+### R3.3 Implementation Summary
 
-Used **Option 1 (separate entities)**:
-- Created `:alias/from-ns`, `:alias/name`, `:alias/to-ns` attributes for aliases
-- Created `:refer/from-ns`, `:refer/symbol`, `:refer/from-ns-source` for refers
-- URI fragment syntax: `dir://proj@v/ns.name#alias:str`, `dir://proj@v/ns.name#refer:join`
-- Browser "Aliases" tab shows both aliases and refers with filtering
+- `:ns/files` and `:symbol/file` already populated from clj-kondo analysis
+- Added `:sort-mode` to sync state with `toggle-sort-mode!` handler
+- Browser features:
+  - File count badge on multi-file namespaces: `(3 files)`
+  - Sort mode toggle button (↓ for file-order, A→Z for alpha)
+  - File dividers in file-order mode separating symbols by file
+  - File badges in alpha mode showing source file on each symbol
+  - Footer shows total files for multi-file namespaces
 
 ---
 
@@ -119,12 +123,13 @@ bb lint && bb format
 
 ## Handoff Notes
 
-1. **R3.1-R3.2 complete:** Symbol inspector tabs + Aliases panel
-2. **All tests pass:** 30 tests, 459 assertions
-3. **Aliases working:** 588 aliases extracted from bb-mcp-server project (0 refers - project doesn't use `:refer`)
-4. **Next task:** R3.3 Multi-file namespace support
-5. **Key gotcha:** Functions with `!` need `--args-file` workaround for MCP CLI
-6. **Deps/Callers:** Placeholder views only - need server-side support to fetch data
+1. **R3.1-R3.3 complete:** Symbol inspector tabs + Aliases panel + Multi-file support
+2. **All tests pass:** 30 tests, 459 assertions (10 test namespaces)
+3. **Aliases working:** 588 aliases extracted from bb-mcp-server project
+4. **Multi-file:** Sort mode toggle, file dividers/badges implemented
+5. **Next task:** R3.4 File watching / cache invalidation
+6. **Key gotcha:** Functions with `!` need `--args-file` workaround for MCP CLI
+7. **Deps/Callers:** Placeholder views only - need server-side support
 
 ---
 

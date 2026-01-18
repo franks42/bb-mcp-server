@@ -249,6 +249,8 @@
    - :code-browser-v2/select-project {:uri \"...\"}
    - :code-browser-v2/select-namespace {:uri \"...\"}
    - :code-browser-v2/select-symbol {:uri \"...\"}
+   - :code-browser-v2/toggle-sort-mode {}
+   - :code-browser-v2/clear-error {}
 
    Returns: [response-event-id response-data] or nil"
   [event-id data]
@@ -268,6 +270,13 @@
 
     :code-browser-v2/select-symbol
     [:code-browser-v2/symbol-selected (handle-select-symbol! (:uri data))]
+
+    :code-browser-v2/toggle-sort-mode
+    [:code-browser-v2/sort-mode-toggled {:mode (sync/toggle-sort-mode!)}]
+
+    :code-browser-v2/clear-error
+    (do (sync/clear-error!)
+        [:code-browser-v2/error-cleared {}])
 
     ;; Unknown event
     (do
