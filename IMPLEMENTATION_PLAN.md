@@ -1,29 +1,29 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser v2 - R3.1-R3.3 Done, **Browser Integration Issues Discovered**
-**Version:** v1.14.7
-**Last Updated:** 2026-01-18
+**Status:** Code Browser v2 - R3.1-R3.3 Done, **Browser Integration Working** ✅
+**Version:** v1.14.8
+**Last Updated:** 2026-01-19
 
 ---
 
 ## Current State
 
-Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 core logic complete (R0-R3.3) with **30 passing unit tests**. Browser integration has performance issues that need fixing.
+Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 core logic complete (R0-R3.3) with **30 passing unit tests**. Browser integration fully functional.
 
 **Code Browser v1 (Complete):** 3,500 lines across server + client with synced atoms, live file watching, JAR exploration, git cloning, multi-file namespace support, symbol inspector with deps/callers tabs.
 
-**Code Browser v2 (In Progress):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design. **Unit tests pass, browser integration has issues.**
+**Code Browser v2 (Working):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design. **Unit tests pass, browser integration works.**
 
-### ⚠️ Critical v2 Browser Issues (Must Fix Before R3.4)
+### ✅ v2 Browser Issues Fixed (2026-01-19)
 
-| Issue | Description | Root Cause | Suggested Fix |
-|-------|-------------|------------|---------------|
-| **Slow namespace queries** | Selecting project with 200+ ns times out (>30s) | Unoptimized Datalevin queries, no indexes | Add indexes, pagination, or lazy loading |
-| **Error state persists** | "No database configured" shows even after init | Error set before init, not cleared properly | Fix error clearing in `sync.clj`, ensure init clears state |
-| **Click events broken** | Clicking list items doesn't trigger selection | Reagent event handlers not wiring correctly | Debug `code_browser_v2.cljs` event handlers |
-| **WebSocket instability** | Multiple disconnect/reconnect during heavy ops | Long-running sync operations block | Add async handling, loading states |
+| Issue | Status | Root Cause | Fix Applied |
+|-------|--------|------------|-------------|
+| **Server deadlock on queries** | ✅ Fixed | `db-proto/q` args passed as bare strings, `apply` spread them as chars | Wrapped query args in vectors: `[project-uri]` |
+| **Error state persists** | ✅ Fixed | Error set before init, not cleared | `init!` now clears error state |
+| **Click events broken** | ✅ Fixed | Server deadlock blocked handlers | Query fix resolved this |
+| **WebSocket instability** | ✅ Fixed | Long-running blocked operations | Server no longer blocks |
 
-**Recommendation:** Fix these issues before proceeding to R3.4. Unit tests all pass - the issues are in browser integration.
+**Browser verified working:** Namespaces load (203 in ~35ms), click events work, symbols display, source viewer shows code with syntax highlighting.
 
 **For browser testing details:** See `docs/SCITTLE_DEV_ENVIRONMENT.md` section "Code Browser v2 Testing"
 

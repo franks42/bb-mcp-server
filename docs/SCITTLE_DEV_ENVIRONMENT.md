@@ -560,19 +560,11 @@ bb server:stop cb-v2-test 2>/dev/null || true
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 ```
 
-#### Step 2: Initialize v2 Backend FIRST (Before Browser!)
+#### Step 2: Open Browser and Wait for Connection
 
-```bash
-# Initialize v2 database and sources BEFORE opening browser
-cat > /tmp/init-v2.json << 'EOF'
-{"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
-EOF
-bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
-```
-
-**Expected output:** `"result": null` (success, no errors)
-
-#### Step 3: Open Browser and Wait for Connection
+> **NOTE:** v2 now supports flexible initialization order. You can open the browser before or after
+> running `init!`. The `enable!` function is defensive and won't fail without a database.
+> The `init!` function clears any previous error state and auto-enables browser sync.
 
 ```bash
 # Open browser
@@ -584,12 +576,30 @@ bb nrepl list --mcp cb-v2-test
 
 Note the browser connection nickname (e.g., `browser-1`, `browser-4`).
 
+#### Step 3: Initialize v2 Backend
+
+```bash
+# Initialize v2 database and sources
+# This now auto-enables browser sync and clears any previous error state
+cat > /tmp/init-v2.json << 'EOF'
+{"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+```
+
+**Expected output:** A database object is returned (success). The `init!` function now:
+1. Clears any previous error state
+2. Creates the Datalevin database
+3. Scans sources and populates data
+4. Auto-enables browser sync (`:auto-enable? true` by default)
+5. Loads projects automatically
+
 #### Step 4: Load v2 Browser Code (NOT "Load Code Browser" button!)
 
 > ⚠️ **DO NOT click "Load Code Browser"** - that loads v1!
 
 ```bash
-# Replace browser-N with your actual nickname from Step 3
+# Replace browser-N with your actual nickname from Step 2
 BROWSER_NICK="browser-4"  # Change this!
 
 # Load v2 browser code
@@ -615,12 +625,13 @@ bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test
 #### Step 6: Verify and Use v2
 
 The browser should now show the v2 interface:
-- **Projects panel** with filter box and "Refresh" button
+- **Projects panel** with filter box and "Refresh" button (projects already loaded!)
 - **Namespace panel** (empty until you select a project)
 - **Symbols panel** with sort mode indicator
 - **Source panel** with tabs
 
-Click **Refresh** in the Projects panel to load projects, then navigate!
+Since `init!` now auto-loads projects, you should see your project listed immediately.
+Click on a project to navigate to its namespaces!
 
 ### Quick v2 Setup Script
 
@@ -638,24 +649,26 @@ bb server:stop cb-v2-test 2>/dev/null || true
 echo "=== Starting v2 server ==="
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 
-echo "=== Initializing v2 backend ==="
+echo "=== Opening browser (v2 now handles early connections gracefully) ==="
+open http://localhost:8091
+sleep 3  # Wait for browser connection
+
+echo "=== Initializing v2 backend (auto-enables and clears errors) ==="
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
 bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
 
-echo "=== Opening browser ==="
-open http://localhost:8091
-
 echo ""
 echo "=== NEXT STEPS ==="
-echo "1. Wait 3-5 seconds for browser connection"
-echo "2. Run: bb nrepl list --mcp cb-v2-test"
-echo "3. Note browser nickname (e.g., browser-1)"
-echo "4. Run: bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs --connection browser-N --mcp cb-v2-test"
-echo "5. Edit /tmp/mount-v2.json with correct browser nickname"
-echo "6. Run: bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test"
-echo "7. Click Refresh in Projects panel"
+echo "1. Run: bb nrepl list --mcp cb-v2-test"
+echo "2. Note browser nickname (e.g., browser-1)"
+echo "3. Run: bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs --connection browser-N --mcp cb-v2-test"
+echo "4. Create mount file: cat > /tmp/mount-v2.json << 'EOF'"
+echo '   {"code":"(code-browser-v2/mount!)","connection":"browser-N","timeout":30000}'
+echo "   EOF"
+echo "5. Run: bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test"
+echo "6. Projects should already be loaded - click one to navigate!"
 ```
 
 ### Datalevin Pod Management
@@ -720,19 +733,27 @@ These tests verify the server-side v2 logic (Datalevin, handlers, etc.) without 
 
 ### Known Issues (v2)
 
-> **Status as of 2026-01-18:** v2 browser integration has significant issues that make interactive testing difficult.
+> **Status as of 2026-01-18:** Major initialization issues have been fixed. v2 is now more robust for browser testing.
+
+#### Recently Fixed
+
+| Issue | Description | Fix Applied |
+|-------|-------------|-------------|
+| **Error state not cleared** | Initial "No database configured" error persisted after init | ✅ `init!` now clears previous error state automatically |
+| **Initialization order** | Browser connecting before `init!` caused errors | ✅ `enable!` now defensive - skips project load if no database |
+| **Auto-enable issues** | Had to manually call `enable!` after `init!` | ✅ `init!` now auto-enables via `:auto-enable? true` (default) |
+
+#### Remaining Issues
 
 | Issue | Description | Impact | Workaround |
 |-------|-------------|--------|------------|
 | **Slow namespace queries** | Selecting project with 200+ namespaces times out (>30s) | Can't navigate to namespaces | Test with smaller project or use unit tests |
-| **Error state not cleared** | Initial "No database configured" error persists after init | Error banner keeps appearing | Clear manually: `(code-browser.sync/clear-error!)` |
 | **Browser click events** | Clicking list items may not trigger selection | UI appears unresponsive | Use nREPL eval to call `select-project!` etc. directly |
 | **WebSocket reconnections** | Multiple disconnect/reconnect cycles during heavy operations | Connection instability | Wait for operation to complete |
 
-**Recommendation:** For v2 development, rely on **unit tests** (`bb test:module code-browser-v2`) rather than browser testing until these issues are resolved. The unit tests cover all core functionality.
+**Recommendation:** For v2 development, rely on **unit tests** (`bb test:module code-browser-v2`) rather than browser testing until remaining issues are resolved. The unit tests cover all core functionality.
 
 **Next Steps (R3.4+):**
 - Optimize Datalevin queries (add indexes, pagination)
-- Fix error state management
 - Debug click event handlers
 - Add loading indicators during slow operations

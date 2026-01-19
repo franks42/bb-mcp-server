@@ -29,25 +29,40 @@
 ;;; Pod Loading (shared with datalevin-pod module)
 ;;; ---------------------------------------------------------------------------
 
-(defonce ^:private pod-loaded? (atom false))
+;; Use cached namespace ref, but check pod exists globally (not our own atom)
 (defonce ^:private d-ns (atom nil))
 
-(defn- load-pod!
-  "Load the Datalevin pod if not already loaded.
-   This is idempotent - safe to call multiple times."
+(defn- pod-available?
+  "Check if the Datalevin pod namespace is available (loaded by any module)."
   []
-  (when-not @pod-loaded?
-    (log/log! {:level :info
-               :id ::loading-pod
-               :msg "Loading Datalevin pod for code-browser"
-               :data {:version datalevin-version}})
-    (pods/load-pod 'huahaiy/datalevin datalevin-version)
-    (require '[pod.huahaiy.datalevin])
-    (reset! d-ns (find-ns 'pod.huahaiy.datalevin))
-    (reset! pod-loaded? true)
-    (log/log! {:level :info
-               :id ::pod-loaded
-               :msg "Datalevin pod loaded successfully"})))
+  (some? (find-ns 'pod.huahaiy.datalevin)))
+
+(defn- ensure-pod!
+  "Ensure the Datalevin pod is loaded. Prefers using existing pod loaded by
+   datalevin-pod module. Only loads a new pod if none exists.
+
+   This is idempotent and safe to call multiple times."
+  []
+  (when-not @d-ns
+    (if (pod-available?)
+      ;; Pod already loaded (likely by datalevin-pod module) - just use it
+      (do
+        (log/log! {:level :debug
+                   :id ::using-existing-pod
+                   :msg "Using existing Datalevin pod (loaded by another module)"})
+        (reset! d-ns (find-ns 'pod.huahaiy.datalevin)))
+      ;; No pod loaded yet - load it ourselves
+      (do
+        (log/log! {:level :info
+                   :id ::loading-pod
+                   :msg "Loading Datalevin pod for code-browser"
+                   :data {:version datalevin-version}})
+        (pods/load-pod 'huahaiy/datalevin datalevin-version)
+        (require '[pod.huahaiy.datalevin])
+        (reset! d-ns (find-ns 'pod.huahaiy.datalevin))
+        (log/log! {:level :info
+                   :id ::pod-loaded
+                   :msg "Datalevin pod loaded successfully"})))))
 
 (defn- d-fn
   "Get a function from the datalevin pod namespace."
@@ -122,7 +137,7 @@
    (create-db {}))
   ([{:keys [path schema]
      :or {schema proto/base-schema}}]
-   (load-pod!)
+   (ensure-pod!)
    (let [path (or path (db-path))
          get-conn-fn (d-fn "get-conn")]
      (log/log! {:level :info

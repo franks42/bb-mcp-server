@@ -109,6 +109,39 @@
 ;;; Public API
 ;;; ---------------------------------------------------------------------------
 
+(defn enable!
+  "Enable browser sync. Registers atom with atom-sync and sets up handlers.
+   Only loads projects if a database is configured."
+  []
+  (when-not (:enabled? @!config)
+    (log/log! {:level :info
+               :id ::enable
+               :msg "Enabling code-browser-v2 browser sync"})
+    ;; Register synced atom
+    (sync/register-sync!)
+    ;; Only load projects if database is configured
+    (if (handlers/get-db)
+      (handlers/handle-load-projects!)
+      (log/log! {:level :debug
+                 :id ::enable-no-db
+                 :msg "Skipping project load - no database configured yet"}))
+    (swap! !config assoc :enabled? true)
+    :enabled))
+
+(defn disable!
+  "Disable browser sync and cleanup resources."
+  []
+  (when (:enabled? @!config)
+    (log/log! {:level :info
+               :id ::disable
+               :msg "Disabling code-browser-v2"})
+    ;; Unregister synced atom
+    (sync/unregister-sync!)
+    ;; Reset state
+    (sync/reset-state!)
+    (swap! !config assoc :enabled? false)
+    :disabled))
+
 (defn init!
   "Initialize Code Browser v2 with configuration.
 
@@ -116,15 +149,20 @@
    - :db-path - Path for Datalevin database (required)
    - :sources - Vector of source configs [{:type :dir :path \"...\"}]
    - :auto-scan? - Whether to scan sources on init (default: true)
+   - :auto-enable? - Whether to enable browser sync after init (default: true)
 
    Returns the database instance."
-  [{:keys [db-path sources auto-scan?] :or {auto-scan? true}}]
+  [{:keys [db-path sources auto-scan? auto-enable?]
+    :or {auto-scan? true auto-enable? true}}]
   (log/log! {:level :info
              :id ::init
              :msg "Initializing code-browser-v2"
              :data {:db-path db-path
                     :source-count (count sources)
-                    :auto-scan? auto-scan?}})
+                    :auto-scan? auto-scan?
+                    :auto-enable? auto-enable?}})
+  ;; Clear any previous error state
+  (sync/clear-error!)
   (let [db (create-db db-path)]
     ;; Store DB in handlers
     (handlers/set-db! db)
@@ -138,6 +176,12 @@
              (let [source (create-source source-config)]
                (when auto-scan?
                  (scan-and-populate! db source)))))
+    ;; Auto-enable and load projects if requested
+    (when auto-enable?
+      (enable!)
+      ;; Load projects now that we have a database
+      (when (handlers/get-db)
+        (handlers/handle-load-projects!)))
     db))
 
 (defn init-with!
@@ -159,34 +203,6 @@
   (when (and source project-uri)
     (handlers/register-source! project-uri source))
   db)
-
-(defn enable!
-  "Enable browser sync. Registers atom with atom-sync and sets up handlers."
-  []
-  (when-not (:enabled? @!config)
-    (log/log! {:level :info
-               :id ::enable
-               :msg "Enabling code-browser-v2 browser sync"})
-    ;; Register synced atom
-    (sync/register-sync!)
-    ;; Load initial projects
-    (handlers/handle-load-projects!)
-    (swap! !config assoc :enabled? true)
-    :enabled))
-
-(defn disable!
-  "Disable browser sync and cleanup resources."
-  []
-  (when (:enabled? @!config)
-    (log/log! {:level :info
-               :id ::disable
-               :msg "Disabling code-browser-v2"})
-    ;; Unregister synced atom
-    (sync/unregister-sync!)
-    ;; Reset state
-    (sync/reset-state!)
-    (swap! !config assoc :enabled? false)
-    :disabled))
 
 (defn shutdown!
   "Full shutdown - disable sync and close database."

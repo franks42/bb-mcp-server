@@ -68,6 +68,31 @@ bb nrepl eval "<code>" --mcp X  # Eval code
 
 ---
 
+## Evaluating Code in Running Servers
+
+**Best practice:** Use `.clj` script files with `load-file` instead of inline code.
+
+**Why:** Avoids shell escaping issues with `!` characters in Clojure function names.
+
+```bash
+# PREFERRED: Use script files
+bb nrepl load-file scripts/cb-v2-init.clj --mcp cb-v2-test --connection server
+
+# Also works: JSON args-file (for simple cases)
+bb mcp call local-eval.local-eval --args-file scripts/cb-v2-init.json --mcp cb-v2-test
+
+# AVOID: Inline code with ! characters (escaping issues)
+bb nrepl eval "(init! ...)" --mcp cb-v2-test  # ! gets escaped incorrectly
+```
+
+**Script locations:**
+- `scripts/*.clj` - Reusable Clojure scripts for server-side execution
+- `scripts/*.json` - JSON args for `--args-file` option (simple cases only)
+
+**When to create scripts:** If you'll run the same code more than once, create a `.clj` script file.
+
+---
+
 ## Verification Workflow
 
 **MUST run before committing - zero errors AND zero warnings required:**

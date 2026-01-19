@@ -70,7 +70,7 @@
                                 [?e :ns/name _]
                                 [?e :uri/project ?proj-name]
                                 [?p :uri/project ?proj-name]]
-                              project-uri)]
+                              [project-uri])]
       (->> results
            (map first)
            (sort-by :ns/name)
@@ -87,7 +87,7 @@
                                 [?n :ns/name ?ns-name]
                                 [?e :symbol/name _]
                                 [?e :uri/namespace ?ns-name]]
-                              ns-uri)]
+                              [ns-uri])]
       (->> results
            (map first)
            (sort-by (juxt :symbol/type :symbol/name))
@@ -101,7 +101,7 @@
                               '[:find (pull ?a [:uri/string :alias/name :alias/to-ns])
                                 :in $ ?ns-name
                                 :where [?a :alias/from-ns ?ns-name]]
-                              ns-name)]
+                              [ns-name])]
       (->> results
            (map first)
            (sort-by :alias/name)
@@ -115,7 +115,7 @@
                               '[:find (pull ?r [:uri/string :refer/symbol :refer/from-ns-source])
                                 :in $ ?ns-name
                                 :where [?r :refer/from-ns ?ns-name]]
-                              ns-name)]
+                              [ns-name])]
       (->> results
            (map first)
            (sort-by :refer/symbol)
