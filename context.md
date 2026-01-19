@@ -4,16 +4,50 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
 **Last Updated:** 2026-01-18
-**Version:** v1.14.4
-**Focus:** Code Browser v2 - Phase R3 (Feature Parity)
+**Version:** v1.14.7
+**Focus:** Code Browser v2 - Fix Browser Integration Issues (R3.x)
 
 ---
 
-## Current Focus: Code Browser v2 - Phase R3
+## 🔴 IMMEDIATE TASK: Fix v2 Browser Issues
 
-**Status:** R0-R2 Complete. R3.1-R3.3 Done. Continuing R3.
+**Status:** R3.1-R3.3 Done. Browser integration broken. Unit tests pass.
 
-### What's Done (R0-R3.3)
+### What's Wrong (Discovered 2026-01-18)
+
+The v2 core logic works (30 unit tests pass), but browser integration has issues:
+
+| Issue | File to Check | What to Look For |
+|-------|---------------|------------------|
+| **Slow queries** | `handlers.clj:62-77` | `query-namespaces` - N+1 queries? Missing indexes? |
+| **Error persists** | `sync.clj` | `clear-error!` not syncing to browser? |
+| **Click events fail** | `code_browser_v2.cljs:300-340` | `on-click` handlers in list items |
+
+### How to Debug
+
+```bash
+# 1. Run unit tests (should all pass)
+bb test:module code-browser-v2
+
+# 2. Start server
+bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+
+# 3. Initialize backend
+cat > /tmp/init-v2.json << 'EOF'
+{"code": "(code-browser.core/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+
+# 4. Test query directly (should be fast)
+cat > /tmp/test-query.json << 'EOF'
+{"code": "(time (count (code-browser.db.protocol/q (code-browser.handlers/get-db) '[:find ?e :where [?e :ns/name _]])))"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/test-query.json --mcp cb-v2-test
+```
+
+---
+
+## What's Done (R0-R3.3)
 
 | Phase | Summary |
 |-------|---------|
@@ -60,49 +94,32 @@ bb lint && bb format
 
 ## Browser Testing for Code Browser v2
 
-> **WARNING:** Port 8091 shows **Code Browser v1** by default! v1 also has multi-file
-> namespace support, so you might think you're testing v2 when you're actually seeing v1.
+> ⚠️ **CRITICAL:** The "Load Code Browser" button loads **v1**, NOT v2!
+> v2 browser code must be loaded via nREPL. See `docs/SCITTLE_DEV_ENVIRONMENT.md` for full setup.
 
-### How to Test v2 in Browser
+### Quick v2 Test (Unit Tests Recommended)
 
-1. **Start the v2 test server** (if not running):
-   ```bash
-   bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
-   ```
-
-2. **Initialize Code Browser v2** (required every server restart):
-   ```bash
-   cat > /tmp/init-v2.json << 'EOF'
-   {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
-   EOF
-   bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
-   ```
-
-3. **Open browser** at http://localhost:8091
-
-4. **Click "Load Code Browser"** - This loads the UI
-
-### How to Tell v1 vs v2 Apart
-
-| Feature | v1 | v2 |
-|---------|----|----|
-| Project selector | Dropdown + git controls | List panel (no git yet) |
-| Add project | Text input + buttons | Not implemented |
-| Git branch display | Shows branch + dirty status | Not implemented (R3.5) |
-| Namespace list source | `sente-browser.code-browser` server | `code-browser.handlers` + Datalevin |
-| Synced atom key | `:code-browser-state` | `:code-browser-v2` |
-
-### Verify You're Testing v2
-
-Check the atom-sync state via MCP:
+**Due to performance issues with browser testing, use unit tests:**
 ```bash
-cat > /tmp/check-v2.json << 'EOF'
-{"code": "(keys @code-browser.sync/!state)"}
-EOF
-bb mcp call local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
+bb test:module code-browser-v2   # 30 tests, 459 assertions - tests all core functionality
 ```
 
-Expected v2 keys: `(:projects :selected-project :namespaces :selected-ns :symbols :aliases :refers :selected-symbol :source :sort-mode :loading? :error)`
+### v2 Browser Setup (Has Known Issues)
+
+See `docs/SCITTLE_DEV_ENVIRONMENT.md` section "Code Browser v2 Testing" for:
+- Complete 6-step setup process
+- Known issues and workarounds
+- v1 vs v2 visual differences
+
+### Known Issues (v2 Browser)
+
+| Issue | Workaround |
+|-------|------------|
+| Slow namespace queries (>30s) | Test with smaller project or use unit tests |
+| "No database configured" error persists | Clear manually via `(code-browser.sync/clear-error!)` |
+| Click events not triggering | Call functions directly via nREPL |
+
+**Recommendation:** Rely on unit tests for v2 development until browser issues are resolved.
 
 ---
 
@@ -168,12 +185,14 @@ bb lint && bb format
 ## Handoff Notes
 
 1. **R3.1-R3.3 complete:** Symbol inspector tabs + Aliases panel + Multi-file support
-2. **All tests pass:** 30 tests, 459 assertions (10 test namespaces)
+2. **All unit tests pass:** 30 tests, 459 assertions (10 test namespaces)
 3. **Aliases working:** 588 aliases extracted from bb-mcp-server project
 4. **Multi-file:** Sort mode toggle, file dividers/badges implemented
-5. **Next task:** R3.4 File watching / cache invalidation
-6. **Key gotcha:** Functions with `!` need `--args-file` workaround for MCP CLI
-7. **Deps/Callers:** Placeholder views only - need server-side support
+5. **v2 Browser issues discovered:** Slow queries, error state management, click events - see Known Issues
+6. **Recommendation:** Use unit tests for v2 development, not browser testing
+7. **Next task:** Fix v2 performance issues OR proceed with R3.4 (file watching)
+8. **Key gotcha:** Functions with `!` need `--args-file` workaround for MCP CLI
+9. **Deps/Callers:** Placeholder views only - need server-side support
 
 ---
 

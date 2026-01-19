@@ -1,18 +1,31 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser v2 Redesign - Phase R0-R2 Complete, R3.1-R3.3 Done
-**Version:** v1.14.4
+**Status:** Code Browser v2 - R3.1-R3.3 Done, **Browser Integration Issues Discovered**
+**Version:** v1.14.7
 **Last Updated:** 2026-01-18
 
 ---
 
 ## Current State
 
-Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 foundation complete (R0-R2). Ready for Phase R3: Feature Parity.
+Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 core logic complete (R0-R3.3) with **30 passing unit tests**. Browser integration has performance issues that need fixing.
 
 **Code Browser v1 (Complete):** 3,500 lines across server + client with synced atoms, live file watching, JAR exploration, git cloning, multi-file namespace support, symbol inspector with deps/callers tabs.
 
-**Code Browser v2 (Starting):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design.
+**Code Browser v2 (In Progress):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design. **Unit tests pass, browser integration has issues.**
+
+### ⚠️ Critical v2 Browser Issues (Must Fix Before R3.4)
+
+| Issue | Description | Root Cause | Suggested Fix |
+|-------|-------------|------------|---------------|
+| **Slow namespace queries** | Selecting project with 200+ ns times out (>30s) | Unoptimized Datalevin queries, no indexes | Add indexes, pagination, or lazy loading |
+| **Error state persists** | "No database configured" shows even after init | Error set before init, not cleared properly | Fix error clearing in `sync.clj`, ensure init clears state |
+| **Click events broken** | Clicking list items doesn't trigger selection | Reagent event handlers not wiring correctly | Debug `code_browser_v2.cljs` event handlers |
+| **WebSocket instability** | Multiple disconnect/reconnect during heavy ops | Long-running sync operations block | Add async handling, loading states |
+
+**Recommendation:** Fix these issues before proceeding to R3.4. Unit tests all pass - the issues are in browser integration.
+
+**For browser testing details:** See `docs/SCITTLE_DEV_ENVIRONMENT.md` section "Code Browser v2 Testing"
 
 ---
 
@@ -164,8 +177,9 @@ modules/code-browser-v2/
 | R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done |
 | R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
 | R3.3 | Multi-file namespace support | ✅ Done |
-| R3.4 | File watching / cache invalidation | Pending |
-| R3.5 | Git status display | Pending |
+| **R3.x** | **Fix browser integration issues (see Critical Issues above)** | **🔴 BLOCKING** |
+| R3.4 | File watching / cache invalidation | Pending (blocked) |
+| R3.5 | Git status display | Pending (blocked) |
 
 **Notes from R3.1:**
 - Tab bar with Source/Doc/Deps/Callers implemented in browser
@@ -187,6 +201,17 @@ modules/code-browser-v2/
 - Browser shows file count badge on multi-file namespaces
 - File-order mode: file dividers between symbols from different files
 - Alpha mode: file badges on each symbol showing source file
+
+**Notes from R3.x (Browser Issues - 2026-01-18):**
+- Discovered during live demo attempt - v2 UI mounts but interactions fail
+- **Query performance:** `query-namespaces` with 206 namespaces takes >30s
+  - Investigate: Are we doing N+1 queries? Missing Datalevin indexes?
+  - File: `modules/code-browser-v2/src/code_browser/handlers.clj` lines 62-77
+- **Error state:** `set-error!` called before `init!` completes, `clear-error!` called but state not updating in browser
+  - Investigate: Is atom-sync pushing updates? Check `modules/code-browser-v2/src/code_browser/sync.clj`
+- **Click events:** List items render but `on-click` handlers don't fire
+  - Investigate: Check `modules/sente-browser/src/browser/code_browser_v2.cljs` `project-item`, `namespace-item`, `symbol-item` components
+- **Unit tests all pass:** Core logic works, issue is in browser integration layer
 
 #### Phase R4: Additional Sources
 

@@ -513,9 +513,9 @@ When ending a session, update `context.md` with:
 
 ## Code Browser v2 Testing
 
-> ⚠️ **CRITICAL WARNING:** The browser at port 8091 shows **Code Browser v1** by default!
+> ⚠️ **CRITICAL WARNING:** The "Load Code Browser" button loads **v1**, NOT v2!
 > v1 ALSO has multi-file namespace support, sort modes, file dividers, etc.
-> If you're testing v2 features, you MUST verify you're actually seeing v2 data.
+> You MUST follow the exact steps below to test v2.
 
 ### v1 vs v2 Architecture
 
@@ -526,39 +526,136 @@ When ending a session, update `context.md` with:
 | **Data store** | In-memory atoms | Datalevin database |
 | **Sync atom key** | `:code-browser-state` | `:code-browser-v2` |
 | **Config** | `bb-code-browser-dev-system.edn` | `system-cb-v2-test.edn` |
+| **How to load UI** | Click "Load Code Browser" button | Load via nREPL (see steps below) |
 
 ### Visual Differences (How to Tell Them Apart)
 
 | Feature | v1 | v2 |
 |---------|----|----|
-| Project selector | Dropdown with git controls (🌿 branch, ↑ ahead) | Simple list panel |
+| Project selector | Dropdown with git controls (🌿 branch, ↑ ahead) | Simple list panel with filter |
 | "Add project" input | Text input + 📁 browse button | Not implemented |
 | Git branch display | Shows branch name + dirty indicator | Not implemented (R3.5) |
 | Clone git URL input | Present with 📥 button | Not implemented |
+| Panels heading style | Different styling | "Projects", "Select Project", "Select Namespace", "Source" headers |
 
 **If you see git controls and "Add project path..." input → You're looking at v1!**
 
-### Testing Code Browser v2
+### Testing Code Browser v2 (Complete Error-Free Setup)
 
-**Use a DIFFERENT config and server nickname:**
+> **IMPORTANT:** Follow these steps IN EXACT ORDER. Each step depends on the previous one.
+
+#### Step 1: Cleanup and Start Server
 
 ```bash
-# 1. Check/cleanup any existing Datalevin pods (v2 uses Datalevin!)
-bb datalevin:status     # Show running pods
-bb datalevin:stop       # Stop all pods (if needed)
-bb datalevin:cleanup    # Stop pods + remove lock files (if stuck)
+cd /Users/franksiebenlist/Development/bb-mcp-server
 
-# 2. Start v2 test server (DIFFERENT config than v1!)
+# Check/cleanup any existing Datalevin pods
+bb datalevin:status     # Show running pods
+bb datalevin:stop       # Stop all pods (if any)
+
+# Stop any existing v2 server
+bb server:stop cb-v2-test 2>/dev/null || true
+
+# Start fresh v2 server (waits for health automatically)
+bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+```
+
+#### Step 2: Initialize v2 Backend FIRST (Before Browser!)
+
+```bash
+# Initialize v2 database and sources BEFORE opening browser
+cat > /tmp/init-v2.json << 'EOF'
+{"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
+EOF
+bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+```
+
+**Expected output:** `"result": null` (success, no errors)
+
+#### Step 3: Open Browser and Wait for Connection
+
+```bash
+# Open browser
+open http://localhost:8091
+
+# Wait 3-5 seconds for WebSocket connection, then find browser nickname
+bb nrepl list --mcp cb-v2-test
+```
+
+Note the browser connection nickname (e.g., `browser-1`, `browser-4`).
+
+#### Step 4: Load v2 Browser Code (NOT "Load Code Browser" button!)
+
+> ⚠️ **DO NOT click "Load Code Browser"** - that loads v1!
+
+```bash
+# Replace browser-N with your actual nickname from Step 3
+BROWSER_NICK="browser-4"  # Change this!
+
+# Load v2 browser code
+bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs \
+  --connection $BROWSER_NICK --mcp cb-v2-test
+```
+
+**Expected output:** Contains `"value": "#'code-browser-v2/unmount!"`
+
+#### Step 5: Mount v2 UI
+
+```bash
+# Mount v2 (use args-file due to ! in function name)
+cat > /tmp/mount-v2.json << 'EOF'
+{"code":"(code-browser-v2/mount!)","connection":"browser-4","timeout":30000}
+EOF
+# Replace browser-4 with your actual nickname in the JSON above!
+bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test
+```
+
+**Expected output:** `"value": "nil"` (success)
+
+#### Step 6: Verify and Use v2
+
+The browser should now show the v2 interface:
+- **Projects panel** with filter box and "Refresh" button
+- **Namespace panel** (empty until you select a project)
+- **Symbols panel** with sort mode indicator
+- **Source panel** with tabs
+
+Click **Refresh** in the Projects panel to load projects, then navigate!
+
+### Quick v2 Setup Script
+
+Save time with this complete script:
+
+```bash
+#!/bin/bash
+# v2-setup.sh - Complete v2 Code Browser setup
+cd /Users/franksiebenlist/Development/bb-mcp-server
+
+echo "=== Stopping existing servers ==="
+bb datalevin:stop 2>/dev/null
+bb server:stop cb-v2-test 2>/dev/null || true
+
+echo "=== Starting v2 server ==="
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 
-# 3. Initialize v2 backend (REQUIRED - unlike v1 which auto-inits)
+echo "=== Initializing v2 backend ==="
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
 bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
 
-# 4. Open browser at http://localhost:8091
-# 5. Click "Load Code Browser"
+echo "=== Opening browser ==="
+open http://localhost:8091
+
+echo ""
+echo "=== NEXT STEPS ==="
+echo "1. Wait 3-5 seconds for browser connection"
+echo "2. Run: bb nrepl list --mcp cb-v2-test"
+echo "3. Note browser nickname (e.g., browser-1)"
+echo "4. Run: bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs --connection browser-N --mcp cb-v2-test"
+echo "5. Edit /tmp/mount-v2.json with correct browser nickname"
+echo "6. Run: bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test"
+echo "7. Click Refresh in Projects panel"
 ```
 
 ### Datalevin Pod Management
@@ -620,3 +717,22 @@ bb test:module code-browser-v2   # 30 tests, 459 assertions
 ```
 
 These tests verify the server-side v2 logic (Datalevin, handlers, etc.) without browser.
+
+### Known Issues (v2)
+
+> **Status as of 2026-01-18:** v2 browser integration has significant issues that make interactive testing difficult.
+
+| Issue | Description | Impact | Workaround |
+|-------|-------------|--------|------------|
+| **Slow namespace queries** | Selecting project with 200+ namespaces times out (>30s) | Can't navigate to namespaces | Test with smaller project or use unit tests |
+| **Error state not cleared** | Initial "No database configured" error persists after init | Error banner keeps appearing | Clear manually: `(code-browser.sync/clear-error!)` |
+| **Browser click events** | Clicking list items may not trigger selection | UI appears unresponsive | Use nREPL eval to call `select-project!` etc. directly |
+| **WebSocket reconnections** | Multiple disconnect/reconnect cycles during heavy operations | Connection instability | Wait for operation to complete |
+
+**Recommendation:** For v2 development, rely on **unit tests** (`bb test:module code-browser-v2`) rather than browser testing until these issues are resolved. The unit tests cover all core functionality.
+
+**Next Steps (R3.4+):**
+- Optimize Datalevin queries (add indexes, pagination)
+- Fix error state management
+- Debug click event handlers
+- Add loading indicators during slow operations
