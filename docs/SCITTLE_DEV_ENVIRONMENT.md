@@ -646,18 +646,21 @@ echo "=== Stopping existing servers ==="
 bb datalevin:stop 2>/dev/null
 bb server:stop cb-v2-test 2>/dev/null || true
 
+echo "=== Clearing stale database (IMPORTANT - prevents source lookup failures) ==="
+rm -rf /tmp/cb-v2-test /tmp/cb-v2-test.lock
+
 echo "=== Starting v2 server ==="
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 
-echo "=== Opening browser (v2 now handles early connections gracefully) ==="
-open http://localhost:8091
-sleep 3  # Wait for browser connection
-
-echo "=== Initializing v2 backend (auto-enables and clears errors) ==="
+echo "=== Initializing v2 backend (scans current commit, populates fresh database) ==="
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
 bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+
+echo "=== Opening browser ==="
+open http://localhost:8091
+sleep 3  # Wait for browser connection
 
 echo ""
 echo "=== NEXT STEPS ==="
@@ -668,7 +671,7 @@ echo "4. Create mount file: cat > /tmp/mount-v2.json << 'EOF'"
 echo '   {"code":"(code-browser-v2/mount!)","connection":"browser-N","timeout":30000}'
 echo "   EOF"
 echo "5. Run: bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test"
-echo "6. Projects should already be loaded - click one to navigate!"
+echo "6. Click on the project '.' to load namespaces, then click namespace/symbol to view source!"
 ```
 
 ### Datalevin Pod Management
@@ -733,7 +736,7 @@ These tests verify the server-side v2 logic (Datalevin, handlers, etc.) without 
 
 ### Known Issues (v2)
 
-> **Status as of 2026-01-18:** Major initialization issues have been fixed. v2 is now more robust for browser testing.
+> **Status as of 2026-01-19:** v2 is fully functional! Source loading, namespace/symbol navigation all working. See "Stale Database Data" section for important setup requirement.
 
 #### Recently Fixed
 
@@ -742,18 +745,44 @@ These tests verify the server-side v2 logic (Datalevin, handlers, etc.) without 
 | **Error state not cleared** | Initial "No database configured" error persisted after init | ✅ `init!` now clears previous error state automatically |
 | **Initialization order** | Browser connecting before `init!` caused errors | ✅ `enable!` now defensive - skips project load if no database |
 | **Auto-enable issues** | Had to manually call `enable!` after `init!` | ✅ `init!` now auto-enables via `:auto-enable? true` (default) |
+| **Source not loading** | Clicking symbols showed "Select a symbol to view source" | ✅ Stale data bug - see "Stale Database Data" below |
+| **Slow namespace queries** | Selecting project with 200+ namespaces times out | ✅ Fixed in deadlock resolution (de3e1ef) |
 
 #### Remaining Issues
 
 | Issue | Description | Impact | Workaround |
 |-------|-------------|--------|------------|
-| **Slow namespace queries** | Selecting project with 200+ namespaces times out (>30s) | Can't navigate to namespaces | Test with smaller project or use unit tests |
-| **Browser click events** | Clicking list items may not trigger selection | UI appears unresponsive | Use nREPL eval to call `select-project!` etc. directly |
-| **WebSocket reconnections** | Multiple disconnect/reconnect cycles during heavy operations | Connection instability | Wait for operation to complete |
+| **Stale database data** | Old Datalevin data with outdated commit hashes | Source lookup fails | Delete database directory and rescan (see below) |
+| **Project names show as "."** | URI-based names not displaying properly | UI shows "." instead of project name | Known - cosmetic issue |
 
-**Recommendation:** For v2 development, rely on **unit tests** (`bb test:module code-browser-v2`) rather than browser testing until remaining issues are resolved. The unit tests cover all core functionality.
+### Stale Database Data (IMPORTANT)
 
-**Next Steps (R3.4+):**
-- Optimize Datalevin queries (add indexes, pagination)
-- Debug click event handlers
-- Add loading indicators during slow operations
+**Symptom:** Clicking symbols doesn't load source, shows "Select a symbol to view source"
+
+**Cause:** Datalevin stores URIs with commit hashes (e.g., `dir://.@ceb04b4/ns/symbol`). When you rescan with a newer commit, the source adapter registers symbols with the NEW commit hash (`dir://.@de3e1ef/ns/symbol`), but the database still has OLD URIs. The lookup fails because URIs don't match.
+
+**Fix:** Delete the database directory before reinitializing:
+
+```bash
+# Stop server
+bb server:stop cb-v2-test
+
+# Delete stale database
+rm -rf /tmp/cb-v2-test /tmp/cb-v2-test.lock
+
+# Restart with fresh database
+bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+# Then run init! to create fresh data
+```
+
+**Prevention:** The setup script should always delete the database directory when starting fresh. This is now included in the quick setup script below.
+
+**Recommendation:** v2 browser testing is now functional! The full flow works:
+- 201 namespaces load correctly
+- Symbols display for selected namespace
+- Source code displays when clicking symbols
+- File path and line numbers shown
+
+**Known limitations:**
+- Project names display as "." (cosmetic)
+- Need to delete database when code changes commit
