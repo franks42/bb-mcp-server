@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** Code Browser v2 - R3.1-R3.3 Done, **Browser Integration Working** ✅
+**Status:** Code Browser v2 - Server-side WORKS ✅, Browser loading FIXED ✅
 **Version:** v1.14.8
 **Last Updated:** 2026-01-19
 
@@ -8,24 +8,43 @@
 
 ## Current State
 
-Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 core logic complete (R0-R3.3) with **30 passing unit tests**. Browser integration fully functional.
+Production-ready MCP server with complete Code Browser v1 feature set. Code Browser v2 core logic complete (R0-R3.3) with **30 passing unit tests**. **Browser integration is WORKING** - full navigation flow verified (project → namespace → symbol → source).
 
 **Code Browser v1 (Complete):** 3,500 lines across server + client with synced atoms, live file watching, JAR exploration, git cloning, multi-file namespace support, symbol inspector with deps/callers tabs.
 
-**Code Browser v2 (Working):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design. **Unit tests pass, browser integration works.**
+**Code Browser v2 (Core Complete):** Clean slate redesign with URI-centric architecture, Datalevin backend, and modular design. **Unit tests pass, browser loading works, full navigation flow verified.**
 
-### ✅ v2 Browser Issues Fixed (2026-01-19)
+### ✅ Server-Side Fixes Applied (2026-01-18/19)
 
 | Issue | Status | Root Cause | Fix Applied |
 |-------|--------|------------|-------------|
 | **Server deadlock on queries** | ✅ Fixed | `db-proto/q` args passed as bare strings, `apply` spread them as chars | Wrapped query args in vectors: `[project-uri]` |
 | **Error state persists** | ✅ Fixed | Error set before init, not cleared | `init!` now clears error state |
-| **Click events broken** | ✅ Fixed | Server deadlock blocked handlers | Query fix resolved this |
-| **WebSocket instability** | ✅ Fixed | Long-running blocked operations | Server no longer blocks |
+| **Enable defensive** | ✅ Fixed | `enable!` failed if no DB | Now skips project load if no DB |
+| **Manual enable needed** | ✅ Fixed | Had to call enable manually | `init!` auto-enables via `:auto-enable? true` |
 
-**Browser verified working:** Namespaces load (203 in ~35ms), click events work, symbols display, source viewer shows code with syntax highlighting.
+### ✅ v2 Browser Loading FIXED (2026-01-19)
 
-**For browser testing details:** See `docs/SCITTLE_DEV_ENVIRONMENT.md` section "Code Browser v2 Testing"
+**Solution:** Use `nrepl.nrepl-eval-local-file` instead of `bb nrepl load-file`
+
+| Tool | How it works | Result |
+|------|--------------|--------|
+| `bb nrepl load-file` ❌ | Uses nREPL `load-file` op (requires filesystem) | Code goes to server, not browser |
+| `nrepl.nrepl-eval-local-file` ✅ | Reads file locally, sends content as code | Code evaluated in browser Scittle |
+
+**Working v2 browser loading commands:**
+```bash
+# 1. Load v2 code into browser
+bb mcp call nrepl.nrepl-eval-local-file \
+  '{"file-path": "/path/to/modules/sente-browser/src/browser/code_browser_v2.cljs", "connection": "browser-X"}' \
+  --mcp <server>
+
+# 2. Mount v2 (use --args-file for ! character)
+echo '{"code":"(code-browser-v2/mount!)","connection":"browser-X"}' > /tmp/mount-v2.json
+bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp <server>
+```
+
+**✅ Done:** `docs/SCITTLE_DEV_ENVIRONMENT.md` updated with correct tool and stale database fix.
 
 ---
 
@@ -174,44 +193,30 @@ modules/code-browser-v2/
 
 | Task | Description | Status |
 |------|-------------|--------|
-| R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done |
-| R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
-| R3.3 | Multi-file namespace support | ✅ Done |
-| **R3.x** | **Fix browser integration issues (see Critical Issues above)** | **🔴 BLOCKING** |
-| R3.4 | File watching / cache invalidation | Pending (blocked) |
-| R3.5 | Git status display | Pending (blocked) |
+| R3.1 | Symbol inspector (Source, Doc, Deps, Callers tabs) | ✅ Done (unit tests) |
+| R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done (unit tests) |
+| R3.3 | Multi-file namespace support | ✅ Done (unit tests) |
+| R3.x | Fix v2 browser loading | ✅ Done (use `nrepl-eval-local-file`) |
+| R3.4 | File watching / cache invalidation | Pending |
+| R3.5 | Git status display | Pending |
 
-**Notes from R3.1:**
-- Tab bar with Source/Doc/Deps/Callers implemented in browser
-- Source view shows `:content`, `:file`, `:start-line`, `:end-line`
-- Doc view shows `:symbol/name`, `:symbol/type`, `:symbol/arglists`, `:symbol/doc`
-- Deps/Callers are placeholder views pending server-side support
+**Notes from R3.1-R3.3:**
+- All features implemented and unit tested (30 tests, 459 assertions)
+- Browser loading works (use `nrepl-eval-local-file`)
+- Full browser verification COMPLETE (2026-01-19): project → namespace → symbol → source all working
 
-**Notes from R3.2:**
-- Used separate entities approach for aliases/refers (Datalevin can't store nested maps)
-- Schema: `:alias/from-ns`, `:alias/name`, `:alias/to-ns` and `:refer/from-ns`, `:refer/symbol`, `:refer/from-ns-source`
-- URI fragment syntax: `dir://proj@v/ns.name#alias:str`, `dir://proj@v/ns.name#refer:join`
-- Browser "Aliases" tab shows both aliases and refers with filtering
-- 588 aliases extracted from bb-mcp-server project
+**Notes from R3.x (Browser Loading - FIXED 2026-01-19):**
 
-**Notes from R3.3:**
-- `:ns/files` already populated from clj-kondo analysis via `compute-ns-files`
-- `:symbol/file` already available on symbol entities
-- Added `:sort-mode` to sync state (:file-order | :alpha) with `toggle-sort-mode!`
-- Browser shows file count badge on multi-file namespaces
-- File-order mode: file dividers between symbols from different files
-- Alpha mode: file badges on each symbol showing source file
+**Problem:** `bb nrepl load-file` doesn't work for browser code (requires filesystem access).
 
-**Notes from R3.x (Browser Issues - 2026-01-18):**
-- Discovered during live demo attempt - v2 UI mounts but interactions fail
-- **Query performance:** `query-namespaces` with 206 namespaces takes >30s
-  - Investigate: Are we doing N+1 queries? Missing Datalevin indexes?
-  - File: `modules/code-browser-v2/src/code_browser/handlers.clj` lines 62-77
-- **Error state:** `set-error!` called before `init!` completes, `clear-error!` called but state not updating in browser
-  - Investigate: Is atom-sync pushing updates? Check `modules/code-browser-v2/src/code_browser/sync.clj`
-- **Click events:** List items render but `on-click` handlers don't fire
-  - Investigate: Check `modules/sente-browser/src/browser/code_browser_v2.cljs` `project-item`, `namespace-item`, `symbol-item` components
-- **Unit tests all pass:** Core logic works, issue is in browser integration layer
+**Solution:** Use `nrepl.nrepl-eval-local-file` MCP tool instead:
+- Reads file locally on the machine running the CLI
+- Sends file content as code to be evaluated
+- Works for browser Scittle because it doesn't require filesystem on target
+
+**Key insight:** Browser has no filesystem. The correct tool reads file locally and sends content as eval code, not as a load-file operation.
+
+See "✅ v2 Browser Loading FIXED" section above for commands.
 
 #### Phase R4: Additional Sources
 
@@ -296,4 +301,4 @@ Click any symbol in source viewer → navigate to definition:
 
 ---
 
-*Last Updated: 2026-01-18*
+*Last Updated: 2026-01-19*
