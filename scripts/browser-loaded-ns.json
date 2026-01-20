@@ -1,0 +1,1 @@
+{"code": "(keys (sci.core/all-ns (sci.core/init {})))", "connection": "browser-2", "timeout": 5000}

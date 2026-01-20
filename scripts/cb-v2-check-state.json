@@ -1,0 +1,1 @@
+{"code": "(do (require '[atom-sync.core :as as]) {:registered-atoms (keys @as/!synced-atoms)})"}

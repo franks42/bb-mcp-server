@@ -1,0 +1,1 @@
+{"code": "(do (require '[code-browser.core :as cb-v2]) (try (let [result (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})] {:success true :result (str result)}) (catch Exception e {:error (str e) :type (type e)})))"}

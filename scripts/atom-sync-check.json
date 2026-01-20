@@ -1,0 +1,1 @@
+{"code": "(do (require '[atom-sync.core :as sync]) {:registered-atoms (keys @sync/!synced-atoms) :subscribers (keys @sync/!subscribers) :sync-status (sync/get-sync-status)})"}

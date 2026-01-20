@@ -1,0 +1,1 @@
+{"code": "(do (require '[code-browser.handlers :as h] '[code-browser.core :as core]) {:db (some? (h/get-db)) :config @core/!config :sources (keys (:sources @h/!module-state))})"}

@@ -1,0 +1,1 @@
+{"code": "(do (require '[code-browser.handlers :as h]) (h/handle-select-project! \"dir://.@ceb04b4\"))"}
