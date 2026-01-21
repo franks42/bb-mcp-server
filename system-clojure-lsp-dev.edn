@@ -3,8 +3,8 @@
 ;;
 ;; Modules:
 ;; - local-eval: Interactive testing, live reload, CLI implementation
-;; - nrepl: Reference for async patterns (promises, reader loop, pending map)
+;; - mcp-nrepl: Reference for async patterns (promises, reader loop, pending map)
 ;; - clojure-lsp: The module under development
 
 {:modules-dir "modules"
- :modules ["mcp-local-eval" "nrepl" "clojure-lsp"]}
+ :modules ["mcp-local-eval" "mcp-nrepl" "clojure-lsp"]}

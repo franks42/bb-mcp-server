@@ -10,7 +10,7 @@
 ;;
 ;; Modules:
 ;;   - local-eval: Server-side eval
-;;   - nrepl: Browser introspection
+;;   - mcp-nrepl: Browser introspection
 ;;   - mcp-http: HTTP MCP transport
 ;;   - clojure-lsp: Static analysis (always loaded)
 ;;   - sente-browser: Scittle nREPL + bootstrap page
@@ -18,7 +18,7 @@
 ;;   - nrepl-test-server: bb eval target
 
 {:modules ["mcp-local-eval"
-           "nrepl"
+           "mcp-nrepl"
            "nrepl-test-server"
            "mcp-http"
            "clojure-lsp"

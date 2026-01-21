@@ -226,7 +226,7 @@ HTTP JSON response
 
 Tool modules provide the actual functionality:
 
-- **nrepl** - Remote REPL integration (9 tools)
+- **mcp-nrepl** - Remote REPL integration (9 tools)
 - **calculate** - Math expression evaluator
 - **local-eval** - Server-side code execution
 - **echo, strings, math, hello** - Example tools
@@ -274,7 +274,7 @@ bb-mcp-server/
 │   ├── mcp-http/                # HTTP MCP transport
 │   ├── rest-api/                # REST endpoints
 │   ├── streamable-http/         # Combined HTTP (convenience)
-│   ├── nrepl/                   # nREPL tools
+│   ├── mcp-nrepl/               # nREPL tools
 │   ├── calculate/               # Calculator tool
 │   └── ...                      # Other tool modules
 ├── test/bb_mcp_server/          # Core tests

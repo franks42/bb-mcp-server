@@ -14,7 +14,7 @@
    cljs.user=> :cljs/quit
    nil
    user=>"
-    (:require [nrepl.state.connection :as conn-state]
+    (:require [mcp-nrepl.state.connection :as conn-state]
               [nrepl-proxy-server.session :as session]
               [taoensso.trove :as log]))
 

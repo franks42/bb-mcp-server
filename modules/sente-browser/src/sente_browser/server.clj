@@ -18,11 +18,11 @@
               [sente-browser.code-browser :as code-browser]
               [code-browser.core :as code-browser-v2]
               [atom-sync.server :as atom-sync]
-              [nrepl.state.connection :as conn-state]
-              [nrepl.state.messages :as msg-state]
-              [nrepl.state.results :as results]
-              [nrepl.state.watchers :as watchers]
-              [nrepl.utils.uuid-v7 :as uuid]
+              [mcp-nrepl.state.connection :as conn-state]
+              [mcp-nrepl.state.messages :as msg-state]
+              [mcp-nrepl.state.results :as results]
+              [mcp-nrepl.state.watchers :as watchers]
+              [mcp-nrepl.utils.uuid-v7 :as uuid]
               [taoensso.trove :as log]))
 
 ;; Forward declarations

@@ -30,9 +30,9 @@ bb-mcp-server/
 │   ├── rest-api/                # REST API + OpenAPI
 │   ├── http-core/               # Shared HTTP infrastructure
 │   ├── streamable-http/         # Combined HTTP (convenience)
-│   ├── nrepl/                   # nREPL integration (9 tools)
+│   ├── mcp-nrepl/               # nREPL integration (9 tools)
 │   ├── calculate/               # Calculator tool
-│   ├── local-eval/              # Local Clojure eval
+│   ├── mcp-local-eval/          # Local Clojure eval
 │   └── echo/, strings/, math/   # Example modules
 ├── scripts/                     # Utility scripts
 │   └── pid_util.clj             # PID file management

@@ -1,0 +1,449 @@
+(ns mcp-nrepl.state.connection
+    "Unified connection state management for nREPL client connections - SINGLE SOURCE OF TRUTH"
+    (:require [mcp-nrepl.utils.uuid-v7 :as uuid]
+              [taoensso.trove :as log])
+    (:import [java.net InetAddress]))
+
+;; =============================================================================
+;; Connection State Atom - SINGLE SOURCE OF TRUTH
+;; =============================================================================
+
+(def connection-state
+     "Unified nREPL connection state with registry and active connection tracking.
+   
+   This is the SINGLE SOURCE OF TRUTH for all connection state - eliminates 
+   duplication between application layer and transport layer.
+   
+   Connection Status values:
+   - :connecting       Connection attempt in progress
+   - :connected        Active connection established
+   - :closing          Disconnection in progress  
+   - :closed           Connection closed cleanly
+   - :failed           Connection attempt failed
+   
+   Structure:
+   {:active-connection nil                      ; Current active connection ID or nil
+    :connections {\"IP:port-UUID\" {            ; Human-readable connection registry
+                   :connection-id \"...\",      ; Human-readable ID
+                   :hostname \"localhost\",     ; Original hostname
+                   :resolved-ip \"192.168.1.10\", ; Resolved IP address
+                   :port 7890,                  ; Port number
+                   :socket #<Socket>,           ; Actual socket object
+                   :status :connected,          ; Connection status
+                   :created-at 1641234567,      ; Creation timestamp
+                   :closed-at nil,              ; Close timestamp
+                   :error nil}}                 ; Error information
+    :nicknames {}                              ; NEW: nickname -> connection-id mapping
+    :connection-counter 0}                      ; Counter for unique connection IDs"
+     (atom {:active-connection nil
+            :connections {}
+            :nicknames {}
+            :connection-counter 0}))
+
+;; =============================================================================
+;; IP Address Resolution Utilities
+;; =============================================================================
+
+(defn resolve-ip-address
+  "Resolve hostname to actual IP address for human-readable connection IDs.
+   Converts 'localhost' to actual local IP address."
+  [hostname]
+  (try
+   (if (= "localhost" hostname)
+      ;; Get actual local IP address instead of 127.0.0.1
+     (let [local-host (InetAddress/getLocalHost)]
+       (.getHostAddress local-host))
+      ;; Resolve other hostnames to IP
+     (let [inet-addr (InetAddress/getByName hostname)]
+       (.getHostAddress inet-addr)))
+   (catch Exception e
+      ;; Fallback to original hostname if resolution fails
+          (log/log! {:level :warn
+                     :id ::ip-resolution-failed
+                     :msg "IP resolution failed, using hostname"
+                     :data {:hostname hostname :error (.getMessage e)}})
+          hostname)))
+
+;; =============================================================================
+;; Human-Readable Connection ID Generation
+;; =============================================================================
+
+(defn generate-human-readable-connection-id
+  "Generate human-readable connection ID in format: IP:port-UUIDv7
+   Example: 192.168.1.10:7890-01234567-abcd-89ef-ghij-klmnopqrstuv"
+  [hostname port]
+  (let [resolved-ip (resolve-ip-address hostname)
+        uuid-suffix (uuid/uuid-v7-string)]
+    (str resolved-ip ":" port "-" uuid-suffix)))
+
+;; =============================================================================
+;; State Query Functions
+;; =============================================================================
+
+(defn get-active-connection
+  "Get current active connection details, or nil if no active connection"
+  []
+  (when-let [active-id (:active-connection @connection-state)]
+            (get-in @connection-state [:connections active-id])))
+
+(defn connected?
+  "Check if there is an active connected connection"
+  []
+  (when-let [active-conn (get-active-connection)]
+            (= :connected (:status active-conn))))
+
+(defn can-connect?
+  "Check if a new connection attempt is allowed.
+   Phase 7: Multi-connection enabled - always returns true."
+  []
+  true ;; Multi-connection support enabled
+  #_(let [active-conn (get-active-connection)]
+      (or (nil? active-conn)
+          (#{:closed :failed} (:status active-conn)))))
+
+(defn get-connection-status
+  "Get current connection status - backward compatibility"
+  []
+  (if-let [active-conn (get-active-connection)]
+          (:status active-conn)
+          :disconnected))
+
+;; =============================================================================
+;; Connection Management API for Socket Layer
+;; =============================================================================
+
+(defn register-connection!
+  "Register a new connection with human-readable ID and set as active.
+   Returns the connection ID."
+  [hostname port socket]
+  (let [conn-id (generate-human-readable-connection-id hostname port)
+        resolved-ip (resolve-ip-address hostname)
+        connection-data {:connection-id conn-id
+                         :hostname hostname
+                         :resolved-ip resolved-ip
+                         :port port
+                         :socket socket
+                         :status :connected
+                         :created-at (System/currentTimeMillis)
+                         :closed-at nil
+                         :error nil}]
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections conn-id] connection-data)
+                 (assoc :active-connection conn-id)
+                 (update :connection-counter inc))))
+    (log/log! {:level :info
+               :id ::connection-registered
+               :msg "Registered nREPL connection"
+               :data {:connection-id conn-id :hostname hostname :port port :resolved-ip resolved-ip}})
+    conn-id))
+
+(defn update-connection-status!
+  "Update status of a specific connection"
+  [connection-id new-status & {:keys [error closed-at]}]
+  (when (get-in @connection-state [:connections connection-id])
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections connection-id :status] new-status)
+                 (cond-> error (assoc-in [:connections connection-id :error] error))
+                 (cond-> closed-at (assoc-in [:connections connection-id :closed-at] closed-at)))))
+    (log/log! {:level :debug
+               :id ::connection-status-updated
+               :msg "Connection status updated"
+               :data {:connection-id connection-id :new-status new-status :error error}})))
+
+(defn mark-connection-closed!
+  "Mark connection as closed and clear active connection if it matches"
+  [connection-id error-type error-msg]
+  (let [closed-at (System/currentTimeMillis)]
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections connection-id :status] :closed)
+                 (assoc-in [:connections connection-id :closed-at] closed-at)
+                 (assoc-in [:connections connection-id :error] {:type error-type :message error-msg})
+                 (cond-> (= connection-id (:active-connection state))
+                         (assoc :active-connection nil)))))
+    (log/log! {:level :info
+               :id ::connection-closed
+               :msg "Connection marked closed"
+               :data {:connection-id connection-id :error-type error-type :error-msg error-msg}})
+    ;; Return count of failed messages for compatibility
+    0))
+
+(defn cleanup-old-connections!
+  "Remove old closed connections older than threshold-ms"
+  [& {:keys [threshold-ms] :or {threshold-ms (* 60 60 1000)}}] ; Default 1 hour
+  (let [now (System/currentTimeMillis)
+        cutoff (- now threshold-ms)]
+    (swap! connection-state
+           (fn [state]
+             (update state :connections
+                     (fn [conns]
+                       (into {}
+                             (remove (fn [[_ conn]]
+                                       (and (#{:closed :failed} (:status conn))
+                                            (<= (:closed-at conn 0) cutoff)))
+                                     conns))))))
+    (log/log! {:level :debug
+               :id ::connections-cleaned-up
+               :msg "Cleaned up old connections"
+               :data {:threshold-ms threshold-ms}})))
+
+;; =============================================================================
+;; Backward Compatibility Functions
+;; =============================================================================
+
+(defn request-connect!
+  "Request connection - backward compatibility (now just validation)"
+  [_hostname _port]
+  (can-connect?))
+
+(defn mark-connected!
+  "Mark connection as successful - backward compatibility"
+  [_socket]
+  ;; This is now handled by register-connection!
+  true)
+
+(defn mark-failed!
+  "Mark connection as failed - backward compatibility"
+  [error-msg]
+  (when-let [active-id (:active-connection @connection-state)]
+            (update-connection-status! active-id :failed :error error-msg)))
+
+(defn mark-disconnected!
+  "Mark connection as disconnected - backward compatibility"
+  []
+  (when-let [active-id (:active-connection @connection-state)]
+            (mark-connection-closed! active-id :user-disconnect "User requested disconnect")))
+
+;; =============================================================================
+;; Watcher Management
+;; =============================================================================
+
+(defn add-connection-watcher
+  "Add a watcher to the connection state atom"
+  [key watch-fn]
+  (add-watch connection-state key watch-fn))
+
+(defn remove-connection-watcher
+  "Remove a watcher from the connection state atom"
+  [key]
+  (remove-watch connection-state key))
+
+;; =============================================================================
+;; Connection Resolution for Multi-Connection Interface
+;; =============================================================================
+
+(defn resolve-connection-id
+  "Resolve connection parameter to connection-id. Phase 2: Nickname support with single connection.
+   
+   Phase 2 Implementation:
+   - Returns active connection ID if no identifier provided
+   - Supports nickname lookup (nickname -> connection-id)
+   - Supports direct connection-id lookup
+   - Fallback to active connection for compatibility
+   - Throws actionable errors for no connections
+   
+   Future Phase 4 Implementation will handle:
+   - Multiple active connections
+   - Endpoint resolution (host:port)"
+  [user-identifier]
+  (let [state @connection-state
+        active-conn-id (:active-connection state)]
+    (cond
+      ;; No identifier provided - use single connection rule
+      (nil? user-identifier)
+      (if active-conn-id
+        active-conn-id
+        (throw (ex-info "No nREPL connections available. Connect first using nrepl-connection tool."
+                        {:status :no-connections})))
+
+      ;; Try nickname lookup first
+      (get (:nicknames state) user-identifier)
+      (get (:nicknames state) user-identifier)
+
+      ;; Try connection-id directly
+      (get (:connections state) user-identifier)
+      user-identifier
+
+      ;; Not found - fallback to active connection if available (Phase 2 compatibility)
+      :else
+      (if active-conn-id
+        active-conn-id
+        (throw (ex-info "Connection not found. No active nREPL connection available."
+                        {:status :connection-not-found
+                         :identifier user-identifier}))))))
+
+;; =============================================================================
+;; Nickname Management
+;; =============================================================================
+
+(defn register-nickname!
+  "Register a nickname for a connection-id. Overwrites existing nickname if present."
+  [nickname connection-id]
+  (swap! connection-state assoc-in [:nicknames nickname] connection-id)
+  (log/log! {:level :info
+             :id ::nickname-registered
+             :msg "Registered connection nickname"
+             :data {:nickname nickname :connection-id connection-id}}))
+
+(defn unregister-nickname!
+  "Remove a nickname mapping"
+  [nickname]
+  (swap! connection-state update :nicknames dissoc nickname)
+  (log/log! {:level :debug
+             :id ::nickname-unregistered
+             :msg "Unregistered connection nickname"
+             :data {:nickname nickname}}))
+
+(defn get-nickname-for-connection
+  "Get nickname for a connection-id if one exists"
+  [connection-id]
+  (let [nicknames (:nicknames @connection-state)]
+    (->> nicknames
+         (filter (fn [[_nick conn-id]] (= conn-id connection-id)))
+         first
+         first))) ; Returns nickname or nil
+
+;; =============================================================================
+;; Browser Connection Support (for sente-browser module)
+;; =============================================================================
+
+(defn register-browser-connection!
+  "Register a browser connection from sente-lite WebSocket.
+   Returns the MCP connection ID.
+
+   Browser connections differ from socket connections:
+   - No socket object (uses sente WebSocket channel)
+   - Connection initiated by browser, not Claude
+   - Claude discovers via list, then selects to eval"
+  [sente-conn-id]
+  (let [conn-counter (inc (:connection-counter @connection-state))
+        conn-id (str "browser-" conn-counter "-" (uuid/uuid-v7-string))
+        nickname (str "browser-" conn-counter)
+        connection-data {:connection-id conn-id
+                         :type :browser              ; Key differentiator from :socket
+                         :sente-conn-id sente-conn-id
+                         :status :connected
+                         :created-at (System/currentTimeMillis)
+                         :closed-at nil
+                         :error nil}]
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections conn-id] connection-data)
+                 (assoc-in [:nicknames nickname] conn-id)
+                 (assoc :connection-counter conn-counter))))
+    (log/log! {:level :info
+               :id ::browser-connection-registered
+               :msg "Registered browser connection"
+               :data {:connection-id conn-id
+                      :nickname nickname
+                      :sente-conn-id sente-conn-id}})
+    conn-id))
+
+(defn reactivate-browser-connection!
+  "Reactivate an existing browser connection with a new sente-conn-id.
+   Used when browser reconnects after Safari tab throttling - same mcp-conn-id,
+   different sente WebSocket connection.
+
+   Returns the connection-id if successful, nil if connection not found."
+  [mcp-conn-id new-sente-conn-id]
+  (if (get-in @connection-state [:connections mcp-conn-id])
+    (do
+     (swap! connection-state
+            (fn [state]
+              (-> state
+                  (assoc-in [:connections mcp-conn-id :sente-conn-id] new-sente-conn-id)
+                  (assoc-in [:connections mcp-conn-id :status] :connected)
+                  (assoc-in [:connections mcp-conn-id :error] nil)
+                  (assoc-in [:connections mcp-conn-id :closed-at] nil)
+                  (assoc-in [:connections mcp-conn-id :reconnected-at] (System/currentTimeMillis)))))
+     (log/log! {:level :info
+                :id ::browser-connection-reactivated
+                :msg "Reactivated browser connection with new WebSocket"
+                :data {:connection-id mcp-conn-id
+                       :new-sente-conn-id new-sente-conn-id}})
+     mcp-conn-id)
+    (do
+     (log/log! {:level :warn
+                :id ::browser-reactivation-failed
+                :msg "Cannot reactivate - connection not found"
+                :data {:connection-id mcp-conn-id}})
+     nil)))
+
+(defn is-browser-connection?
+  "Check if connection is a browser (sente) connection vs socket connection."
+  [connection-id]
+  (= :browser (get-in @connection-state [:connections connection-id :type])))
+
+(defn update-browser-capabilities!
+  "Update capabilities for a browser connection after :describe validation.
+   Capabilities include :ops (list of supported operations) and :nrepl-version."
+  [connection-id capabilities]
+  (when (get-in @connection-state [:connections connection-id])
+    (swap! connection-state
+           (fn [state]
+             (-> state
+                 (assoc-in [:connections connection-id :capabilities] capabilities)
+                 (assoc-in [:connections connection-id :validated] true))))
+    (log/log! {:level :debug
+               :id ::browser-capabilities-updated
+               :msg "Updated browser capabilities"
+               :data {:connection-id connection-id :capabilities capabilities}})))
+
+(defn get-browser-capabilities
+  "Get capabilities for a browser connection."
+  [connection-id]
+  (get-in @connection-state [:connections connection-id :capabilities]))
+
+(defn get-browser-connections
+  "Get all browser connections (type = :browser)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (= :browser (:type conn))))
+       (into {})))
+
+(defn get-validated-browser-connections
+  "Get only validated browser connections (have responded to :describe)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (and (= :browser (:type conn))
+                                   (:validated conn))))
+       (into {})))
+
+(defn get-socket-connections
+  "Get all socket connections (type != :browser or nil)."
+  []
+  (->> (:connections @connection-state)
+       (filter (fn [[_ conn]] (not= :browser (:type conn))))
+       (into {})))
+
+;; =============================================================================
+;; Debug Support
+;; =============================================================================
+
+(defn get-connection-summary
+  "Get a summary of current connection state for debugging"
+  []
+  (let [state @connection-state]
+    {:active-connection (:active-connection state)
+     :connection-count (count (:connections state))
+     :connection-counter (:connection-counter state)
+     :connection-ids (keys (:connections state))
+     :nicknames (:nicknames state)
+     :nickname-count (count (:nicknames state))
+     :watchers (keys (.getWatches connection-state))}))
+
+(defn list-all-connections
+  "List all connections with their status for debugging"
+  []
+  (:connections @connection-state))
+
+(defn get-connection-by-id
+  "Get connection details by ID"
+  [connection-id]
+  (get-in @connection-state [:connections connection-id]))

@@ -1,0 +1,20 @@
+;; MCP nREPL module configuration
+;;
+;; MCP tools that use nREPL protocol to connect, evaluate, and manage remote Clojure REPLs.
+;; Named "mcp-nrepl" to clarify: MCP interface → nREPL protocol.
+
+{:name "mcp-nrepl"
+ :version "0.1.0"
+ :description "MCP tools using nREPL protocol for remote Clojure REPL interaction"
+
+ ;; No module dependencies (uses bb-mcp-server.registry from core)
+ :requires []
+
+ ;; Entry point
+ :entry "mcp-nrepl.core/module"
+
+ ;; Default configuration
+ :defaults {:timeout 30000}
+
+ ;; Test runner
+ :test-runner "test/run_tests.clj"}

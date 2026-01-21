@@ -5,9 +5,9 @@
    to either bb (local eval) or browser (via sente WebSocket)."
     (:require [bencode.core :as bencode]
               [clojure.java.io :as io]
-              [nrepl.state.connection :as conn-state]
-              [nrepl.state.messages :as msg-state]
-              [nrepl.state.results :as results]
+              [mcp-nrepl.state.connection :as conn-state]
+              [mcp-nrepl.state.messages :as msg-state]
+              [mcp-nrepl.state.results :as results]
               [nrepl-proxy-server.session :as session]
               [nrepl-proxy-server.api :as api]
               [bb-mcp-server.port-registry :as port-registry]

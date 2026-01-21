@@ -7,7 +7,7 @@
     (:require [clojure.java.io :as io]
               [sente-browser.server :as server]
               [sente-browser.bootstrap :as bootstrap]
-              [nrepl.state.messages :as msg-state]
+              [mcp-nrepl.state.messages :as msg-state]
               [bb-mcp-server.port-registry :as port-registry]
               [taoensso.trove :as log]))
 

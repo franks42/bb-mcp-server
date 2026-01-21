@@ -10,7 +10,7 @@
  ;; Only these modules will be loaded, in this order if no dependencies
  ;; Note: Modules can be internal (in modules/) or external (via BB_MCP_EXTERNAL_MODULES)
  ;; Note: "hello" is intentionally NOT in this list for dynamic load testing
- :modules ["echo" "strings" "calculate" "mcp-local-eval" "nrepl" "math"
+ :modules ["echo" "strings" "calculate" "mcp-local-eval" "mcp-nrepl" "math"
            "datalevin-pod" "datalevin-mcp"
            "ai-orchestrator" "anthropic-http-provider" "openai-http-provider"
            "claude-subprocess-provider" "ai-orchestrator-tools"

@@ -2,8 +2,8 @@
  :version "0.1.0"
  :description "nREPL proxy server - connect Calva/terminal to bb or browser REPLs (shadow-cljs style)"
 
- ;; Depends on nrepl for connection state, sente-browser for browser connections
- :requires ["nrepl" "sente-browser"]
+ ;; Depends on mcp-nrepl for connection state, sente-browser for browser connections
+ :requires ["mcp-nrepl" "sente-browser"]
 
  ;; Entry point
  :entry "nrepl-proxy-server.core/module"

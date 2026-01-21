@@ -26,8 +26,8 @@ All services use **ephemeral ports** by default (OS-assigned). Port discovery vi
 | Module | Description |
 |--------|-------------|
 | `calculate` | Math expressions (100+ functions) |
-| `nrepl` | Remote Clojure REPL |
-| `local-eval` | Server-side code execution |
+| `mcp-nrepl` | Remote Clojure REPL via nREPL protocol |
+| `mcp-local-eval` | Server-side code execution |
 | `echo` | Echo for testing |
 | `hello` | Greeting tool |
 | `strings` | String concat |
@@ -39,7 +39,7 @@ See `modules/*/README.md` for details.
 
 `system.edn`:
 ```clojure
-{:modules ["hello" "echo" "calculate" "nrepl" "mcp-local-eval"]}
+{:modules ["hello" "echo" "calculate" "mcp-nrepl" "mcp-local-eval"]}
 ```
 
 ## External Modules
@@ -65,14 +65,14 @@ Modules must be listed in `system.edn` to be loaded at startup.
 Load modules at runtime (after server is already running):
 
 ```clojure
-;; Via local-eval, nrepl-eval, or direct REPL
+;; Via mcp-local-eval, nrepl-eval, or direct REPL
 (require '[bb-mcp-server.module.system :as system])
 (system/load-new-module! "/path/to/external-module")
 ```
 
 This enables a **minimal bootstrap pattern**:
-1. Start server with just `local-eval` (or `nrepl`)
-2. Load other modules dynamically via `local-eval`
+1. Start server with just `mcp-local-eval` (or `mcp-nrepl`)
+2. Load other modules dynamically via `mcp-local-eval`
 3. Tools are registered immediately after loading
 
 ```clojure

@@ -21,7 +21,7 @@ The `bb nrepl` CLI provides shell access to **external** nREPL servers through M
 │   ┌──────────────┐   HTTP    ┌─────────────┐   TCP    ┌─────────────────┐  │
 │   │              │  JSON-RPC │ MCP Server  │  nREPL   │ External REPL   │  │
 │   │  bb nrepl    │ ────────► │             │ ───────► │                 │  │
-│   │              │           │ nrepl module│ bencode  │  JVM Clojure    │  │
+│   │              │           │ mcp-nrepl   │ bencode  │  JVM Clojure    │  │
 │   └──────────────┘           └─────────────┘          │  Babashka       │  │
 │                                    │                  │  ClojureScript  │  │
 │                               (proxy only)            │                 │  │
@@ -64,7 +64,7 @@ The `bb nrepl` CLI provides shell access to **external** nREPL servers through M
 ## Quick Start
 
 ```bash
-# 1. Start MCP server with nrepl module
+# 1. Start MCP server with mcp-nrepl module
 bb server --http --port 3001 --config bb-nrepl-system.edn --nickname nrepl-mcp
 
 # 2. Start an nREPL server (or use existing one)
