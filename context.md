@@ -4,8 +4,8 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
 **Last Updated:** 2026-01-20
-**Version:** v1.14.13
-**Focus:** Direct nREPL Client Implementation
+**Version:** v1.14.15
+**Focus:** Direct nREPL Client - Complete
 
 ---
 
@@ -83,13 +83,15 @@ For complex code with special characters:
 |------|---------|
 | `src/bb_mcp_server/nrepl_direct/client.clj` | Standalone nREPL client library |
 | `scripts/nrepl_direct_cli.clj` | CLI entry point |
-| `scripts/nrepl-direct-task.clj` | bb task wrapper |
+| `scripts/nrepl-direct.sh` | Bash wrapper (disables `!` history expansion) |
 
 ### Usage Examples
 
 ```bash
-# Basic eval
+# Basic eval (! characters now work safely)
 bb nrepl-direct eval "(+ 1 2 3)" --port 7888
+bb nrepl-direct eval "(swap! (atom 0) inc)" --port 7888
+bb nrepl-direct eval "(def !x (atom 42)) @!x" --nickname scittle-dev
 
 # With port discovery
 bb nrepl-direct eval "(+ 1 2 3)" --nickname scittle-dev

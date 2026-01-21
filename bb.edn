@@ -183,6 +183,10 @@
               :depends [-bootstrap]
               :task (load-file "test/run_stdio_tests.clj")}
 
+  test:nrepl-direct {:doc "Run nrepl-direct integration tests"
+                     :depends [-bootstrap]
+                     :task (load-file "test/run_nrepl_direct_tests.clj")}
+
   test:streamable {:doc "Run streamable-http module tests"
                    :depends [-bootstrap]
                    :task (load-file "modules/streamable-http/test/run_tests.clj")}
