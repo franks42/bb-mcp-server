@@ -9,9 +9,11 @@
    - Closes connection
 
    No dependency on mcp-nrepl module or its state management."
-    (:require [bencode.core :as bencode])
+    (:require [bencode.core :as bencode]
+              [clojure.edn :as edn])
     (:import [java.net Socket]
-             [java.io PushbackInputStream]))
+             [java.io PushbackInputStream]
+             [java.util Base64]))
 
 ;; =============================================================================
 ;; Low-level bencode helpers
@@ -37,6 +39,22 @@
     (vector? obj) (mapv convert-response obj)
     (seq? obj) (map convert-response obj)
     :else (bytes->string obj)))
+
+;; =============================================================================
+;; Base64 helpers
+;; =============================================================================
+
+(defn- encode-base64
+  "Encode string to base64."
+  [s]
+  (when s
+    (.encodeToString (Base64/getEncoder) (.getBytes ^String s "UTF-8"))))
+
+(defn- decode-base64
+  "Decode base64 to string."
+  [s]
+  (when s
+    (String. (.decode (Base64/getDecoder) ^String s) "UTF-8")))
 
 ;; =============================================================================
 ;; Connection management
@@ -92,8 +110,19 @@
                     {:status :success :responses new-responses}
                     (recur new-responses)))))))))
 
+(defn- try-parse-edn
+  "Try to parse value as EDN. Returns {:ok value} on success, nil on failure.
+   This wrapper distinguishes between 'parsed to nil' and 'failed to parse'."
+  [s]
+  (when s
+    (try
+     {:ok (edn/read-string s)}
+     (catch Exception _
+            nil))))
+
 (defn- merge-responses
-  "Merge multiple nREPL responses into single result."
+  "Merge multiple nREPL responses into single result.
+   Includes :value-parsed with EDN-parsed result when possible."
   [responses]
   (if (empty? responses)
     {}
@@ -104,11 +133,13 @@
           final-root-ex (last (keep :root-ex responses))
           final-ns (last (keep :ns responses))
           final-session (last (keep :session responses))
-          final-status (:status (last responses))]
+          final-status (:status (last responses))
+          parse-result (try-parse-edn final-value)]
       (cond-> {}
               (seq all-out) (assoc :out all-out)
               (seq all-err) (assoc :err all-err)
               final-value (assoc :value final-value)
+              parse-result (assoc :value-parsed (:ok parse-result))
               final-ex (assoc :ex final-ex)
               final-root-ex (assoc :root-ex final-root-ex)
               final-ns (assoc :ns final-ns)
@@ -118,29 +149,31 @@
 (defn send-message
   "Send nREPL message and wait for response.
 
-   Returns:
-     {:status :success :response merged-response}
-     {:status :timeout :responses [...]}
-     {:status :error :error message}"
+   Returns flat response map with :status as string for consistency with mcp-nrepl:
+     {:status \"success\" :value \"...\" :value-parsed ... :out \"...\" :err \"...\" ...}
+     {:status \"timeout\" :responses [...]}
+     {:status \"error\" :error message}"
   [{:keys [out in]} message & {:keys [timeout-ms] :or {timeout-ms 30000}}]
   (let [msg-with-id (assoc message :id (generate-id))]
     (bencode/write-bencode out msg-with-id)
     (.flush out)
     (let [result (read-responses in timeout-ms)]
       (if (= :success (:status result))
-        {:status :success :response (merge-responses (:responses result))}
-        result))))
+        ;; Flatten: merge response fields directly, use string status
+        (assoc (merge-responses (:responses result)) :status "success")
+        ;; Error/timeout: convert status to string
+        (update result :status name)))))
 
 ;; =============================================================================
 ;; High-level operations
 ;; =============================================================================
 
 (defn clone-session
-  "Clone a new nREPL session. Returns session ID."
+  "Clone a new nREPL session. Returns session ID in flat response."
   [conn & {:keys [timeout-ms] :or {timeout-ms 5000}}]
   (let [result (send-message conn {:op "clone"} :timeout-ms timeout-ms)]
-    (if (= :success (:status result))
-      {:status :success :session (get-in result [:response :new-session])}
+    (if (= "success" (:status result))
+      {:status "success" :session (:new-session result)}
       result)))
 
 (defn describe
@@ -148,23 +181,41 @@
   [conn & {:keys [timeout-ms] :or {timeout-ms 5000}}]
   (send-message conn {:op "describe"} :timeout-ms timeout-ms))
 
+(defn- add-base64-fields
+  "Add base64-encoded versions of output fields if output-base64 is true."
+  [result]
+  (cond-> result
+          (:value result) (assoc :value-base64 (encode-base64 (:value result)))
+          (:out result) (assoc :out-base64 (encode-base64 (:out result)))
+          (:err result) (assoc :err-base64 (encode-base64 (:err result)))))
+
 (defn eval-code
   "Evaluate code in nREPL session.
 
    Options:
      :session - session ID (clones new if not provided)
      :ns - namespace to eval in
-     :timeout-ms - timeout (default: 30000)"
-  [conn code & {:keys [session ns timeout-ms] :or {timeout-ms 30000}}]
-  (let [;; Clone session if not provided
+     :timeout-ms - timeout (default: 30000)
+     :input-base64 - if true, decode code from base64 before eval
+     :output-base64 - if true, add base64-encoded output fields"
+  [conn code & {:keys [session ns timeout-ms input-base64 output-base64] :or {timeout-ms 30000}}]
+  (let [;; Decode input if base64
+        actual-code (if input-base64
+                      (decode-base64 code)
+                      code)
+        ;; Clone session if not provided
         session (or session
                     (let [clone-result (clone-session conn)]
-                      (when (= :success (:status clone-result))
+                      (when (= "success" (:status clone-result))
                         (:session clone-result))))
-        message (cond-> {:op "eval" :code code}
+        message (cond-> {:op "eval" :code actual-code}
                         session (assoc :session session)
-                        ns (assoc :ns ns))]
-    (send-message conn message :timeout-ms timeout-ms)))
+                        ns (assoc :ns ns))
+        result (send-message conn message :timeout-ms timeout-ms)]
+    ;; Add base64 output fields if requested
+    (if (and output-base64 (= "success" (:status result)))
+      (add-base64-fields result)
+      result)))
 
 (defn load-file-remote
   "Load file from server's filesystem using nREPL load-file op.
@@ -185,13 +236,20 @@
   "Read file locally and send as code to eval.
 
    This reads the file on the client side and sends its content as code.
-   Use this for browser contexts or when server can't access the file."
-  [conn file-path & {:keys [session ns timeout-ms] :or {timeout-ms 30000}}]
+   Use this for browser contexts or when server can't access the file.
+
+   Options:
+     :session - session ID
+     :ns - namespace to eval in
+     :timeout-ms - timeout (default: 30000)
+     :output-base64 - if true, add base64-encoded output fields"
+  [conn file-path & {:keys [session ns timeout-ms output-base64] :or {timeout-ms 30000}}]
   (let [content (slurp file-path)]
     (eval-code conn content
                :session session
                :ns ns
-               :timeout-ms timeout-ms)))
+               :timeout-ms timeout-ms
+               :output-base64 output-base64)))
 
 (defn interrupt
   "Interrupt evaluation in a session."
@@ -227,11 +285,18 @@
      :host - hostname (default: localhost)
      :port - port number (required)
      :ns - namespace
-     :timeout-ms - timeout (default: 30000)"
-  [code & {:keys [host port ns timeout-ms] :or {host "localhost" timeout-ms 30000}}]
+     :timeout-ms - timeout (default: 30000)
+     :input-base64 - if true, decode code from base64 before eval
+     :output-base64 - if true, add base64-encoded output fields"
+  [code & {:keys [host port ns timeout-ms input-base64 output-base64]
+           :or {host "localhost" timeout-ms 30000}}]
   (with-connection {:host host :port port}
                    (fn [conn]
-                     (eval-code conn code :ns ns :timeout-ms timeout-ms))))
+                     (eval-code conn code
+                                :ns ns
+                                :timeout-ms timeout-ms
+                                :input-base64 input-base64
+                                :output-base64 output-base64))))
 
 (defn load-file!
   "One-shot load-file from server filesystem.
@@ -252,8 +317,13 @@
      :host - hostname (default: localhost)
      :port - port number (required)
      :ns - namespace
-     :timeout-ms - timeout (default: 30000)"
-  [file-path & {:keys [host port ns timeout-ms] :or {host "localhost" timeout-ms 30000}}]
+     :timeout-ms - timeout (default: 30000)
+     :output-base64 - if true, add base64-encoded output fields"
+  [file-path & {:keys [host port ns timeout-ms output-base64]
+                :or {host "localhost" timeout-ms 30000}}]
   (with-connection {:host host :port port}
                    (fn [conn]
-                     (load-local-file conn file-path :ns ns :timeout-ms timeout-ms))))
+                     (load-local-file conn file-path
+                                      :ns ns
+                                      :timeout-ms timeout-ms
+                                      :output-base64 output-base64))))

@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
-;; Test runner for nrepl module
-;; Usage: bb modules/nrepl/test/run_tests.clj
+;; Test runner for mcp-nrepl module
+;; Usage: bb modules/mcp-nrepl/test/run_tests.clj
 
 (require '[clojure.test :as test])
 
@@ -8,14 +8,14 @@
 (def test-namespaces
      "List of test namespaces to run."
      '[;; State management tests
-       nrepl.state.connection-test
-       nrepl.state.messages-test
-       nrepl.state.results-test
+       mcp-nrepl.state.connection-test
+       mcp-nrepl.state.messages-test
+       mcp-nrepl.state.results-test
        ;; Client tests (pure functions)
-       nrepl.client.connection-test
-       nrepl.client.messaging-test
+       mcp-nrepl.client.connection-test
+       mcp-nrepl.client.messaging-test
        ;; Phase 0: Introspection tools tests
-       nrepl.tools.introspection-test])
+       mcp-nrepl.tools.introspection-test])
 
 (println "=" (apply str (repeat 60 "=")))
 (println "Running nREPL Module Tests")

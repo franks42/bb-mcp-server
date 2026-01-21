@@ -112,34 +112,71 @@
          (when *test-port*
            (testing "eval simple expression"
                     (let [result (client/eval! "(+ 1 2 3)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "6" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "6" (:value result)))
+                      (is (= 6 (:value-parsed result)))))))
+
+(deftest test-value-parsed
+         (when *test-port*
+           (testing "value-parsed with integer"
+                    (let [result (client/eval! "42" :port *test-port*)]
+                      (is (= "42" (:value result)))
+                      (is (= 42 (:value-parsed result)))))
+
+           (testing "value-parsed with vector"
+                    (let [result (client/eval! "[1 2 3]" :port *test-port*)]
+                      (is (= "[1 2 3]" (:value result)))
+                      (is (= [1 2 3] (:value-parsed result)))))
+
+           (testing "value-parsed with map"
+                    (let [result (client/eval! "{:a 1 :b 2}" :port *test-port*)]
+                      (is (= {:a 1 :b 2} (:value-parsed result)))))
+
+           (testing "value-parsed with keyword"
+                    (let [result (client/eval! ":foo" :port *test-port*)]
+                      (is (= ":foo" (:value result)))
+                      (is (= :foo (:value-parsed result)))))
+
+           (testing "value-parsed with string"
+                    (let [result (client/eval! "\"hello\"" :port *test-port*)]
+                      (is (= "\"hello\"" (:value result)))
+                      (is (= "hello" (:value-parsed result)))))
+
+           (testing "value-parsed with nil"
+                    (let [result (client/eval! "nil" :port *test-port*)]
+                      (is (= "nil" (:value result)))
+                      (is (contains? result :value-parsed))
+                      (is (nil? (:value-parsed result)))))
+
+           (testing "value-parsed with nested structure"
+                    (let [result (client/eval! "{:users [{:name \"alice\"} {:name \"bob\"}]}" :port *test-port*)]
+                      (is (= {:users [{:name "alice"} {:name "bob"}]}
+                             (:value-parsed result)))))))
 
 (deftest test-eval-with-stdout
          (when *test-port*
            (testing "eval with stdout"
                     (let [result (client/eval! "(do (println \"hello\") 42)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "42" (get-in result [:response :value])))
-                      (is (= "hello\n" (get-in result [:response :out])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "42" (:value result)))
+                      (is (= "hello\n" (:out result)))))))
 
 (deftest test-eval-error
          (when *test-port*
            (testing "eval with error"
                     (let [result (client/eval! "(/ 1 0)" :port *test-port*)]
-                      (is (= :success (:status result)))
+                      (is (= "success" (:status result)))
                       ;; Error should be in :ex or :err
-                      (let [response (:response result)]
-                        (is (or (:ex response)
-                                (:err response)
-                                (re-find #"Divide by zero" (str response)))))))))
+                      (is (or (:ex result)
+                              (:err result)
+                              (re-find #"Divide by zero" (str result))))))))
 
 (deftest test-eval-with-namespace
          (when *test-port*
            (testing "eval in specific namespace"
                     (let [result (client/eval! "*ns*" :port *test-port* :ns "user")]
-                      (is (= :success (:status result)))
-                      (is (re-find #"user" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (re-find #"user" (:value result)))))))
 
 ;; =============================================================================
 ;; Integration Tests - ! Character Escaping
@@ -155,46 +192,46 @@
          (when *test-port*
            (testing "swap! with atom"
                     (let [result (client/eval! "(swap! (atom 0) inc)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "1" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "1" (:value result)))))
 
            (testing "reset! with atom"
                     (let [result (client/eval! "(reset! (atom 0) 42)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "42" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "42" (:value result)))))
 
            (testing "swap! with multiple args"
                     (let [result (client/eval! "(swap! (atom []) conj 1 2 3)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "[1 2 3]" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "[1 2 3]" (:value result)))))
 
            (testing "compare-and-set!"
                     (let [result (client/eval!
                                   "(let [a (atom 0)] (compare-and-set! a 0 1) @a)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "1" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "1" (:value result)))))))
 
 (deftest test-eval-bang-vars
          (when *test-port*
            (testing "def !x (atom) - bang prefix var"
                     (let [result (client/eval! "(def !x (atom 42)) @!x" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "42" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "42" (:value result)))))
 
            (testing "def !state - bang prefix state var"
                     (let [result (client/eval!
                                   "(def !state (atom {:count 0})) (:count @!state)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "0" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "0" (:value result)))))
 
            (testing "swap! on !atom - combined bang usage"
                     (let [result (client/eval!
                                   "(def !counter (atom 0)) (swap! !counter inc) @!counter"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "1" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "1" (:value result)))))))
 
 (deftest test-eval-custom-bang-functions
          (when *test-port*
@@ -202,22 +239,22 @@
                     (let [result (client/eval!
                                   "(defn update-count! [a] (swap! a inc)) (update-count! (atom 5))"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "6" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "6" (:value result)))))
 
            (testing "defn init! pattern"
                     (let [result (client/eval!
                                   "(defn init! [] :initialized) (init!)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= ":initialized" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= ":initialized" (:value result)))))
 
            (testing "defn start!/stop! pattern"
                     (let [result (client/eval!
                                   "(do (defn start! [] :started) (defn stop! [] :stopped) [(start!) (stop!)])"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "[:started :stopped]" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "[:started :stopped]" (:value result)))))))
 
 (deftest test-eval-multiple-bangs
          (when *test-port*
@@ -225,46 +262,46 @@
                     (let [result (client/eval!
                                   "(def !a (atom 0)) (def !b (atom 10)) (+ (swap! !a inc) (swap! !b dec))"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "10" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "10" (:value result)))))
 
            (testing "! in let bindings"
                     (let [result (client/eval!
                                   "(let [!local (atom 100)] (swap! !local #(* % 2)) @!local)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "200" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "200" (:value result)))))
 
            (testing "nested ! operations"
                     (let [result (client/eval!
                                   "(def !outer (atom {:!inner (atom 0)})) (swap! (:!inner @!outer) inc)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "1" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "1" (:value result)))))))
 
 (deftest test-eval-bang-edge-cases
          (when *test-port*
            (testing "! at start of symbol"
                     (let [result (client/eval! "(def !!! 999) !!!" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "999" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "999" (:value result)))))
 
            (testing "! at end of symbol"
                     (let [result (client/eval! "(defn f! [] :bang!) (f!)" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= ":bang!" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= ":bang!" (:value result)))))
 
            (testing "string containing !"
                     (let [result (client/eval! "\"Hello!\"" :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "\"Hello!\"" (get-in result [:response :value])))))
+                      (is (= "success" (:status result)))
+                      (is (= "\"Hello!\"" (:value result)))))
 
            (testing "comment containing !"
                     (let [result (client/eval!
                                   ";; This is a comment with ! bang!\n(+ 1 2)"
                                   :port *test-port*)]
-                      (is (= :success (:status result)))
-                      (is (= "3" (get-in result [:response :value])))))))
+                      (is (= "success" (:status result)))
+                      (is (= "3" (:value result)))))))
 
 ;; =============================================================================
 ;; Integration Tests - Other Operations
@@ -276,12 +313,11 @@
                     (let [result (client/with-connection {:port *test-port*}
                                                          (fn [conn]
                                                            (client/describe conn)))]
-                      (is (= :success (:status result)))
+                      (is (= "success" (:status result)))
                       ;; Babashka nREPL returns minimal describe response
                       ;; Full nREPL servers return :ops and :versions
-                      (let [response (:response result)]
-                        (is (map? response))
-                        (is (contains? response :status)))))))
+                      (is (map? result))
+                      (is (contains? result :status))))))
 
 (deftest test-clone-session
          (when *test-port*
@@ -289,7 +325,7 @@
                     (let [result (client/with-connection {:port *test-port*}
                                                          (fn [conn]
                                                            (client/clone-session conn)))]
-                      (is (= :success (:status result)))
+                      (is (= "success" (:status result)))
                       ;; Babashka's minimal nREPL may not support clone fully
                       ;; The important thing is that we get a success response
                       (is (or (string? (:session result))
@@ -303,8 +339,8 @@
                        (spit test-file "(+ 10 20 30)")
                        (let [result (client/load-local-file! (.getAbsolutePath test-file)
                                                              :port *test-port*)]
-                         (is (= :success (:status result)))
-                         (is (= "60" (get-in result [:response :value]))))
+                         (is (= "success" (:status result)))
+                         (is (= "60" (:value result))))
                        (finally
                         (.delete test-file)))))
 
@@ -314,8 +350,8 @@
                        (spit test-file "(def !file-atom (atom 0)) (swap! !file-atom inc) @!file-atom")
                        (let [result (client/load-local-file! (.getAbsolutePath test-file)
                                                              :port *test-port*)]
-                         (is (= :success (:status result)))
-                         (is (= "1" (get-in result [:response :value]))))
+                         (is (= "success" (:status result)))
+                         (is (= "1" (:value result))))
                        (finally
                         (.delete test-file)))))))
 
@@ -330,7 +366,37 @@
                     (let [result (client/eval! "(Thread/sleep 5000)"
                                                :port *test-port*
                                                :timeout-ms 100)]
-                      (is (= :timeout (:status result)))))))
+                      (is (= "timeout" (:status result)))))))
+
+;; =============================================================================
+;; Integration Tests - Base64 Encoding
+;; =============================================================================
+
+(deftest test-output-base64
+         (when *test-port*
+           (testing "output-base64 adds base64 fields"
+                    (let [result (client/eval! "(+ 1 2 3)" :port *test-port* :output-base64 true)]
+                      (is (= "success" (:status result)))
+                      (is (= "6" (:value result)))
+                      (is (string? (:value-base64 result)))
+                      ;; Base64 of "6" is "Ng=="
+                      (is (= "Ng==" (:value-base64 result)))))
+
+           (testing "output-base64 with stdout"
+                    (let [result (client/eval! "(do (println \"test\") :ok)"
+                                               :port *test-port*
+                                               :output-base64 true)]
+                      (is (= "success" (:status result)))
+                      (is (string? (:out-base64 result)))
+                      ;; Base64 of "test\n"
+                      (is (= "dGVzdAo=" (:out-base64 result))))))
+
+         (when *test-port*
+           (testing "input-base64 decodes code"
+                    ;; "(+ 1 2)" in base64 is "KCsgMSAyKQ=="
+                    (let [result (client/eval! "KCsgMSAyKQ==" :port *test-port* :input-base64 true)]
+                      (is (= "success" (:status result)))
+                      (is (= "3" (:value result)))))))
 
 ;; =============================================================================
 ;; Test Runner Functions

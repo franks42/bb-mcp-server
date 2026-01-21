@@ -76,10 +76,12 @@
                          :code code
                          :value value-str
                          :ns (:ns nrepl-response)}
-          ;; Add stdout/stderr if present
+          ;; Add stdout/stderr and exception info if present
           response-with-output (cond-> base-response
                                        (:out nrepl-response) (assoc :out (:out nrepl-response))
-                                       (:err nrepl-response) (assoc :err (:err nrepl-response)))
+                                       (:err nrepl-response) (assoc :err (:err nrepl-response))
+                                       (:ex nrepl-response) (assoc :ex (:ex nrepl-response))
+                                       (:root-ex nrepl-response) (assoc :root-ex (:root-ex nrepl-response)))
           ;; Try to add EDN parsing
           response-with-edn (if-let [parsed-value (try-parse-edn value-str)]
                                     (try
@@ -127,9 +129,9 @@
 
 (defn handle
   "Evaluate Clojure code via nREPL using delegation to nrepl-send-message.
-   Supports timeout recovery, connection selection, EDN-to-JSON conversion, and input base64 decoding.
+   Supports timeout recovery, connection selection, namespace, EDN-to-JSON conversion, and input base64 decoding.
    NEW: input-base64 flag eliminates quote escaping for AI agents and complex code."
-  [{:keys [code input-base64 output-base64 message-id timeout connection] :or {timeout 30000}}]
+  [{:keys [code input-base64 output-base64 message-id timeout connection ns] :or {timeout 30000}}]
 
   (cond
     ;; Validation: code is required for normal evaluation
@@ -147,7 +149,9 @@
                                                 {:error (.getMessage e)
                                                  :code code}))))
                         code)
-          nrepl-message (when actual-code {:op "eval" :code actual-code})
+          nrepl-message (when actual-code
+                          (cond-> {:op "eval" :code actual-code}
+                                  ns (assoc :ns ns)))
           result (delegate/call-async-tool "nrepl.nrepl-send-message"
                                            (cond-> {:timeout-ms timeout}
                                                    connection (assoc :connection connection)
@@ -168,6 +172,8 @@
       :inputSchema {:type "object"
                     :properties {:code {:type "string"
                                         :description "Clojure code to evaluate"}
+                                 :ns {:type "string"
+                                      :description "Namespace to evaluate in (optional)"}
                                  :input-base64 {:type "boolean"
                                                 :description "Interpret 'code' parameter as base64-encoded string (default: false)"}
                                  :output-base64 {:type "boolean"

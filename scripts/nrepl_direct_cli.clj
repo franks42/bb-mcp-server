@@ -5,12 +5,20 @@
 
    This CLI bypasses MCP entirely, connecting directly to nREPL servers.
 
+   IMPORTANT - load-file vs load-local-file:
+   ==========================================
+   load-file:       Sends PATH to server -> server reads file -> FAILS for browser!
+   load-local-file: Reads file HERE -> sends CONTENT -> WORKS for browser!
+
+   For browser/Scittle: ALWAYS use load-local-file
+   For bb nREPL server: Either works (load-local-file is safer)
+
    Usage: bb nrepl-direct <subcommand> [args] [options]
 
    Subcommands:
      eval <code>              Evaluate Clojure code
-     load-file <path>         Load file from server's filesystem
-     load-local-file <path>   Read file locally, send as code (for browser)
+     load-file <path>         Load file from SERVER's filesystem (NOT for browser!)
+     load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)
      describe                 Show nREPL server capabilities
      help                     Show this help
 
@@ -21,8 +29,13 @@
      --service SERVICE        Service name in port file (default: nrepl-server)
      --ns NAMESPACE           Namespace to eval in
      --timeout MS             Timeout in milliseconds (default: 30000)
-     --output MODE            Output mode: result (default), full, pipe
+     --output MODE            Output mode:
+                                result - Parsed value or stdout (default)
+                                full   - Full JSON response
+                                pipe   - stdout/stderr/value for piping
+                                edn    - Clean EDN: value on success, full on error
      --pprint                 Pretty-print output
+     --stdout2stderr          With --output edn: show eval's stdout on stderr
 
    Port Discovery:
      The CLI can auto-discover ports from .ports/<nickname>.json files.
@@ -37,7 +50,14 @@
      # Eval using port discovery
      bb nrepl-direct eval \"(+ 1 2 3)\" --nickname scittle-dev
 
-     # Load local file to browser via proxy
+     # Clean EDN output for scripting
+     bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn
+     # => (0 1 2 3 4)
+
+     # Pipe to another command
+     bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn | bb -e \"(reduce + (read))\"
+
+     # Load file to BROWSER (use load-local-file!)
      bb nrepl-direct load-local-file src/browser/app.cljs \\
        --nickname scittle-dev --service nrepl-proxy
 
@@ -79,7 +99,8 @@
                :ns nil
                :timeout 30000
                :output :result
-               :pprint false}]
+               :pprint false
+               :stdout2stderr false}]
         (if (empty? args)
           opts
           (let [arg (first args)
@@ -108,6 +129,13 @@
 
               (= arg "--pprint")
               (recur rest-args (assoc opts :pprint true))
+
+              (= arg "--stdout2stderr")
+              (recur rest-args (assoc opts :stdout2stderr true))
+
+              ;; Help flags can appear anywhere
+              (or (= arg "-h") (= arg "--help"))
+              (assoc opts :subcommand "help")
 
               ;; First non-option is subcommand
               (nil? (:subcommand opts))
@@ -160,21 +188,28 @@
                        (when root-ex (str "root-exception: " root-ex))]))))
 
 (defn output-result
-  "Output result based on mode."
-  [{:keys [output pprint]} result]
+  "Output result based on mode.
+   Note: nrepl-direct client returns flat response maps with string status.
+
+   Modes:
+     :result - Default, shows parsed value or stdout
+     :full   - Full JSON response
+     :pipe   - stdout/stderr/value for piping
+     :edn    - Clean EDN output: value on success (exit 0), full result on error (exit 1)
+               Eval's stdout is suppressed unless --stdout2stderr is set"
+  [{:keys [output pprint stdout2stderr]} result]
   (case output
     :result
-    (if (= :success (:status result))
-      (let [response (:response result)
-            value (try-parse-edn (:value response))]
+    (if (= "success" (:status result))
+      (let [value (try-parse-edn (:value result))]
         (if value
           (format-value value pprint)
-          (when (:out response)
-            (print (:out response)))))
+          (when (:out result)
+            (print (:out result)))))
       (do
        (binding [*out* *err*]
                 (println "Error:" (or (:error result)
-                                      (format-error (:response result))
+                                      (format-error result)
                                       "Unknown error")))
        (System/exit 1)))
 
@@ -184,19 +219,47 @@
       (println (json/generate-string result {:pretty true})))
 
     :pipe
-    (let [response (:response result)]
-      (when (:out response)
-        (print (:out response)))
-      (when (:err response)
+    (do
+      (when (:out result)
+        (print (:out result)))
+      (when (:err result)
         (binding [*out* *err*]
-                 (print (:err response))))
-      (if (= :success (:status result))
-        (when-let [value (:value response)]
+                 (print (:err result))))
+      (if (= "success" (:status result))
+        (when-let [value (:value result)]
                   (format-value (try-parse-edn value) pprint))
         (do
          (binding [*out* *err*]
                   (println "Error:" (or (:error result) "Unknown error")))
          (System/exit 1))))
+
+    :edn
+    (let [has-exception? (or (:ex result) (:root-ex result))
+          protocol-ok? (= "success" (:status result))]
+      (if (and protocol-ok? (not has-exception?))
+        ;; Success: output just the EDN value, optionally show stdout on stderr
+        (do
+          (when (and stdout2stderr (:out result))
+            (binding [*out* *err*]
+                     (print (:out result))
+                     (flush)))
+          (when (and stdout2stderr (:err result))
+            (binding [*out* *err*]
+                     (print (:err result))
+                     (flush)))
+          ;; Output the parsed value (or raw string if unparseable)
+          (let [value (or (:value-parsed result)
+                          (try-parse-edn (:value result))
+                          (:value result))]
+            (if pprint
+              (pp/pprint value)
+              (prn value))))
+        ;; Error: output full result as EDN, exit 1
+        (do
+          (if pprint
+            (pp/pprint result)
+            (prn result))
+          (System/exit 1))))
 
     ;; Default
     (do
@@ -237,10 +300,30 @@
   "Load file from server's filesystem."
   [opts]
   (let [file-path (first (:positional opts))
+        service (:service opts)
         port (resolve-port opts)]
     (when-not file-path
       (println "Usage: bb nrepl-direct load-file <path> --port PORT")
       (System/exit 1))
+
+    ;; IMPORTANT: Warn when using load-file with browser proxy
+    ;; This is a common mistake - browsers can't access local filesystem!
+    (when (= service "nrepl-proxy")
+      (binding [*out* *err*]
+               (println "")
+               (println "WARNING: 'load-file' sends the FILE PATH to the server.")
+               (println "         Browser/Scittle environments CANNOT access local files!")
+               (println "")
+               (println "         Did you mean 'load-local-file' instead?")
+               (println "         load-local-file reads the file HERE and sends the CONTENT.")
+               (println "")
+               (println "         Suggested command:")
+               (println (str "         bb nrepl-direct load-local-file " file-path
+                             " --nickname " (:nickname opts) " --service " service))
+               (println "")
+               (println "         Continuing anyway (will likely fail)...")
+               (println "")))
+
     (try
      (let [result (client/load-file! file-path
                                      :host (:host opts)
@@ -299,10 +382,17 @@
   (println)
   (println "Subcommands:")
   (println "  eval <code>              Evaluate Clojure code")
-  (println "  load-file <path>         Load file from server's filesystem")
-  (println "  load-local-file <path>   Read file locally, send as code (for browser)")
+  (println "  load-file <path>         Load file from SERVER's filesystem (NOT for browser!)")
+  (println "  load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)")
   (println "  describe                 Show nREPL server capabilities")
   (println "  help                     Show this help")
+  (println)
+  (println "IMPORTANT - load-file vs load-local-file:")
+  (println "  load-file:       Sends PATH to server -> server reads file -> FAILS for browser!")
+  (println "  load-local-file: Reads file HERE -> sends CONTENT -> WORKS for browser!")
+  (println)
+  (println "  For browser/Scittle: ALWAYS use load-local-file")
+  (println "  For bb nREPL server: Either works (load-local-file is safer)")
   (println)
   (println "Options:")
   (println "  --port PORT              nREPL port (required unless --nickname)")
@@ -313,8 +403,13 @@
   (println "                             nrepl-proxy   - Proxy for browser")
   (println "  --ns NAMESPACE           Namespace to eval in")
   (println "  --timeout MS             Timeout in milliseconds (default: 30000)")
-  (println "  --output MODE            Output mode: result, full, pipe")
+  (println "  --output MODE            Output mode:")
+  (println "                             result - Parsed value or stdout (default)")
+  (println "                             full   - Full JSON response")
+  (println "                             pipe   - stdout/stderr/value for piping")
+  (println "                             edn    - Clean EDN: value on success, full on error")
   (println "  --pprint                 Pretty-print output")
+  (println "  --stdout2stderr          With --output edn: show eval's stdout on stderr")
   (println)
   (println "Examples:")
   (println "  # Eval with explicit port")
@@ -323,15 +418,27 @@
   (println "  # Eval using port discovery from scittle-dev server")
   (println "  bb nrepl-direct eval \"(+ 1 2 3)\" --nickname scittle-dev")
   (println)
-  (println "  # Load local file to browser via proxy")
+  (println "  # Clean EDN output for scripting (exit 0 on success, 1 on error)")
+  (println "  bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn")
+  (println "  # => (0 1 2 3 4)")
+  (println)
+  (println "  # EDN output with debug prints visible on stderr")
+  (println "  bb nrepl-direct eval \"(do (println :debug) {:a 1})\" --port 7888 --output edn --stdout2stderr")
+  (println "  # stderr: :debug")
+  (println "  # stdout: {:a 1}")
+  (println)
+  (println "  # Pipe EDN result to another command")
+  (println "  bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn | bb -e \"(reduce + (read))\"")
+  (println)
+  (println "  # Load file to BROWSER (use load-local-file!)")
   (println "  bb nrepl-direct load-local-file src/browser/app.cljs \\")
   (println "    --nickname scittle-dev --service nrepl-proxy")
   (println)
   (println "  # Read code from stdin")
   (println "  echo \"(range 5)\" | bb nrepl-direct eval - --port 7888")
   (println)
-  (println "  # Load file that exists on server filesystem")
-  (println "  bb nrepl-direct load-file /path/to/file.clj --port 7888"))
+  (println "  # Load file on server's filesystem (rare - server must have file)")
+  (println "  bb nrepl-direct load-file /path/on/server.clj --port 7888"))
 
 ;; =============================================================================
 ;; Main
