@@ -56,7 +56,7 @@ The `bb clojure-lsp` CLI uses local-eval to call the Clojure API on a running se
 (defn cmd-definition [{:keys [file line column server]}]
   (mcp-client/call-tool
     server
-    "local-eval"
+    "mcp-local-eval"
     {:code (pr-str
              `(do
                 (require '[bb-mcp-server.modules.clojure-lsp.tools :as t])

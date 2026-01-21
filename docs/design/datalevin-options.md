@@ -732,7 +732,7 @@ Two separate modules:
 
 | Module | Purpose | AI Access |
 |--------|---------|-----------|
-| `datalevin-pod` | Pod lifecycle, connection management, expose API | Via `local-eval` (raw Clojure) |
+| `datalevin-pod` | Pod lifecycle, connection management, expose API | Via `mcp-local-eval` (raw Clojure) |
 | `datalevin-mcp` | MCP tools interface | Via MCP tools (`schema`/`q`/`transact`) |
 
 **datalevin-pod** = infrastructure layer

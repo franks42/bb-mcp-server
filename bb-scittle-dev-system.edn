@@ -15,7 +15,7 @@
 ;;                            │
 ;;                            └──► nrepl-test-server:7888 (bb eval)
 
-{:modules ["local-eval"
+{:modules ["mcp-local-eval"
            "nrepl"
            "nrepl-test-server"
            "directory-browser"  ;; Required by sente-browser

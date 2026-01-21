@@ -24,7 +24,7 @@ The file system watcher has been integrated into the module lifecycle in two rob
 
 ### 2.3 CLI Interface
 The CLI script (`scripts/clojure_lsp_cli.clj`) is implemented and registered in `bb.edn`.
-*   **Design**: It cleverly uses `local-eval` to invoke the internal API on the running server, ensuring it shares the same state (process, cache) as the MCP tools.
+*   **Design**: It cleverly uses `mcp-local-eval` to invoke the internal API on the running server, ensuring it shares the same state (process, cache) as the MCP tools.
 *   **Coverage**: It maps 1:1 with the available MCP tools, providing a powerful terminal-based interface for developers.
 
 ## 3. Architecture & Patterns

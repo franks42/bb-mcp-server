@@ -82,7 +82,7 @@ The simplified module manifest:
 {:name "advanced-calc"
  :version "0.1.0"
  :description "Advanced calculations requiring other modules"
- :requires ["local-eval" "calculate"]  ; Must be loaded first!
+ :requires ["mcp-local-eval" "calculate"]  ; Must be loaded first!
  :entry "advanced-calc.core/module"
  :defaults {:precision 8}}
 ```
@@ -107,7 +107,7 @@ These are `require` statements within your Clojure code:
 These are cross-module dependencies declared in `:requires`:
 
 ```clojure
-{:requires ["local-eval" "calculate"]}
+{:requires ["mcp-local-eval" "calculate"]}
 ```
 
 **Checked by ns_loader before loading** - must load dependencies first!
@@ -362,7 +362,7 @@ Each module must implement this protocol via its entry point var:
 (loader/load-module "modules/advanced")
 ;; => {:error {:type :missing-dependencies
 ;;             :module "advanced"
-;;             :missing ["local-eval" "calculate"]
+;;             :missing ["mcp-local-eval" "calculate"]
 ;;             :message "Module advanced requires: local-eval, calculate"}}
 ```
 

@@ -428,7 +428,7 @@ bb server:stop code-browser-dev
 
 4. **Tool Integration**
    - Claude Code's Bash tool is well-integrated
-   - Would need to use `nrepl-eval` or `local-eval` tools instead
+   - Would need to use `nrepl-eval` or `mcp-local-eval` tools instead
    - Less "native" feeling in the interface
 
 5. **Multiline Complexity**

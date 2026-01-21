@@ -100,7 +100,7 @@ bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
-bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+bb mcp call mcp-local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
 
 # 3. Open browser, get connection nickname
 open http://localhost:8091

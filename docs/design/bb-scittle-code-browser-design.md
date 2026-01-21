@@ -502,7 +502,7 @@ modules/sente-browser/
 
 ```edn
 {:server-name "code-browser-dev"
- :modules ["local-eval"
+ :modules ["mcp-local-eval"
            "nrepl"
            "mcp-http"
            "clojure-lsp"

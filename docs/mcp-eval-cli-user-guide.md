@@ -287,7 +287,7 @@ Long-running code may timeout. Currently no `--timeout` option (use nrepl for lo
 Minimal config for local evaluation:
 
 ```clojure
-{:modules ["local-eval"]}
+{:modules ["mcp-local-eval"]}
 ```
 
 ### .ports/<nickname>

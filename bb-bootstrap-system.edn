@@ -1,2 +1,2 @@
-{:modules ["local-eval"]
+{:modules ["mcp-local-eval"]
  :description "Minimal bootstrap configuration for MCP server with only local-eval module"}

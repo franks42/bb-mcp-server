@@ -273,7 +273,7 @@ bb mcp call echo.echo '{"message":"hello"}' --mcp my-server
 bb mcp call calculate.calculate '{"expr":"(+ 1 2 3)"}' --mcp my-server
 
 # Local eval (in MCP server's runtime)
-bb mcp call local-eval.local-eval '{"code":"(+ 1 2)"}' --mcp my-server
+bb mcp call mcp-local-eval.local-eval '{"code":"(+ 1 2)"}' --mcp my-server
 
 # nREPL eval (in connected nREPL)
 bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2)","connection":"browser-1"}' --mcp my-server
@@ -433,7 +433,7 @@ bb mcp servers
 bb mcp tools --mcp <nick>
 
 # Eval in the server's runtime
-bb mcp call local-eval.local-eval '{"code":"(keys @bb-mcp-server.system/!state)"}' --mcp <nick>
+bb mcp call mcp-local-eval.local-eval '{"code":"(keys @bb-mcp-server.system/!state)"}' --mcp <nick>
 ```
 
 ### Test Code Changes

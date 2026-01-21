@@ -1,6 +1,8 @@
-# local-eval
+# mcp-local-eval
 
-Local code evaluation with full server access.
+MCP-based local code evaluation with full server access.
+
+> **Note:** This module is named "mcp-local-eval" to clarify it uses MCP protocol for tool invocation, NOT nREPL. Code executes directly in the bb-mcp-server process.
 
 ## Overview
 
@@ -8,10 +10,10 @@ Execute Clojure code and load files directly within the MCP server's runtime env
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `local-eval` | Evaluate Clojure code with full server access |
-| `local-load-file` | Load and evaluate Clojure files |
+| Tool | Full Name | Description |
+|------|-----------|-------------|
+| `local-eval` | `mcp-local-eval.local-eval` | Evaluate Clojure code with full server access |
+| `local-load-file` | `mcp-local-eval.local-load-file` | Load and evaluate Clojure files |
 
 ## Tool: `local-eval`
 
@@ -58,16 +60,25 @@ Load and execute Clojure files in the server runtime.
 - **Debugging** - Test code within server context
 - **Configuration** - Modify server state dynamically
 
+## MCP vs nREPL
+
+| Aspect | mcp-local-eval | nrepl module |
+|--------|---------------|--------------|
+| Protocol | MCP tool call | nREPL protocol |
+| Where code runs | bb-mcp-server process | Remote nREPL server |
+| Use case | Server introspection | Remote evaluation |
+
 ## Module Structure
 
 ```
-modules/local-eval/
+modules/mcp-local-eval/
 ├── module.edn
 ├── README.md
-└── src/local_eval/
+└── src/mcp_local_eval/
     ├── core.clj       # Module entry
     ├── eval.clj       # local-eval tool
-    └── load_file.clj  # local-load-file tool
+    ├── load_file.clj  # local-load-file tool
+    └── shared.clj     # Shared utilities
 ```
 
 ## License

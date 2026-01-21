@@ -7,4 +7,4 @@
 ;; - clojure-lsp: The module under development
 
 {:modules-dir "modules"
- :modules ["local-eval" "nrepl" "clojure-lsp"]}
+ :modules ["mcp-local-eval" "nrepl" "clojure-lsp"]}

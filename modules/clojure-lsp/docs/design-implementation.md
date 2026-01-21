@@ -218,7 +218,7 @@ bb clojure-lsp definition <file> <line> <col>
 **How it works:**
 1. Parse args
 2. Build Clojure code string: `(tools/hover {:file "..." :line 10 :column 5})`
-3. Send to MCP server via `local-eval.local-eval` tool
+3. Send to MCP server via `mcp-local-eval.local-eval` tool
 4. Print result as JSON
 
 ---

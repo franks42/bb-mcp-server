@@ -1,5 +1,5 @@
-(ns local-eval.eval
-    "Local eval handler - execute code within MCP server runtime."
+(ns mcp-local-eval.eval
+    "MCP local eval handler - execute code within MCP server runtime."
     (:require [cheshire.core :as json]))
 
 ;; =============================================================================
@@ -155,9 +155,11 @@
 (def tool-definition
      "MCP tool definition for local-eval."
      {:name tool-name
-      :module "local-eval"
+      :module "mcp-local-eval"
       :description "Execute Clojure code within MCP server runtime for introspection and debugging.
 Uses native Babashka/Clojure eval - ideal for server state inspection, debugging, and code execution.
+
+**Note:** This is MCP-based local evaluation, NOT nREPL. Code runs in the server process itself.
 
 **Parameters:**
 - code: Clojure code to evaluate

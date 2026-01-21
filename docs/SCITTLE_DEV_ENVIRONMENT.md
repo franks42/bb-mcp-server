@@ -349,7 +349,7 @@ The Playwright terminal shows all browser console.log output prefixed with `[bro
 
 ### Verify Connection Health
 ```bash
-bb mcp call local-eval.local-eval '{"code":"(sente-browser.server/get-connection-health)"}' --mcp code-browser-dev
+bb mcp call mcp-local-eval.local-eval '{"code":"(sente-browser.server/get-connection-health)"}' --mcp code-browser-dev
 ```
 
 ---
@@ -601,7 +601,7 @@ Note the browser connection nickname (e.g., `browser-1`, `browser-4`).
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
-bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+bb mcp call mcp-local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
 ```
 
 **Expected output:** A database object is returned (success). The `init!` function now:
@@ -673,7 +673,7 @@ echo "=== Initializing v2 backend (scans current commit, populates fresh databas
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
-bb mcp call local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+bb mcp call mcp-local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
 
 echo "=== Opening browser ==="
 open http://localhost:8091
@@ -717,7 +717,7 @@ bb datalevin:cleanup    # Stop pods + remove lock files (use if DB is stuck)
 cat > /tmp/check-v2.json << 'EOF'
 {"code": "(keys @code-browser.sync/!state)"}
 EOF
-bb mcp call local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
+bb mcp call mcp-local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
 ```
 
 **v2 state keys:** `(:projects :selected-project :namespaces :selected-ns :symbols :aliases :refers :selected-symbol :source :sort-mode :loading? :error)`

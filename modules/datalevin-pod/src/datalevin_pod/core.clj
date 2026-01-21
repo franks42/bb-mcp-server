@@ -6,7 +6,7 @@
    - Connection management (get-conn, close)
    - Public API for queries and transactions
 
-   Access via local-eval or from other modules that depend on this."
+   Access via mcp-local-eval or from other modules that depend on this."
     (:require [babashka.pods :as pods]
               [taoensso.trove :as log]))
 

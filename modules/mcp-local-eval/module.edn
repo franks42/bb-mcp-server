@@ -1,0 +1,15 @@
+;; MCP Local-eval module configuration
+;;
+;; Local code evaluation tools using SCI sandbox.
+;; Named "mcp-local-eval" to clarify this is MCP-based (not nREPL).
+
+{:name "mcp-local-eval"
+ :version "0.1.0"
+ :description "Local code evaluation tools using SCI sandbox (MCP-based, not nREPL)"
+
+ :requires []
+
+ ;; Entry point
+ :entry "mcp-local-eval.core/module"
+
+ :defaults {}}

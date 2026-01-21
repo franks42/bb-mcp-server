@@ -11,7 +11,7 @@
  ;; nrepl, directory-browser -> sente-browser
  ;; datalevin-pod, atom-sync -> code-browser-v2
  ;; nrepl-proxy-server -> server-side nREPL for initialization
- :modules ["local-eval" "nrepl" "directory-browser" "datalevin-pod" "atom-sync"
+ :modules ["mcp-local-eval" "nrepl" "directory-browser" "datalevin-pod" "atom-sync"
            "sente-browser" "code-browser-v2" "nrepl-proxy-server"]
 
  :config {"sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true

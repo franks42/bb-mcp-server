@@ -54,7 +54,7 @@ Purpose: Verify system capabilities and environment
 
 ### Step 3: Choose Evaluation Method
 - **nrepl-eval**: Full Clojure + VS Code API access (recommended)
-- **local-eval**: Server introspection and debugging (limited SCI environment)
+- **mcp-local-eval.local-eval**: Server introspection and debugging (limited SCI environment)
 
 ### Step 4: Use Base64 for Complex Code
 ```
@@ -83,7 +83,7 @@ Use input-base64: true for complex code with quotes/newlines
 
 **Example**: `{\"code\": \"(+ 1 2 3)\", \"timeout\": 30}`
 
-#### local-eval
+#### mcp-local-eval.local-eval
 **Purpose**: Execute code within MCP server runtime for debugging
 **When to use**:
 - Server state inspection
@@ -215,7 +215,7 @@ Example: Code with quotes, newlines, special characters
 Example: Automated refactoring and file operations
 
 ### Pattern 4: Server Debugging and Introspection
-1. `local-eval` for server state inspection
+1. `mcp-local-eval.local-eval` for server state inspection
 2. Debug tools for deep introspection
 3. Health checks for system validation
 
@@ -250,7 +250,7 @@ Example: Understanding server behavior and troubleshooting
 1. 🔗 Start with `nrepl-connection` to establish link
 2. 💡 Run `nrepl-health-check` to understand environment
 3. 🚀 Use `nrepl-eval` for most Clojure tasks
-4. 🛠️ Try `local-eval` for server introspection
+4. 🛠️ Try `mcp-local-eval.local-eval` for server introspection
 5. 📦 Use base64 encoding for complex code
 6. 🎮 Explore VS Code integration patterns
 7. 🔧 Debug with specialized tools when needed

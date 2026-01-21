@@ -6,6 +6,6 @@
 ;; Or use:
 ;;   bb rebel-nrepl-client 7888
 
-{:modules ["local-eval" "nrepl-test-server"]
+{:modules ["mcp-local-eval" "nrepl-test-server"]
 
  :config {"nrepl-test-server" {:port 7888 :host "localhost"}}}

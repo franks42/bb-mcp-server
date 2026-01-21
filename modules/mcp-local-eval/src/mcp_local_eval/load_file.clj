@@ -1,6 +1,6 @@
-(ns local-eval.load-file
-    "Local load-file handler - load and evaluate Clojure files in MCP server runtime."
-    (:require [local-eval.shared :as shared])
+(ns mcp-local-eval.load-file
+    "MCP local load-file handler - load and evaluate Clojure files in MCP server runtime."
+    (:require [mcp-local-eval.shared :as shared])
     (:import [java.io StringWriter PrintWriter]))
 
 ;; =============================================================================
@@ -53,11 +53,13 @@
 (def tool-definition
      "MCP tool definition for local-load-file."
      {:name tool-name
-      :module "local-eval"
+      :module "mcp-local-eval"
       :description "Load and evaluate Clojure files in MCP server's runtime.
 
 Uses Clojure's built-in load-file function to load and evaluate the specified
 file within the MCP server's own runtime environment.
+
+**Note:** This is MCP-based local file loading, NOT nREPL. Code runs in the server process itself.
 
 **Use cases:**
 - Loading development scripts and toolkits

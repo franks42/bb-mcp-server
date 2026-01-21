@@ -17,7 +17,7 @@
 ;;   - nrepl-proxy-server: rebel-readline support
 ;;   - nrepl-test-server: bb eval target
 
-{:modules ["local-eval"
+{:modules ["mcp-local-eval"
            "nrepl"
            "nrepl-test-server"
            "mcp-http"

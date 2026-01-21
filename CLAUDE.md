@@ -79,7 +79,7 @@ bb nrepl eval "<code>" --mcp X  # Eval code
 bb nrepl load-file scripts/cb-v2-init.clj --mcp cb-v2-test --connection server
 
 # Also works: JSON args-file (for simple cases)
-bb mcp call local-eval.local-eval --args-file scripts/cb-v2-init.json --mcp cb-v2-test
+bb mcp call mcp-local-eval.local-eval --args-file scripts/cb-v2-init.json --mcp cb-v2-test
 
 # AVOID: Inline code with ! characters (escaping issues)
 bb nrepl eval "(init! ...)" --mcp cb-v2-test  # ! gets escaped incorrectly

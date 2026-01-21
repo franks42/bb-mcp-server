@@ -357,7 +357,7 @@ bb --nrepl-server 7888
 Bootstrap config for nREPL CLI operations:
 
 ```clojure
-{:modules ["nrepl" "local-eval"]}
+{:modules ["nrepl" "mcp-local-eval"]}
 ```
 
 ### .ports/<nickname>

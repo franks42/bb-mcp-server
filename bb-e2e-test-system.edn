@@ -1,2 +1,2 @@
-{:modules ["echo" "strings" "math" "calculate" "local-eval" "hello"]
+{:modules ["echo" "strings" "math" "calculate" "mcp-local-eval" "hello"]
  :description "E2E test configuration with simple tools for testing MCP client"}

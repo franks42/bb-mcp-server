@@ -1,8 +1,9 @@
-(ns local-eval.core
-    "Local eval module - code execution within MCP server runtime."
+(ns mcp-local-eval.core
+    "MCP local eval module - code execution within MCP server runtime.
+   Named 'mcp-local-eval' to clarify this uses MCP (not nREPL)."
     (:require [bb-mcp-server.registry :as registry]
-              [local-eval.eval :as eval]
-              [local-eval.load-file :as load-file]
+              [mcp-local-eval.eval :as eval]
+              [mcp-local-eval.load-file :as load-file]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -10,32 +11,32 @@
 ;; =============================================================================
 
 (defn start
-  "Start the local-eval module. Registers local-eval and local-load-file tools."
+  "Start the mcp-local-eval module. Registers local-eval and local-load-file tools."
   [_deps config]
   (log/log! {:level :info
-             :id ::local-eval-starting
-             :msg "Starting local-eval module"
+             :id ::mcp-local-eval-starting
+             :msg "Starting mcp-local-eval module"
              :data {:config config}})
   (registry/register! eval/tool-definition)
   (registry/register! load-file/tool-definition)
   (log/log! {:level :info
-             :id ::local-eval-started
-             :msg "Local-eval module started"
+             :id ::mcp-local-eval-started
+             :msg "MCP local-eval module started"
              :data {:registered-tools ["local-eval" "local-load-file"]}})
   {:registered-tools ["local-eval" "local-load-file"]})
 
 (defn stop
-  "Stop the local-eval module. Unregisters tools."
+  "Stop the mcp-local-eval module. Unregisters tools."
   [_instance]
   (log/log! {:level :info
-             :id ::local-eval-stopping
-             :msg "Stopping local-eval module"})
-  (registry/unregister! "local-eval.local-eval")
-  (registry/unregister! "local-eval.local-load-file")
+             :id ::mcp-local-eval-stopping
+             :msg "Stopping mcp-local-eval module"})
+  (registry/unregister! "mcp-local-eval.local-eval")
+  (registry/unregister! "mcp-local-eval.local-load-file")
   nil)
 
 (defn status
-  "Get local-eval module status."
+  "Get mcp-local-eval module status."
   [_instance]
   {:status :ok
    :registered-tools ["local-eval" "local-load-file"]})
@@ -45,7 +46,7 @@
 ;; =============================================================================
 
 (def module
-     "Local-eval module lifecycle implementation."
+     "MCP local-eval module lifecycle implementation."
      {:start start
       :stop stop
       :status status})

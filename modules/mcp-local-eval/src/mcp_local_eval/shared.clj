@@ -1,4 +1,4 @@
-(ns local-eval.shared
+(ns mcp-local-eval.shared
     "Shared utilities for load-file tool implementations."
     (:require [cheshire.core :as json]
               [clojure.string :as str])

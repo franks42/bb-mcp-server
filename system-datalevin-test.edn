@@ -3,5 +3,5 @@
 ;; Usage: BB_MCP_SYSTEM_CONFIG=system-datalevin-test.edn bb server --http
 
 {:modules-dir "modules"
- :modules ["local-eval" "datalevin-pod"]
+ :modules ["mcp-local-eval" "datalevin-pod"]
  :config {"datalevin-pod" {:db-path "/tmp/bb-mcp-server-datalevin-test"}}}

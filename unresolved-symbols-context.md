@@ -28,7 +28,7 @@ The primary issue encountered while attempting to start the `bb-mcp-server` usin
   - Contains the entry point for the server with multiple transport options (stdio, HTTP).
   - Multiple edits were made to comment out dependencies and replace function calls with placeholders.
 - **Configuration File**: `/Users/franksiebenlist/Development/bb-mcp-server/bb-bootstrap-system.edn`
-  - Configured for minimal setup with only the `local-eval` module.
+  - Configured for minimal setup with only the `mcp-local-eval` module.
 - **Task Definition**: `/Users/franksiebenlist/Development/bb-mcp-server/bb.edn`
   - Defines the `bootstrap-server` task to start the server with the minimal configuration.
 - **Dependencies**: `/Users/franksiebenlist/Development/bb-mcp-server/deps.edn`
@@ -48,7 +48,7 @@ The primary issue encountered while attempting to start the `bb-mcp-server` usin
 1. Commented out namespace references to `mcp.stdio.core` and `streamable-http.core` in `main.clj`.
 2. Replaced specific function calls like `shttp/start-server!` and `shttp/broadcast-notification!` with placeholder functions.
 3. Renamed placeholder functions to avoid potential naming conflicts (e.g., `server-start` to `placeholder-start`).
-4. Updated `bb-bootstrap-system.edn` for a minimal configuration focusing on the `local-eval` module.
+4. Updated `bb-bootstrap-system.edn` for a minimal configuration focusing on the `mcp-local-eval` module.
 5. Tested basic Babashka functionality with a minimal script to confirm Babashka itself is operational.
 6. Researched online for Babashka reserved words, finding no explicit conflict with `server`.
 

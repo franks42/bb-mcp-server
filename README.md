@@ -39,7 +39,7 @@ See `modules/*/README.md` for details.
 
 `system.edn`:
 ```clojure
-{:modules ["hello" "echo" "calculate" "nrepl" "local-eval"]}
+{:modules ["hello" "echo" "calculate" "nrepl" "mcp-local-eval"]}
 ```
 
 ## External Modules
@@ -77,7 +77,7 @@ This enables a **minimal bootstrap pattern**:
 
 ```clojure
 ;; system.edn - minimal bootstrap
-{:modules ["local-eval"]}  ; Just local-eval!
+{:modules ["mcp-local-eval"]}  ; Just local-eval!
 ```
 
 Both `local-eval` and `nrepl` have full server access (no sandbox restrictions).
@@ -298,7 +298,7 @@ js/navigator.userAgent    ; Access browser APIs
 
 `bb-scittle-dev-system.edn`:
 ```clojure
-{:modules ["local-eval" "nrepl" "nrepl-test-server"
+{:modules ["mcp-local-eval" "nrepl" "nrepl-test-server"
            "sente-browser" "nrepl-proxy-server"]
  :config {"sente-browser" {:ws-port 8090
                            :bootstrap-port 8091
@@ -351,7 +351,7 @@ bb server --config bb-bootstrap-system.edn --nickname my-server
 
 Bootstrap config file (`bb-bootstrap-system.edn`):
 ```clojure
-{:modules ["local-eval"]}  ; Minimal setup for local evaluation
+{:modules ["mcp-local-eval"]}  ; Minimal setup for local evaluation
 ```
 
 ## Status

@@ -1095,7 +1095,7 @@ Add tools at runtime without stopping the server:
    local-load-file with path: "modules/hello/src/hello/core.clj"
    ```
 
-2. **Start the module** using `local-eval` tool:
+2. **Start the module** using `mcp-local-eval` tool:
    ```clojure
    (hello.core/start {} {:greeting "Hi"})
    ```
@@ -1141,7 +1141,7 @@ When modifying `system.edn` for permanent changes:
 bb server:stop 19878
 
 # Edit system.edn to add "math" module
-# :modules ["hello" "echo" "strings" "calculate" "local-eval" "nrepl" "math"]
+# :modules ["hello" "echo" "strings" "calculate" "mcp-local-eval" "nrepl" "math"]
 
 # Restart on same port
 bb server:streamable 19878
