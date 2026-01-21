@@ -18,6 +18,7 @@
 {:modules ["local-eval"
            "nrepl"
            "nrepl-test-server"
+           "directory-browser"  ;; Required by sente-browser
            "sente-browser"
            "nrepl-proxy-server"]
 

@@ -11,6 +11,8 @@ Before starting, ensure you have:
 - Node.js with Playwright (`npx playwright --version`)
 - Project cloned and in `/Users/franksiebenlist/Development/bb-mcp-server`
 
+**Module dependencies:** If using `sente-browser` module, your config must include `directory-browser` in the modules list (sente-browser depends on it).
+
 ---
 
 ## Clean Restart (Start from Scratch)
@@ -25,7 +27,7 @@ bb server:list                    # See what's running
 bb server:stop code-browser-dev   # Stop by nickname (if running)
 
 # 2. Kill any orphaned processes on the ports (if needed)
-lsof -ti:3000 | xargs kill -9 2>/dev/null   # MCP HTTP
+# Note: MCP HTTP uses ephemeral ports now, but fixed ports may still be in use
 lsof -ti:8090 | xargs kill -9 2>/dev/null   # Sente WebSocket
 lsof -ti:8091 | xargs kill -9 2>/dev/null   # Bootstrap HTTP
 
@@ -52,9 +54,16 @@ bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-sy
 
 **Verify:** Output should show:
 ```
-Starting server 'code-browser-dev' on port 3000...
-  Waiting for health (timeout: 30s)...
+Starting server 'code-browser-dev' (ephemeral port)...
+  Port file found (attempt N)
+  Discovered ports: {:mcp-http NNNNN, :sente-websocket 8090, :http-server 8091, ...}
   ✓ Server healthy after N attempts (Xs)
+```
+
+**Note:** MCP HTTP port is now ephemeral (OS-assigned). Discover the actual port via:
+```bash
+bb server:ports code-browser-dev   # Shows all ports
+cat .ports/code-browser-dev.json   # Raw port file
 ```
 
 **Alternative (foreground for debugging):**
@@ -311,14 +320,17 @@ bb mcp call clojure-lsp.clj-init '{}' --mcp code-browser-dev
 Run these commands IN ORDER before any Scittle debugging session:
 
 ```bash
-# 1. Is server running?
-curl -s http://localhost:3000/health | grep ok
+# 1. Is server running? (Check port file exists and PID is alive)
+bb server:list | grep code-browser-dev
 
-# 2. Is browser connected?
+# 2. Get the MCP HTTP port (ephemeral - varies each start)
+bb server:ports code-browser-dev
+
+# 3. Is browser connected?
 bb mcp call nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev | grep browser
 
-# 3. Note the CURRENT nickname (e.g., browser-5)
-# 4. Test eval with THAT nickname
+# 4. Note the CURRENT nickname (e.g., browser-5)
+# 5. Test eval with THAT nickname
 bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"browser-N","timeout":5000}' --mcp code-browser-dev
 ```
 
@@ -370,8 +382,13 @@ This script:
 **CRITICAL:** All MCP calls require session initialization. The server returns a `Mcp-Session-Id` header that MUST be included in subsequent requests.
 
 ```javascript
+// 0. Discover MCP port from port file (or use bb server:ports)
+const fs = require('fs');
+const portFile = JSON.parse(fs.readFileSync('.ports/code-browser-dev.json'));
+const mcpPort = portFile.ports['mcp-http'];
+
 // 1. Initialize MCP session
-const initResult = await fetch('http://localhost:3000/mcp', {
+const initResult = await fetch(`http://localhost:${mcpPort}/mcp`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -389,7 +406,7 @@ const sessionId = initResult.headers.get('Mcp-Session-Id');
 
 // 2. Create helper for subsequent calls
 const mcpCall = async (method, params, id) => {
-  const res = await fetch('http://localhost:3000/mcp', {
+  const res = await fetch(`http://localhost:${mcpPort}/mcp`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
