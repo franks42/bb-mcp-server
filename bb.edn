@@ -85,6 +85,12 @@
   server:start-wait {:doc "Start server and wait for health [--nickname NAME] [--config PATH] [--port PORT]"
                      :task (apply shell "bb" "scripts/start_wait_server.clj" *command-line-args*)}
 
+  server:ports {:doc "Show ports for a running server [nickname] [--all]"
+                :task (apply shell "bb" "scripts/list_ports.clj" *command-line-args*)}
+
+  server:restart {:doc "Restart a server (stop + start) [nickname] [--config PATH]"
+                  :task (apply shell "bb" "scripts/restart_server.clj" *command-line-args*)}
+
   ;; ==========================================================================
   ;; Datalevin Pod Management
   ;; ==========================================================================

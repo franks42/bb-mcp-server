@@ -12,5 +12,5 @@
  :entry "nrepl-test-server.core/module"
 
  ;; Default configuration (can be overridden in system.edn)
- :defaults {:port 7888
+ :defaults {:port 0            ; 0 = ephemeral port
             :host "localhost"}}

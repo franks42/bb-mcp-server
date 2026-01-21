@@ -1,8 +1,8 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser v2 - Server-side WORKS ✅, Browser loading FIXED ✅
-**Version:** v1.14.8
-**Last Updated:** 2026-01-19
+**Version:** v1.14.9
+**Last Updated:** 2026-01-20
 
 ---
 
@@ -79,6 +79,58 @@ bb mcp call <tool> '<json>' --mcp <nick>  # Call tool
 ```bash
 bb lint && bb format && bb test:modules
 ```
+
+---
+
+## Unified Port Registry (v1.14.9)
+
+All services now use **ephemeral ports by default** (port 0 = OS assigns). Ports are discovered via port files in `.ports/<nickname>.json`.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Ephemeral ports** | All services default to port 0, actual port stored in port file |
+| **Nickname collision detection** | Server refuses to start if nickname already in use |
+| **Stale file cleanup** | Automatically cleans up port files for dead processes |
+| **Unified port file** | Single JSON file contains all service ports |
+
+### Port File Structure
+
+```json
+{
+  "pid": 12345,
+  "nickname": "bb-server",
+  "config": "system.edn",
+  "timestamp": "2026-01-20T...",
+  "ports": {
+    "mcp-http": 55123,
+    "http-server": 8091,
+    "sente-websocket": 8090,
+    "nrepl-proxy": 1667,
+    "nrepl-server": 7888
+  }
+}
+```
+
+### Server Management Tasks
+
+```bash
+bb server:start-wait --nickname NAME --config FILE  # Start and wait for health
+bb server:stop NAME                                  # Stop by nickname
+bb server:restart NAME                               # Stop + start
+bb server:list                                       # List running servers
+bb server:ports NAME                                 # Show ports for server
+```
+
+### Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `src/bb_mcp_server/port_registry.clj` | Central port registry |
+| `src/bb_mcp_server/main.clj` | Collision detection in startup |
+| `scripts/start_wait_server.clj` | Port file discovery |
+| `scripts/restart_server.clj` | Restart task |
 
 ---
 
@@ -301,4 +353,4 @@ Click any symbol in source viewer → navigate to definition:
 
 ---
 
-*Last Updated: 2026-01-19*
+*Last Updated: 2026-01-20*

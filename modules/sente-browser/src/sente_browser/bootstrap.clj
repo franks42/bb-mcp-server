@@ -984,16 +984,18 @@
 
    Options:
    - :host - bind address (default 127.0.0.1)
-   - :bootstrap-port - HTTP port (default 8091)
+   - :bootstrap-port - HTTP port (default 0 = ephemeral)
    - :ws-host - WebSocket host to connect to (default 127.0.0.1)
-   - :ws-port - WebSocket port to connect to (default 8090)
+   - :ws-port - WebSocket port to connect to (default 0)
    - :bundle-path - path to sente-lite-nrepl.cljs bundle file
-   - :code-browser - enable code-browser mode (enhanced HTML with CM6)"
+   - :code-browser - enable code-browser mode (enhanced HTML with CM6)
+
+   Returns map with :server and :port (actual bound port)."
   [config]
   (let [host (get config :host "127.0.0.1")
-        port (get config :bootstrap-port 8091)
+        port (get config :bootstrap-port 0)
         ws-host (get config :ws-host (get config :host "127.0.0.1"))
-        ws-port (get config :ws-port 8090)
+        ws-port (get config :ws-port 0)
         bundle-path (get config :bundle-path)
         code-browser-mode? (get config :code-browser false)
         ws-config {:ws-host ws-host :ws-port ws-port}]
@@ -1018,7 +1020,8 @@
 
     (let [server (http-kit/run-server
                   (partial handler ws-config)
-                  {:ip host :port port})]
+                  {:ip host :port port})
+          actual-port (-> server meta :local-port)]
       (reset! !server server)
 
       (log/log! {:level :info
@@ -1026,9 +1029,10 @@
                  :msg (if code-browser-mode?
                         "Code Browser ready"
                         "Bootstrap server started")
-                 :data {:url (str "http://" host ":" port)
+                 :data {:url (str "http://" host ":" actual-port)
+                        :port actual-port
                         :code-browser code-browser-mode?}})
-      server)))
+      {:server server :port actual-port})))
 
 (defn stop!
   "Stop the bootstrap HTTP server."

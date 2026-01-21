@@ -163,7 +163,21 @@ bb server:start-wait --nickname e2e-test --port 3001
 ```bash
 bb server:stop <nickname>           # Stop by nickname
 bb server:stop <port>               # Stop by port
+```
+
+### Restart Server
+
+```bash
+bb server:restart <nickname>        # Stop + start same nickname
+bb server:restart <nickname> --config <file>  # With new config
+```
+
+### List Servers & Ports
+
+```bash
 bb server:list                      # List running servers
+bb server:ports <nickname>          # Show all ports for a server
+bb server:ports --all               # Show ports for all servers
 ```
 
 ### Check Health

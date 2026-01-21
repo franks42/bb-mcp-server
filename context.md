@@ -3,9 +3,53 @@
 > **AI Assistant Directive:** Keep this concise. Update as you work.
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
-**Last Updated:** 2026-01-19
-**Version:** v1.14.8
-**Focus:** Code Browser v2 - FULLY WORKING ✅
+**Last Updated:** 2026-01-20
+**Version:** v1.14.9
+**Focus:** Unified Port Registry & Server Management ✅
+
+---
+
+## 🟢 Unified Port Registry (2026-01-20) - COMPLETE
+
+### What's New in v1.14.9
+
+| Feature | Description |
+|---------|-------------|
+| **Ephemeral ports** | All services now default to port 0 (OS assigns) |
+| **Unified port file** | Single `.ports/<nickname>.json` with all service ports |
+| **Collision detection** | Server refuses to start if nickname already running |
+| **Restart task** | `bb server:restart` stops + starts same nickname |
+| **Stale cleanup** | Dead process port files auto-cleaned |
+
+### Server Management Commands
+
+```bash
+bb server:start-wait --nickname NAME --config FILE  # Start + health check
+bb server:stop NAME                                  # Stop by nickname
+bb server:restart NAME                               # Stop + start
+bb server:list                                       # List running servers
+bb server:ports NAME                                 # Show all ports
+```
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/bb_mcp_server/port_registry.clj` | New unified registry with collision detection |
+| `src/bb_mcp_server/main.clj` | Collision check before startup |
+| `scripts/start_wait_server.clj` | Ephemeral port + port file discovery |
+| `scripts/restart_server.clj` | New restart script |
+| `modules/sente-browser/*` | Default to ephemeral ports |
+| `modules/nrepl-test-server/*` | Default to ephemeral port |
+
+### How It Works
+
+1. Server starts with port 0 (ephemeral)
+2. OS assigns actual port
+3. Server writes `.ports/<nickname>.json` with all ports
+4. Scripts/clients discover ports from port file
+5. On startup, collision detection checks if nickname already running
+6. On shutdown, port file is deleted
 
 ---
 
@@ -258,4 +302,4 @@ bb lint && bb format
 
 ---
 
-*Last Updated: 2026-01-19*
+*Last Updated: 2026-01-20*

@@ -8,6 +8,7 @@
               [sente-browser.server :as server]
               [sente-browser.bootstrap :as bootstrap]
               [nrepl.state.messages :as msg-state]
+              [bb-mcp-server.port-registry :as port-registry]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -43,7 +44,7 @@
 (defn start
   "Start the sente-browser module.
 
-   Starts WebSocket server on :ws-port (default 8090).
+   Starts WebSocket server on :ws-port (default 0 = ephemeral).
 
    Returns instance map or nil if disabled."
   [_deps config]
@@ -69,17 +70,27 @@
                    :msg "Starting sente-browser module"
                    :data {:config config :bundle-path bundle-path}})
 
-        ;; Start WebSocket server first
-        (let [ws-server (server/start! config)
-              ;; Then start bootstrap HTTP server with bundle path
-              bootstrap-config (assoc config :bundle-path bundle-path)
-              http-server (bootstrap/start! bootstrap-config)]
+        ;; Start WebSocket server first (returns {:port actual-port})
+        (let [ws-result (server/start! config)
+              ws-port (:port ws-result)
+              ;; Then start bootstrap HTTP server with bundle path and actual ws-port
+              bootstrap-config (-> config
+                                   (assoc :bundle-path bundle-path)
+                                   (assoc :ws-port ws-port))
+              http-result (bootstrap/start! bootstrap-config)
+              http-port (:port http-result)]
 
           ;; Register send function so nrepl can route messages to browsers
           (msg-state/register-browser-send-fn! server/send-to-browser!)
 
-          {:ws-server ws-server
-           :http-server http-server
+          ;; Register actual bound ports in unified port registry
+          (port-registry/register-port! :sente-websocket ws-port)
+          (port-registry/register-port! :http-server http-port)
+
+          {:ws-server ws-result
+           :http-server http-result
+           :ws-port ws-port
+           :http-port http-port
            :bundle-path bundle-path
            :config config})))))
 
@@ -100,7 +111,11 @@
     (bootstrap/stop!)
 
     ;; Then stop WebSocket server
-    (server/stop!))
+    (server/stop!)
+
+    ;; Unregister ports from unified registry
+    (port-registry/unregister-port! :sente-websocket)
+    (port-registry/unregister-port! :http-server))
   nil)
 
 (defn status
@@ -108,12 +123,14 @@
 
    Returns:
    - :status - :ok or :stopped
-   - :ws-port - WebSocket port
+   - :ws-port - WebSocket port (actual bound port)
+   - :http-port - HTTP bootstrap port (actual bound port)
    - :browser-count - Number of connected browsers"
   [instance]
   (if instance
     {:status :ok
-     :ws-port (get-in instance [:config :ws-port])
+     :ws-port (:ws-port instance)
+     :http-port (:http-port instance)
      :browser-count (server/browser-count)}
     {:status :stopped}))
 

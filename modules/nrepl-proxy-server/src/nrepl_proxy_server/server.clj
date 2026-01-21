@@ -10,6 +10,7 @@
               [nrepl.state.results :as results]
               [nrepl-proxy-server.session :as session]
               [nrepl-proxy-server.api :as api]
+              [bb-mcp-server.port-registry :as port-registry]
               [taoensso.trove :as log])
     (:import [java.io PushbackInputStream BufferedOutputStream EOFException]
              [java.net ServerSocket InetAddress]))
@@ -369,9 +370,12 @@
     (reset! !server-state {:socket socket
                            :config {:port actual-port :host host :port-file port-file}})
 
-    ;; Write port file for discovery
+    ;; Write port file for discovery (legacy - keep for backward compat)
     (when write-port-file?
       (write-port-file! actual-port port-file))
+
+    ;; Register port in unified port registry
+    (port-registry/register-port! :nrepl-proxy actual-port)
 
     ;; Start accept loop in background
     (future (accept-connections socket))
@@ -390,9 +394,12 @@
   (when-let [{:keys [socket config]} @!server-state]
             (.close ^ServerSocket socket)
 
-    ;; Delete port file
+    ;; Delete port file (legacy)
             (when-let [port-file (:port-file config)]
                       (delete-port-file! port-file))
+
+    ;; Unregister port from unified registry
+            (port-registry/unregister-port! :nrepl-proxy)
 
     ;; Clear sessions
             (session/clear-all-sessions!)

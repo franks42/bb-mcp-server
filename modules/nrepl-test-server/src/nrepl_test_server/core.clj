@@ -6,9 +6,10 @@
    nrepl-eval, etc.
 
    Configuration (via system.edn):
-     :port - Port to listen on (default: 7888)
+     :port - Port to listen on (default: 0 = ephemeral)
      :host - Host to bind to (default: localhost)"
     (:require [babashka.nrepl.server :as nrepl]
+              [bb-mcp-server.port-registry :as port-registry]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -37,6 +38,8 @@
                            :host host
                            :port actual-port
                            :started-at (System/currentTimeMillis)})
+     ;; Register port in unified port registry
+     (port-registry/register-port! :nrepl-server actual-port)
      (log/log! {:level :info
                 :id ::server-started
                 :msg "nREPL test server started"
@@ -55,6 +58,8 @@
   (when-let [{:keys [server host port]} @server-state]
             (try
              (nrepl/stop-server! server)
+             ;; Unregister port from unified registry
+             (port-registry/unregister-port! :nrepl-server)
              (reset! server-state nil)
              (log/log! {:level :info
                         :id ::server-stopped
@@ -76,11 +81,11 @@
   "Start the nREPL test server module.
 
    Config options:
-     :port - Port to listen on (default: 7888)
+     :port - Port to listen on (default: 0 = ephemeral)
      :host - Host to bind to (default: localhost)"
   [_deps config]
   (let [host (get config :host "localhost")
-        port (get config :port 7888)]
+        port (get config :port 0)]
     (log/log! {:level :info
                :id ::module-starting
                :msg "Starting nREPL test server module"

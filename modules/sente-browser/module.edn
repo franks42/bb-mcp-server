@@ -11,8 +11,8 @@
 
  ;; Default configuration
  :defaults {:enabled false
-            :ws-port 8090
-            :bootstrap-port 8091
+            :ws-port 0          ; Ephemeral port by default
+            :bootstrap-port 0   ; Ephemeral port by default
             :host "127.0.0.1"}  ; Security: localhost only by default
 
  ;; Test runner

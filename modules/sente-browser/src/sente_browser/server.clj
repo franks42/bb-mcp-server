@@ -488,12 +488,14 @@
 
    Config options:
    - :host - bind address (default 127.0.0.1)
-   - :ws-port - WebSocket port (default 8090)
+   - :ws-port - WebSocket port (default 0 = ephemeral)
    - :code-browser - enable code browser handlers (default false)
-   - :projects - list of project root paths for code browser (Phase 1.5E.3)"
+   - :projects - list of project root paths for code browser (Phase 1.5E.3)
+
+   Returns map with :port (actual bound port)."
   [config]
   (let [host (get config :host "127.0.0.1")
-        port (get config :ws-port 8090)
+        port (get config :ws-port 0)
         code-browser-enabled? (get config :code-browser false)
         projects (get config :projects [])]
 
@@ -510,24 +512,28 @@
       :port port
       :on-message on-browser-message})
 
-    ;; Register browser send function so watchers can send to browsers
-    (msg-state/register-browser-send-fn! send-to-browser!)
+    ;; Get actual bound port (for ephemeral ports)
+    (let [actual-port (sente-server/get-server-port)]
 
-    ;; Initialize atom-sync server integration
-    (atom-sync/init! broadcast-to-browsers! send-to-browser!)
+      ;; Register browser send function so watchers can send to browsers
+      (msg-state/register-browser-send-fn! send-to-browser!)
 
-    ;; Start global message queue watcher
-    (watchers/start-all-watchers!)
+      ;; Initialize atom-sync server integration
+      (atom-sync/init! broadcast-to-browsers! send-to-browser!)
 
-    ;; Start heartbeat task for connection health monitoring
-    (start-heartbeat-task!)
+      ;; Start global message queue watcher
+      (watchers/start-all-watchers!)
 
-    (log/log! {:level :info
-               :id ::started
-               :msg "Sente WebSocket server started"
-               :data {:host host
-                      :port port
-                      :url (str "ws://" host ":" port)}})))
+      ;; Start heartbeat task for connection health monitoring
+      (start-heartbeat-task!)
+
+      (log/log! {:level :info
+                 :id ::started
+                 :msg "Sente WebSocket server started"
+                 :data {:host host
+                        :port actual-port
+                        :url (str "ws://" host ":" actual-port)}})
+      {:port actual-port})))
 
 (defn stop!
   "Stop the sente-lite WebSocket server."

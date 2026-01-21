@@ -6,11 +6,20 @@ Modular MCP server in Clojure/Babashka.
 
 ```bash
 # stdio (Claude Code)
-bb server:stdio
+bb server
 
 # HTTP (Streamable HTTP spec 2025-03-26)
-bb server:streamable 3000
+bb server --http --nickname my-server --config system.edn
+
+# Server management
+bb server:start-wait --nickname my-server --config system.edn  # Start + wait for health
+bb server:stop my-server                                        # Stop by nickname
+bb server:restart my-server                                     # Stop + start
+bb server:list                                                  # List running servers
+bb server:ports my-server                                       # Show all ports
 ```
+
+All services use **ephemeral ports** by default (OS-assigned). Port discovery via `.ports/<nickname>.json`.
 
 ## Modules
 
@@ -321,7 +330,8 @@ bb test:bootstrap # Run bootstrap configuration tests
 bb test:e2e       # Run E2E MCP client tests (requires running server)
 bb lint           # clj-kondo (0 errors, 0 warnings)
 bb format         # cljfmt
-bb server:stop 3000  # Stop HTTP server
+bb server:stop my-server  # Stop server by nickname
+bb server:list            # List running servers
 ```
 
 ### Bootstrap Configuration

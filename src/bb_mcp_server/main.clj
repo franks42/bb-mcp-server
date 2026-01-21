@@ -16,9 +16,9 @@
               [bb-mcp-server.protocol.processor :as processor]
               [bb-mcp-server.protocol.router :as router]
               [bb-mcp-server.registry :as registry]
+              [bb-mcp-server.port-registry :as port-registry]
               [mcp-stdio.core :as stdio]
               [streamable-http.core :as shttp]
-              [bb-mcp-server.pid-util :as pid-util]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -186,10 +186,6 @@ TRANSPORTS:
                      :config-path (:config opts)}})
   (println (str "\n=== Starting HTTP transport on port " port " ==="))
 
-  ;; Write PID file (only if port is known, skip for ephemeral until assigned)
-  (when-not (zero? port)
-    (pid-util/write-pid-file! port (:nickname opts) (:config opts)))
-
   ;; Create JSON-RPC handler
   (let [handler (fn [ctx request] (router/route-request ctx request))
         server (shttp/start-server!
@@ -262,64 +258,95 @@ TRANSPORTS:
 
       ;; HTTP only
       (and (:http opts) (not (:stdio opts)))
-      (do (println "\n=== BB MCP Server ===")
-          (initialize-system! true (:config opts)) ; pass custom config
-          (let [server (start-http! (:port opts) opts)
-                actual-port (:port server)]  ;; Server now contains actual port
-            ;; If using ephemeral port, now that it's assigned, write PID file
-            (when (zero? (:port opts))
-              (pid-util/write-pid-file! actual-port (:nickname opts) (:config opts)))
+      (let [nickname (or (:nickname opts) port-registry/default-nickname)
+            availability (port-registry/check-nickname-available! nickname)]
+        (if-not (:available availability)
+          (do
+           (println (str "\nERROR: Server '" nickname "' is already running (PID " (:pid availability) ")"))
+           (println (str "Stop it first with: bb server:stop " nickname))
+           (println "Or use a different nickname with: --nickname <name>")
+           (System/exit 1))
+          (do
+           (println "\n=== BB MCP Server ===")
+            ;; Set instance info early (before modules may register ports)
+           (port-registry/set-instance-info! {:nickname nickname
+                                              :config (:config opts)})
+           (initialize-system! true (:config opts)) ; pass custom config
+           (let [server (start-http! (:port opts) opts)
+                 actual-port (:port server)]  ;; Server now contains actual port
+              ;; Register MCP HTTP port and write unified port file
+             (port-registry/register-port! :mcp-http actual-port)
+             (port-registry/write-port-file!)
 
-            ;; Shutdown hook
-            (.addShutdownHook
-             (Runtime/getRuntime)
-             (Thread. (fn []
-                        (log/log! {:level :info
-                                   :id    ::shutdown-initiated
-                                   :msg   "Shutdown initiated"
-                                   :data  {:transport :http}})
-                        (println "\nShutting down...")
-                        (shttp/stop-server! server)
-                        (pid-util/delete-pid-file! actual-port)
-                        (log/log! {:level :info
-                                   :id    ::shutdown-complete
-                                   :msg   "Shutdown complete"}))))
-            (println "\nServer ready. Press Ctrl+C to stop.")
-            ;; Keep running
-            (deref (promise))))
+              ;; Shutdown hook
+             (.addShutdownHook
+              (Runtime/getRuntime)
+              (Thread. (fn []
+                         (log/log! {:level :info
+                                    :id    ::shutdown-initiated
+                                    :msg   "Shutdown initiated"
+                                    :data  {:transport :http}})
+                         (println "\nShutting down...")
+                         (shttp/stop-server! server)
+                         (port-registry/delete-port-file!)
+                         (port-registry/clear-registry!)
+                         (log/log! {:level :info
+                                    :id    ::shutdown-complete
+                                    :msg   "Shutdown complete"}))))
+             (println "\nServer ready. Press Ctrl+C to stop.")
+              ;; Keep running
+             (deref (promise))))))
 
       ;; Both transports
       (and (:stdio opts) (:http opts))
-      (do (log/log! {:level :info
-                     :id    ::dual-transport-mode
-                     :msg   "Starting dual transport mode"
-                     :data  {:http-port (:port opts)}})
-          (initialize-system! true (:config opts)) ; pass custom config
+      (let [nickname (or (:nickname opts) port-registry/default-nickname)
+            availability (port-registry/check-nickname-available! nickname)]
+        (if-not (:available availability)
+          (do
+           (binding [*out* *err*]
+                    (println (str "ERROR: Server '" nickname "' is already running (PID " (:pid availability) ")"))
+                    (println (str "Stop it first with: bb server:stop " nickname))
+                    (println "Or use a different nickname with: --nickname <name>"))
+           (System/exit 1))
+          (do
+           (log/log! {:level :info
+                      :id    ::dual-transport-mode
+                      :msg   "Starting dual transport mode"
+                      :data  {:http-port (:port opts)}})
+            ;; Set instance info early (before modules may register ports)
+           (port-registry/set-instance-info! {:nickname nickname
+                                              :config (:config opts)})
+           (initialize-system! true (:config opts)) ; pass custom config
 
-          ;; Start HTTP in background
-          (let [server (start-http! (:port opts) opts)
-                actual-port (:port server)]  ;; Server now contains actual port
-            (.addShutdownHook
-             (Runtime/getRuntime)
-             (Thread. (fn []
-                        (log/log! {:level :info
-                                   :id    ::shutdown-initiated
-                                   :msg   "Shutdown initiated"
-                                   :data  {:transport :dual}})
-                        (shttp/stop-server! server)
-                        (pid-util/delete-pid-file! actual-port)
-                        (log/log! {:level :info
-                                   :id    ::shutdown-complete
-                                   :msg   "Shutdown complete"}))))
+            ;; Start HTTP in background
+           (let [server (start-http! (:port opts) opts)
+                 actual-port (:port server)]  ;; Server now contains actual port
+              ;; Register MCP HTTP port and write unified port file
+             (port-registry/register-port! :mcp-http actual-port)
+             (port-registry/write-port-file!)
 
-            (log/log! {:level :info
-                       :id    ::stdio-transport-starting
-                       :msg   "Starting stdio transport with HTTP in background"
-                       :data  {:http-port (:port opts)}})
+             (.addShutdownHook
+              (Runtime/getRuntime)
+              (Thread. (fn []
+                         (log/log! {:level :info
+                                    :id    ::shutdown-initiated
+                                    :msg   "Shutdown initiated"
+                                    :data  {:transport :dual}})
+                         (shttp/stop-server! server)
+                         (port-registry/delete-port-file!)
+                         (port-registry/clear-registry!)
+                         (log/log! {:level :info
+                                    :id    ::shutdown-complete
+                                    :msg   "Shutdown complete"}))))
 
-          ;; Stdio blocks
-            (start-stdio!)))))
+             (log/log! {:level :info
+                        :id    ::stdio-transport-starting
+                        :msg   "Starting stdio transport with HTTP in background"
+                        :data  {:http-port (:port opts)}})
+
+            ;; Stdio blocks
+             (start-stdio!))))))))
 
 ;; Run main when loaded as script
-  (when (= *file* (System/getProperty "babashka.file"))
-    (apply -main *command-line-args*)))
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
