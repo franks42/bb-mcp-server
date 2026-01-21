@@ -2,10 +2,41 @@
 
 > **AI Assistant Directive:** Keep this concise. Update as you work.
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
+> For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-01-20
-**Version:** v1.14.15
-**Focus:** Direct nREPL Client - Complete
+**Version:** v1.14.17
+**Focus:** nREPL Response Format Alignment - Complete
+
+---
+
+## 🟢 nREPL Response Format Alignment (2026-01-20) - COMPLETE
+
+### Goal
+
+Align response formats between `nrepl-direct` and `mcp-nrepl` for consistency, add scripting-friendly output mode.
+
+### Changes in v1.14.17
+
+| Change | Description |
+|--------|-------------|
+| **Flat response** | nrepl-direct now returns flat map (no nested `:response`) |
+| **String status** | `:status` is now `"success"` not `:success` |
+| **`:value-parsed`** | EDN-parsed result when possible |
+| **`:ex/:root-ex`** | Exception fields added to mcp-nrepl |
+| **`:ns` input** | Namespace parameter added to mcp-nrepl |
+| **`--output edn`** | Clean EDN output for scripting (exit 0/1) |
+| **`--stdout2stderr`** | Show eval's stdout on stderr while piping |
+| **`-h/--help`** | Works anywhere on command line |
+| **base64 support** | `input-base64` and `output-base64` in nrepl-direct |
+
+### Documentation
+
+See `docs/bb-nrepl-direct-user-guide.md` for complete usage guide including:
+- Output modes (result, full, edn, pipe)
+- Shell escaping (`!` problem and solutions)
+- Browser/Scittle development with nrepl-proxy
+- load-file vs load-local-file
 
 ---
 

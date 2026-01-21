@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
 **Status:** Code Browser v2 - Server-side WORKS ✅, Browser loading FIXED ✅
-**Version:** v1.14.9
+**Version:** v1.14.17
 **Last Updated:** 2026-01-20
 
 ---
@@ -65,9 +65,14 @@ bb server --http --config <file>    # Custom config
 bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
 # Then open http://localhost:8091
 
-# nREPL CLI
+# nREPL CLI (via MCP)
 bb nrepl list --mcp <nickname>      # List connections
 bb nrepl eval "<code>" --mcp <nick> # Eval code
+
+# nREPL Direct CLI (no MCP) - see docs/bb-nrepl-direct-user-guide.md
+bb nrepl-direct eval "<code>" --port 7888           # Eval code
+bb nrepl-direct eval "<code>" --port 7888 --output edn  # Clean EDN for scripting
+bb nrepl-direct load-local-file <path> --port 7888  # Load file (browser-safe)
 
 # MCP CLI
 bb mcp servers                      # List running servers
