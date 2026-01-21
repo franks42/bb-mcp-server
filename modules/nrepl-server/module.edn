@@ -1,0 +1,16 @@
+;; nREPL Server module configuration
+;;
+;; Auto-starts a Babashka nREPL server.
+
+{:name "nrepl-server"
+ :version "0.1.0"
+ :description "Auto-starting Babashka nREPL server"
+
+ :requires []
+
+ ;; Entry point
+ :entry "nrepl-server.core/module"
+
+ ;; Default configuration (can be overridden in system.edn)
+ :defaults {:port 0            ; 0 = ephemeral port
+            :host "localhost"}}

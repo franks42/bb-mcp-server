@@ -15,18 +15,18 @@
 ;;   - clojure-lsp: Static analysis (always loaded)
 ;;   - sente-browser: Scittle nREPL + bootstrap page
 ;;   - nrepl-proxy-server: rebel-readline support
-;;   - nrepl-test-server: bb eval target
+;;   - nrepl-server: bb eval target
 
 {:modules ["mcp-local-eval"
            "mcp-nrepl"
-           "nrepl-test-server"
+           "nrepl-server"
            "mcp-http"
            "clojure-lsp"
            "directory-browser"  ;; Phase 1.5E.16: Required by sente-browser
            "sente-browser"
            "nrepl-proxy-server"]
 
- :config {"nrepl-test-server" {:port 7888
+ :config {"nrepl-server" {:port 7888
                                :host "localhost"}
 
           "mcp-http" {:port 3000

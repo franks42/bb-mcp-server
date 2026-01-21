@@ -20,7 +20,7 @@
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
  :config {"hello" {:greeting "Hi"}
-          "nrepl-test-server" {:port 7888 :host "localhost"}
+          "nrepl-server" {:port 7888 :host "localhost"}
           "datalevin-pod" {:db-path "/var/db/datalevin/bb-mcp-server"}
           "sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true
                    ;; Phase 1.5E.3: Available projects for code browser

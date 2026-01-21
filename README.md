@@ -298,7 +298,7 @@ js/navigator.userAgent    ; Access browser APIs
 
 `bb-scittle-dev-system.edn`:
 ```clojure
-{:modules ["mcp-local-eval" "nrepl" "nrepl-test-server"
+{:modules ["mcp-local-eval" "mcp-nrepl" "nrepl-server"
            "sente-browser" "nrepl-proxy-server"]
  :config {"sente-browser" {:ws-port 8090
                            :bootstrap-port 8091

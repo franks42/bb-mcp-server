@@ -1,8 +1,8 @@
-(ns nrepl-test-server.core
-    "Module that auto-starts a Babashka nREPL server for testing.
+(ns nrepl-server.core
+    "Module that auto-starts a Babashka nREPL server.
 
    This module starts a local nREPL server when the MCP server starts,
-   providing a target for testing nrepl client tools like nrepl-connection,
+   providing a target for nrepl client tools like nrepl-connection,
    nrepl-eval, etc.
 
    Configuration (via system.edn):
@@ -42,13 +42,13 @@
      (port-registry/register-port! :nrepl-server actual-port)
      (log/log! {:level :info
                 :id ::server-started
-                :msg "nREPL test server started"
+                :msg "nREPL server started"
                 :data {:host host :port actual-port}})
      {:status :started :host host :port actual-port})
    (catch Exception e
           (log/log! {:level :error
                      :id ::server-start-failed
-                     :msg "Failed to start nREPL test server"
+                     :msg "Failed to start nREPL server"
                      :data {:host host :port port :error (.getMessage e)}})
           {:status :failed :error (.getMessage e)})))
 
@@ -63,13 +63,13 @@
              (reset! server-state nil)
              (log/log! {:level :info
                         :id ::server-stopped
-                        :msg "nREPL test server stopped"
+                        :msg "nREPL server stopped"
                         :data {:host host :port port}})
              {:status :stopped :host host :port port}
              (catch Exception e
                     (log/log! {:level :error
                                :id ::server-stop-failed
-                               :msg "Failed to stop nREPL test server"
+                               :msg "Failed to stop nREPL server"
                                :data {:error (.getMessage e)}})
                     {:status :failed :error (.getMessage e)}))))
 
@@ -78,7 +78,7 @@
 ;; =============================================================================
 
 (defn start
-  "Start the nREPL test server module.
+  "Start the nREPL server module.
 
    Config options:
      :port - Port to listen on (default: 0 = ephemeral)
@@ -88,26 +88,26 @@
         port (get config :port 0)]
     (log/log! {:level :info
                :id ::module-starting
-               :msg "Starting nREPL test server module"
+               :msg "Starting nREPL server module"
                :data {:host host :port port}})
     (let [result (start-server! {:host host :port port})]
       (if (= :started (:status result))
         {:server-host host
          :server-port port
          :connection-string (str host ":" port)}
-        (throw (ex-info "Failed to start nREPL test server" result))))))
+        (throw (ex-info "Failed to start nREPL server" result))))))
 
 (defn stop
-  "Stop the nREPL test server module."
+  "Stop the nREPL server module."
   [_instance]
   (log/log! {:level :info
              :id ::module-stopping
-             :msg "Stopping nREPL test server module"})
+             :msg "Stopping nREPL server module"})
   (stop-server!)
   nil)
 
 (defn status
-  "Get nREPL test server status."
+  "Get nREPL server status."
   [_instance]
   (if-let [{:keys [host port started-at]} @server-state]
           {:status :running
@@ -122,7 +122,7 @@
 ;; =============================================================================
 
 (def module
-     "nREPL test server module lifecycle implementation."
+     "nREPL server module lifecycle implementation."
      {:start start
       :stop stop
       :status status})

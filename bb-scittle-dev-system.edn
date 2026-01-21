@@ -13,16 +13,16 @@
 ;; Architecture:
 ;;   rebel-readline ──► nrepl-proxy:1667 ──► sente-browser:8090 ──► Browser (Scittle)
 ;;                            │
-;;                            └──► nrepl-test-server:7888 (bb eval)
+;;                            └──► nrepl-server:7888 (bb eval)
 
 {:modules ["mcp-local-eval"
            "mcp-nrepl"
-           "nrepl-test-server"
+           "nrepl-server"
            "directory-browser"  ;; Required by sente-browser
            "sente-browser"
            "nrepl-proxy-server"]
 
- :config {"nrepl-test-server" {:port 7888
+ :config {"nrepl-server" {:port 7888
                                :host "localhost"}
 
           "sente-browser" {:enabled true
