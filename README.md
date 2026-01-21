@@ -246,6 +246,69 @@ bb nrepl eval "(do (println \"hi\") 42)" --mcp nrepl-mcp --output pipe
 # 42
 ```
 
+## nrepl-direct CLI Tool
+
+The `nrepl-direct` CLI communicates directly with nREPL servers via bencode protocol, bypassing MCP entirely. Use this for simpler scripting or when MCP server isn't running.
+
+### Basic Usage
+
+```bash
+# Eval with explicit port
+bb nrepl-direct eval "(+ 1 2 3)" --port 7888
+# => 6
+
+# Eval using port discovery from server nickname
+bb nrepl-direct eval "(+ 1 2 3)" --nickname scittle-dev
+# => 6
+
+# Load local file (reads file, sends content as code)
+bb nrepl-direct load-local-file src/browser/app.cljs --nickname scittle-dev
+
+# Load file from server's filesystem
+bb nrepl-direct load-file /path/to/file.clj --port 7888
+
+# Read code from stdin
+echo "(range 5)" | bb nrepl-direct eval - --port 7888
+
+# Describe server capabilities
+bb nrepl-direct describe --port 7888
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `eval <code>` | Evaluate Clojure code |
+| `load-file <path>` | Load file from server's filesystem |
+| `load-local-file <path>` | Read file locally, send as code (for browser) |
+| `describe` | Show nREPL server capabilities |
+| `help` | Show help |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--port PORT` | nREPL port (required unless --nickname) |
+| `--host HOST` | nREPL host (default: localhost) |
+| `--nickname NAME` | Discover port from `.ports/<NAME>.json` |
+| `--service SERVICE` | Service name in port file (default: `nrepl-server`) |
+| `--ns NAMESPACE` | Namespace to eval in |
+| `--timeout MS` | Timeout in milliseconds (default: 30000) |
+| `--output MODE` | Output mode: `result`, `full`, `pipe` |
+| `--pprint` | Pretty-print output |
+
+### Port Discovery
+
+The CLI auto-discovers ports from `.ports/<nickname>.json` files:
+
+```bash
+# Use nrepl-server port (default)
+bb nrepl-direct eval "(+ 1 2)" --nickname scittle-dev
+
+# Use nrepl-proxy port (for browser connections)
+bb nrepl-direct eval "(+ 1 2)" --nickname scittle-dev --service nrepl-proxy
+```
+
 ## rebel-nrepl-client
 
 Open iTerm2 with rebel-readline connected to an nREPL server:

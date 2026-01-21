@@ -4,8 +4,103 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 
 **Last Updated:** 2026-01-20
-**Version:** v1.14.9
-**Focus:** Unified Port Registry & Server Management ✅
+**Version:** v1.14.13
+**Focus:** Direct nREPL Client Implementation
+
+---
+
+## 🟢 Direct nREPL Client (2026-01-20) - COMPLETE
+
+### Goal
+
+Implement `bb nrepl-direct ...` CLI that communicates directly with nREPL servers via bencode protocol, bypassing MCP entirely. This enables:
+- Managing bb-server environments without MCP running
+- Sending code to browser-scittle via nrepl-proxy-server
+- Simpler architecture for scripting/automation
+- Easy escaping (via file-based commands)
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         bb nrepl-direct CLI                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐     ┌─────────────────┐     ┌──────────────┐  │
+│  │   bencode.clj   │     │   client.clj    │     │ nrepl_direct │  │
+│  │  encode/decode  │────▶│  session mgmt   │────▶│   _cli.clj   │  │
+│  │                 │     │  eval/load-file │     │              │  │
+│  └─────────────────┘     └─────────────────┘     └──────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+         │                          │                      │
+         ▼                          ▼                      ▼
+    TCP Socket              Session Management         CLI Interface
+    Read/Write               Clone per command         --port, --host
+    Bencode msgs             Auto-timeout              load-file, eval
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `eval <code>` | Evaluate Clojure code |
+| `load-file <path>` | Load file from server's filesystem (nREPL load-file op) |
+| `load-local-file <path>` | Read file locally, send as code blob (for browser) |
+| `describe` | Show nREPL server capabilities |
+| `clone` | Clone a new session (for debugging) |
+
+### Session Strategy
+
+- Clone a new session for each command invocation
+- Let sessions timeout naturally (no explicit close)
+- Optional: `--session <id>` to reuse existing session
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/bb_mcp_server/nrepl_direct/bencode.clj` | Bencode encoder/decoder |
+| `src/bb_mcp_server/nrepl_direct/client.clj` | nREPL socket client |
+| `scripts/nrepl_direct_cli.clj` | CLI entry point |
+
+### Escaping Strategy
+
+For complex code with special characters:
+1. `load-local-file` - write code to `.clj` file, load it (PREFERRED)
+2. Base64 encoding option: `--base64` flag
+3. Stdin support: `echo "(+ 1 2)" | bb nrepl-direct eval -`
+
+### Test Targets
+
+| Target | Port Discovery |
+|--------|---------------|
+| nrepl-server | `.ports/<nickname>.json` → `nrepl-server` |
+| nrepl-proxy-server | `.ports/<nickname>.json` → `nrepl-proxy` |
+| Any nREPL | Direct port number |
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `src/bb_mcp_server/nrepl_direct/client.clj` | Standalone nREPL client library |
+| `scripts/nrepl_direct_cli.clj` | CLI entry point |
+| `scripts/nrepl-direct-task.clj` | bb task wrapper |
+
+### Usage Examples
+
+```bash
+# Basic eval
+bb nrepl-direct eval "(+ 1 2 3)" --port 7888
+
+# With port discovery
+bb nrepl-direct eval "(+ 1 2 3)" --nickname scittle-dev
+
+# Load local file to browser
+bb nrepl-direct load-local-file src/browser/app.cljs \
+  --nickname scittle-dev --service nrepl-proxy
+
+# From stdin
+echo "(range 5)" | bb nrepl-direct eval - --port 7888
+```
 
 ---
 
