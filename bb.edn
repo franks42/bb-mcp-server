@@ -287,6 +287,9 @@
   nrepl-direct {:doc "Direct nREPL CLI - eval, load-file without MCP"
                 :task (load-file "scripts/nrepl-direct-task.clj")}
 
+  nrepl-eval {:doc "Direct nREPL eval with ! escaping handled (swap!, reset!, etc.)"
+              :task (apply shell "scripts/nrepl-eval.sh" *command-line-args*)}
+
   mcp {:doc "MCP CLI - init, tools, call via MCP"
        :task (load-file "scripts/mcp-task.clj")}
 
