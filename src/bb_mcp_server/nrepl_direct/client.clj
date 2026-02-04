@@ -197,8 +197,10 @@
      :ns - namespace to eval in
      :timeout-ms - timeout (default: 30000)
      :input-base64 - if true, decode code from base64 before eval
-     :output-base64 - if true, add base64-encoded output fields"
-  [conn code & {:keys [session ns timeout-ms input-base64 output-base64] :or {timeout-ms 30000}}]
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [conn code & {:keys [session ns timeout-ms input-base64 output-base64 connection]
+                :or {timeout-ms 30000}}]
   (let [;; Decode input if base64
         actual-code (if input-base64
                       (decode-base64 code)
@@ -210,7 +212,8 @@
                         (:session clone-result))))
         message (cond-> {:op "eval" :code actual-code}
                         session (assoc :session session)
-                        ns (assoc :ns ns))
+                        ns (assoc :ns ns)
+                        connection (assoc :connection connection))
         result (send-message conn message :timeout-ms timeout-ms)]
     ;; Add base64 output fields if requested
     (if (and output-base64 (= "success" (:status result)))
@@ -242,14 +245,17 @@
      :session - session ID
      :ns - namespace to eval in
      :timeout-ms - timeout (default: 30000)
-     :output-base64 - if true, add base64-encoded output fields"
-  [conn file-path & {:keys [session ns timeout-ms output-base64] :or {timeout-ms 30000}}]
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [conn file-path & {:keys [session ns timeout-ms output-base64 connection]
+                     :or {timeout-ms 30000}}]
   (let [content (slurp file-path)]
     (eval-code conn content
                :session session
                :ns ns
                :timeout-ms timeout-ms
-               :output-base64 output-base64)))
+               :output-base64 output-base64
+               :connection connection)))
 
 (defn interrupt
   "Interrupt evaluation in a session."
@@ -287,8 +293,9 @@
      :ns - namespace
      :timeout-ms - timeout (default: 30000)
      :input-base64 - if true, decode code from base64 before eval
-     :output-base64 - if true, add base64-encoded output fields"
-  [code & {:keys [host port ns timeout-ms input-base64 output-base64]
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [code & {:keys [host port ns timeout-ms input-base64 output-base64 connection]
            :or {host "localhost" timeout-ms 30000}}]
   (with-connection {:host host :port port}
                    (fn [conn]
@@ -296,7 +303,8 @@
                                 :ns ns
                                 :timeout-ms timeout-ms
                                 :input-base64 input-base64
-                                :output-base64 output-base64))))
+                                :output-base64 output-base64
+                                :connection connection))))
 
 (defn load-file!
   "One-shot load-file from server filesystem.
@@ -318,12 +326,14 @@
      :port - port number (required)
      :ns - namespace
      :timeout-ms - timeout (default: 30000)
-     :output-base64 - if true, add base64-encoded output fields"
-  [file-path & {:keys [host port ns timeout-ms output-base64]
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [file-path & {:keys [host port ns timeout-ms output-base64 connection]
                 :or {host "localhost" timeout-ms 30000}}]
   (with-connection {:host host :port port}
                    (fn [conn]
                      (load-local-file conn file-path
                                       :ns ns
                                       :timeout-ms timeout-ms
-                                      :output-base64 output-base64))))
+                                      :output-base64 output-base64
+                                      :connection connection))))

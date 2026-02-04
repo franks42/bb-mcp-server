@@ -189,16 +189,55 @@
                           "session" session
                           "status" ["done"]}))
 
+(defn- resolve-browser-connection
+  "Resolve browser nickname/connection-id to a valid browser connection ID.
+   Returns connection-id if found and connected, nil otherwise.
+
+   Accepts:
+   - Nickname (e.g., 'browser-1')
+   - Full connection-id (e.g., 'browser-1-UUID...')
+
+   Uses conn-state/resolve-connection-id which handles both formats."
+  [identifier]
+  (when identifier
+    (try
+      (let [conn-id (conn-state/resolve-connection-id identifier)
+            conn-data (conn-state/get-connection-by-id conn-id)]
+        (when (and conn-data
+                   (= :browser (:type conn-data))
+                   (= :connected (:status conn-data)))
+          conn-id))
+      (catch Exception _
+        ;; resolve-connection-id throws if not found
+        nil))))
+
 (defn- handle-eval
-  "Handle :eval - route to bb or browser based on session target."
-  [out {:keys [id session code ns]}]
-  (let [target (session/get-target session)]
+  "Handle :eval - route to bb or browser based on session target.
+
+   If :connection is provided in the message, route directly to that browser
+   connection (bypasses session-based routing). This allows stateless clients
+   like nrepl-direct to specify the target browser explicitly."
+  [out {:keys [id session code ns connection]}]
+  ;; Check for explicit connection override first
+  (let [explicit-browser (resolve-browser-connection connection)
+        target (or explicit-browser (session/get-target session))]
     (log/log! {:level :debug
                :id ::eval-request
                :msg "Eval request"
-               :data {:session session :target target :code-length (count code)}})
+               :data {:session session
+                      :target target
+                      :explicit-connection connection
+                      :code-length (count code)}})
 
     (cond
+      ;; Explicit connection specified but not found/connected
+      (and connection (not explicit-browser))
+      (do
+        (write-bencode-msg out {"id" id "session" session
+                                "err" (str "Browser not connected: " connection)})
+        (write-bencode-msg out {"id" id "session" session
+                                "status" ["done" "error"]}))
+
       ;; Check for browser/list call
       (api/browser-list-call? code)
       (let [browsers (api/list-browsers)
@@ -241,15 +280,30 @@
                                 (assoc response :id id :session session)))))))
 
 (defn- handle-load-file
-  "Handle :load-file - load file content as code."
-  [out {:keys [id session file]}]
-  (let [target (session/get-target session)]
-    (if (= target :bb)
-      ;; Load in bb
+  "Handle :load-file - load file content as code.
+
+   If :connection is provided in the message, route directly to that browser
+   connection (bypasses session-based routing)."
+  [out {:keys [id session file connection]}]
+  (let [explicit-browser (resolve-browser-connection connection)
+        target (or explicit-browser (session/get-target session))]
+    (cond
+      ;; Explicit connection specified but not found/connected
+      (and connection (not explicit-browser))
+      (do
+        (write-bencode-msg out {"id" id "session" session
+                                "err" (str "Browser not connected: " connection)})
+        (write-bencode-msg out {"id" id "session" session
+                                "status" ["done" "error"]}))
+
+      ;; Target is bb - load locally
+      (= target :bb)
       (let [response (eval-in-bb file nil)]
         (write-bencode-msg out (edn-response->bencode
                                 (assoc response :id id :session session))))
-      ;; Load in browser
+
+      ;; Target is browser - forward via sente
+      :else
       (let [response (eval-in-browser target file 60000)]
         (write-bencode-msg out (edn-response->bencode
                                 (assoc response :id id :session session)))))))

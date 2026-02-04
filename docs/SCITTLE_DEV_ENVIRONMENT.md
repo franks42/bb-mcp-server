@@ -103,23 +103,11 @@ bb mcp-eval "(require '[sente-browser.code-browser :as cb]) (cb/enable!)" --nick
 
 ## Step 2: Open Browser Connection
 
-In a NEW terminal:
-
 ```bash
-cd /Users/franksiebenlist/Development/bb-mcp-server
-node -e "
-const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  page.on('console', msg => console.log('[browser]', msg.text()));
-  await page.goto('http://localhost:8091');
-  console.log('[test] Browser connected, waiting 5 minutes...');
-  await page.waitForTimeout(300000);
-  await browser.close();
-})();
-"
+node scripts/open-browser.js http://localhost:8091 10
 ```
+
+This launches a headless Playwright browser that connects to the Scittle page and stays open for 10 minutes (configurable). Run in background with `&` if needed.
 
 **Verify:** You should see:
 ```
@@ -248,6 +236,72 @@ bb nrepl vars user --connection browser-6 --mcp code-browser-dev
 ```
 
 **Tip:** The Code Browser now has a "Load Code Browser" button - click it instead of running CLI commands!
+
+---
+
+## Direct nREPL CLI (No MCP)
+
+For scenarios where MCP overhead is unnecessary or when running scripts, use `bb nrepl-direct`.
+This connects directly via TCP/bencode protocol - no MCP JSON-RPC overhead.
+
+### Step-by-Step: Browser Development with nrepl-direct
+
+**Step 1: Start the server**
+```bash
+bb server:start-wait --nickname myserver --config bb-code-browser-dev-system.edn
+```
+
+**Step 2: Open browser** (in another terminal or via Playwright)
+```bash
+# The browser will auto-connect and get a nickname like "browser-1"
+```
+
+**Step 3: List connected browsers**
+```bash
+bb nrepl-direct list -t myserver
+```
+
+**Step 4: Eval code in browser**
+```bash
+bb nrepl-direct eval "(+ 1 2 3)" -t myserver/browser-1
+```
+
+**Step 5: Load file to browser**
+```bash
+bb nrepl-direct load-local-file src/browser/app.cljs -t myserver/browser-1
+```
+
+### Quick Reference
+
+```bash
+# List browsers
+bb nrepl-direct list -t myserver
+
+# Eval in browser
+bb nrepl-direct eval "<code>" -t myserver/browser-1
+
+# Load file to browser
+bb nrepl-direct load-local-file <path> -t myserver/browser-1
+
+# Eval on server (no browser)
+bb nrepl-direct eval "<code>" -t myserver
+
+# EDN output for scripting
+bb nrepl-direct eval "(range 5)" -t myserver --output edn
+```
+
+### --target (-t) Format
+
+The `-t` flag combines server, service, and browser into one:
+
+| Target | Expands to |
+|--------|-----------|
+| `-t myserver` | `--nickname myserver --service nrepl-server` |
+| `-t myserver/browser-1` | `--nickname myserver --service nrepl-proxy --connection browser-1` |
+
+When a `/browser` is present, the proxy is selected automatically.
+
+**Without the browser part**, eval runs on the server (bb) - not in the browser.
 
 ---
 

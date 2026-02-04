@@ -139,9 +139,9 @@
   ;; Helper to bootstrap module paths before running module code
   -bootstrap {:task ((requiring-resolve 'bb-mcp-server.bootstrap/ensure-module-paths!))}
 
-  test:nrepl {:doc "Run nrepl module unit tests"
+  test:nrepl {:doc "Run mcp-nrepl module unit tests"
               :depends [-bootstrap]
-              :task (load-file "modules/nrepl/test/run_tests.clj")}
+              :task (load-file "modules/mcp-nrepl/test/run_tests.clj")}
 
   test:http-core {:doc "Run http-core module tests"
                   :depends [-bootstrap]

@@ -13,56 +13,25 @@
    For browser/Scittle: ALWAYS use load-local-file
    For bb nREPL server: Either works (load-local-file is safer)
 
-   Usage: bb nrepl-direct <subcommand> [args] [options]
+   Usage: bb nrepl-direct <subcommand> [args] -t <target>
 
    Subcommands:
      eval <code>              Evaluate Clojure code
      load-file <path>         Load file from SERVER's filesystem (NOT for browser!)
      load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)
+     list                     List connected browsers
      describe                 Show nREPL server capabilities
      help                     Show this help
 
-   Options:
-     --port PORT              nREPL port (required unless --nickname)
-     --host HOST              nREPL host (default: localhost)
-     --nickname NAME          Discover port from .ports/<NAME>.json
-     --service SERVICE        Service name in port file (default: nrepl-server)
-     --ns NAMESPACE           Namespace to eval in
-     --timeout MS             Timeout in milliseconds (default: 30000)
-     --output MODE            Output mode:
-                                result - Parsed value or stdout (default)
-                                full   - Full JSON response
-                                pipe   - stdout/stderr/value for piping
-                                edn    - Clean EDN: value on success, full on error
-     --pprint                 Pretty-print output
-     --stdout2stderr          With --output edn: show eval's stdout on stderr
-
-   Port Discovery:
-     The CLI can auto-discover ports from .ports/<nickname>.json files.
-     Use --service to specify which service port to use:
-       nrepl-server  - Direct bb nREPL server (default)
-       nrepl-proxy   - nREPL proxy for browser connections
+   Target (-t, --target):
+     server           Eval on server (uses nrepl-server port)
+     server/browser   Eval in browser (uses nrepl-proxy port)
 
    Examples:
-     # Eval with explicit port
-     bb nrepl-direct eval \"(+ 1 2 3)\" --port 7888
-
-     # Eval using port discovery
-     bb nrepl-direct eval \"(+ 1 2 3)\" --nickname scittle-dev
-
-     # Clean EDN output for scripting
-     bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn
-     # => (0 1 2 3 4)
-
-     # Pipe to another command
-     bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn | bb -e \"(reduce + (read))\"
-
-     # Load file to BROWSER (use load-local-file!)
-     bb nrepl-direct load-local-file src/browser/app.cljs \\
-       --nickname scittle-dev --service nrepl-proxy
-
-     # Describe server capabilities
-     bb nrepl-direct describe --port 7888"
+     bb nrepl-direct list -t myserver
+     bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver/browser-1
+     bb nrepl-direct load-local-file src/app.cljs -t myserver/browser-1
+     bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver"
     (:require [bb-mcp-server.nrepl-direct.client :as client]
               [cheshire.core :as json]
               [clojure.pprint :as pp]
@@ -86,6 +55,21 @@
 ;; Argument Parsing
 ;; =============================================================================
 
+(defn- parse-target
+  "Parse --target shorthand into :nickname, :service, :connection.
+
+   Format:
+     server           -> {:nickname server :service nrepl-server}
+     server/browser   -> {:nickname server :service nrepl-proxy :connection browser}"
+  [target]
+  (let [parts (str/split target #"/" 2)]
+    (if (= 2 (count parts))
+      {:nickname (first parts)
+       :service "nrepl-proxy"
+       :connection (second parts)}
+      {:nickname (first parts)
+       :service "nrepl-server"})))
+
 (defn parse-args
   "Parse command line arguments."
   [args]
@@ -96,6 +80,7 @@
                :host "localhost"
                :nickname nil
                :service "nrepl-server"
+               :connection nil
                :ns nil
                :timeout 30000
                :output :result
@@ -117,6 +102,14 @@
 
               (= arg "--service")
               (recur (rest rest-args) (assoc opts :service (first rest-args)))
+
+              (= arg "--connection")
+              (recur (rest rest-args) (assoc opts :connection (first rest-args)))
+
+              ;; --target / -t shorthand
+              (or (= arg "--target") (= arg "-t"))
+              (let [target-opts (parse-target (first rest-args))]
+                (recur (rest rest-args) (merge opts target-opts)))
 
               (= arg "--ns")
               (recur (rest rest-args) (assoc opts :ns (first rest-args)))
@@ -289,7 +282,8 @@
                                 :host (:host opts)
                                 :port port
                                 :ns (:ns opts)
-                                :timeout-ms (:timeout opts))]
+                                :timeout-ms (:timeout opts)
+                                :connection (:connection opts))]
        (output-result opts result))
      (catch Exception e
             (binding [*out* *err*]
@@ -352,7 +346,8 @@
                                            :host (:host opts)
                                            :port port
                                            :ns (:ns opts)
-                                           :timeout-ms (:timeout opts))]
+                                           :timeout-ms (:timeout opts)
+                                           :connection (:connection opts))]
        (output-result opts result))
      (catch Exception e
             (binding [*out* *err*]
@@ -373,6 +368,39 @@
                      (println "Error:" (ex-message e)))
             (System/exit 1)))))
 
+(defn cmd-list
+  "List connected browsers via nrepl-proxy.
+   Evals (browser/list) which the proxy intercepts and handles."
+  [opts]
+  ;; Force nrepl-proxy service for list command
+  (let [opts (assoc opts :service "nrepl-proxy")
+        port (resolve-port opts)]
+    (try
+     (let [result (client/eval! "(browser/list)"
+                                :host (:host opts)
+                                :port port
+                                :timeout-ms (:timeout opts))]
+       (if (= "success" (:status result))
+         (let [browsers (try-parse-edn (:value result))]
+           (if (empty? browsers)
+             (println "No browsers connected")
+             (do
+               (println (format "%-15s %-12s %s" "NICKNAME" "STATUS" "CONNECTED"))
+               (println (str/join "" (repeat 50 "-")))
+               (doseq [b browsers]
+                 (println (format "%-15s %-12s %s"
+                                  (or (:nickname b) "-")
+                                  (name (or (:status b) :unknown))
+                                  (or (:connected-at b) "-")))))))
+         (do
+           (binding [*out* *err*]
+                    (println "Error:" (or (:err result) (:error result) "Unknown error")))
+           (System/exit 1))))
+     (catch Exception e
+            (binding [*out* *err*]
+                     (println "Error:" (ex-message e)))
+            (System/exit 1)))))
+
 (defn cmd-help
   "Show help."
   [_]
@@ -384,6 +412,7 @@
   (println "  eval <code>              Evaluate Clojure code")
   (println "  load-file <path>         Load file from SERVER's filesystem (NOT for browser!)")
   (println "  load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)")
+  (println "  list                     List connected browsers (via nrepl-proxy)")
   (println "  describe                 Show nREPL server capabilities")
   (println "  help                     Show this help")
   (println)
@@ -394,51 +423,44 @@
   (println "  For browser/Scittle: ALWAYS use load-local-file")
   (println "  For bb nREPL server: Either works (load-local-file is safer)")
   (println)
+  (println "Target (recommended):")
+  (println "  -t, --target TARGET      Server/browser target (shorthand)")
+  (println "                             server          - eval on server (nrepl-server)")
+  (println "                             server/browser  - eval in browser (nrepl-proxy)")
+  (println)
   (println "Options:")
-  (println "  --port PORT              nREPL port (required unless --nickname)")
+  (println "  --port PORT              nREPL port (use instead of --target for explicit port)")
   (println "  --host HOST              nREPL host (default: localhost)")
-  (println "  --nickname NAME          Discover port from .ports/<NAME>.json")
-  (println "  --service SERVICE        Service name in port file:")
-  (println "                             nrepl-server  - Direct bb nREPL (default)")
-  (println "                             nrepl-proxy   - Proxy for browser")
+  (println "  --nickname NAME          Server name (expanded form of --target)")
+  (println "  --service SERVICE        nrepl-server | nrepl-proxy (expanded form)")
+  (println "  --connection BROWSER     Browser connection (expanded form)")
   (println "  --ns NAMESPACE           Namespace to eval in")
   (println "  --timeout MS             Timeout in milliseconds (default: 30000)")
-  (println "  --output MODE            Output mode:")
-  (println "                             result - Parsed value or stdout (default)")
-  (println "                             full   - Full JSON response")
-  (println "                             pipe   - stdout/stderr/value for piping")
-  (println "                             edn    - Clean EDN: value on success, full on error")
+  (println "  --output MODE            result | full | pipe | edn")
   (println "  --pprint                 Pretty-print output")
   (println "  --stdout2stderr          With --output edn: show eval's stdout on stderr")
   (println)
   (println "Examples:")
-  (println "  # Eval with explicit port")
-  (println "  bb nrepl-direct eval \"(+ 1 2 3)\" --port 7888")
+  (println "  # List connected browsers")
+  (println "  bb nrepl-direct list -t myserver")
   (println)
-  (println "  # Eval using port discovery from scittle-dev server")
-  (println "  bb nrepl-direct eval \"(+ 1 2 3)\" --nickname scittle-dev")
+  (println "  # Eval in browser")
+  (println "  bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver/browser-1")
   (println)
-  (println "  # Clean EDN output for scripting (exit 0 on success, 1 on error)")
-  (println "  bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn")
-  (println "  # => (0 1 2 3 4)")
+  (println "  # Load file to browser")
+  (println "  bb nrepl-direct load-local-file src/app.cljs -t myserver/browser-1")
   (println)
-  (println "  # EDN output with debug prints visible on stderr")
-  (println "  bb nrepl-direct eval \"(do (println :debug) {:a 1})\" --port 7888 --output edn --stdout2stderr")
-  (println "  # stderr: :debug")
-  (println "  # stdout: {:a 1}")
+  (println "  # Eval on server (no browser)")
+  (println "  bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver")
   (println)
-  (println "  # Pipe EDN result to another command")
-  (println "  bb nrepl-direct eval \"(range 5)\" --port 7888 --output edn | bb -e \"(reduce + (read))\"")
-  (println)
-  (println "  # Load file to BROWSER (use load-local-file!)")
-  (println "  bb nrepl-direct load-local-file src/browser/app.cljs \\")
-  (println "    --nickname scittle-dev --service nrepl-proxy")
+  (println "  # EDN output for scripting")
+  (println "  bb nrepl-direct eval \"(range 5)\" -t myserver --output edn")
   (println)
   (println "  # Read code from stdin")
-  (println "  echo \"(range 5)\" | bb nrepl-direct eval - --port 7888")
+  (println "  echo \"(range 5)\" | bb nrepl-direct eval - -t myserver")
   (println)
-  (println "  # Load file on server's filesystem (rare - server must have file)")
-  (println "  bb nrepl-direct load-file /path/on/server.clj --port 7888"))
+  (println "  # Explicit port (bypasses port discovery)")
+  (println "  bb nrepl-direct eval \"(+ 1 2 3)\" --port 7888"))
 
 ;; =============================================================================
 ;; Main
@@ -452,6 +474,7 @@
       "eval" (cmd-eval opts)
       "load-file" (cmd-load-file opts)
       "load-local-file" (cmd-load-local-file opts)
+      "list" (cmd-list opts)
       "describe" (cmd-describe opts)
       ("help" "-h" "--help" nil) (cmd-help opts)
       (do
