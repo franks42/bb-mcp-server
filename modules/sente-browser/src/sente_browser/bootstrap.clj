@@ -438,7 +438,16 @@
     .widget-btn:hover { background: #e8e8e8; }
     .widget-btn.close-btn { color: #c62828; border-color: #e0e0e0; }
     .widget-btn.close-btn:hover { background: #ffebee; }
-    .widget-breadcrumb { font-size: 11px; color: #666; font-family: 'Fira Code', monospace; margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .widget-breadcrumb { font-size: 11px; color: #666; font-family: 'Fira Code', monospace; margin-top: 0.2rem; cursor: default; user-select: none; }
+    .widget-breadcrumb.expanded { background: #fafafa; border-radius: 3px; padding: 0.2rem 0; }
+    .breadcrumb-collapsed { display: flex; align-items: center; gap: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .breadcrumb-chevron { font-size: 8px; color: #999; }
+    .breadcrumb-vertical { display: flex; flex-direction: column; gap: 0.1rem; }
+    .breadcrumb-row { padding: 0.1rem 0.25rem; border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .breadcrumb-parent { cursor: pointer; }
+    .breadcrumb-parent:hover { background: #e3f2fd; }
+    .breadcrumb-parent .breadcrumb-segment { color: #1976D2; }
+    .breadcrumb-current .breadcrumb-segment { color: #333; font-weight: 500; }
     .breadcrumb-segment { color: #333; }
     .widget-footer { padding: 0.2rem 0.5rem; background: #f5f5f5; border-top: 1px solid #ddd; font-size: 11px; color: #666; }
   </style>

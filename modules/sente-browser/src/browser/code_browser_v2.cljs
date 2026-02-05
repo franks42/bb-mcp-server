@@ -76,6 +76,9 @@
 (defonce ^{:doc "The focused widget ID (for hash routing)"}
  !focused-widget (r/atom nil))
 
+(defonce ^{:doc "Set of widget-ids with expanded breadcrumbs"}
+ !breadcrumb-expanded (r/atom #{}))
+
 (defn- next-widget-id
   "Generate a unique widget ID."
   []
@@ -154,6 +157,7 @@
   "Close a widget by ID."
   [widget-id]
   (swap! !widgets dissoc widget-id)
+  (swap! !breadcrumb-expanded disj widget-id)
   (when (= @!focused-widget widget-id)
     ;; Focus the last remaining widget, if any
     (let [remaining (keys @!widgets)]
@@ -209,22 +213,68 @@
 ;; Widget Header Component
 ;; =============================================================================
 
+(defn- build-breadcrumb-segments
+  "Build breadcrumb segments from a parsed URI.
+   Returns a vec of {:label :uri :level} maps.
+   Parent segments have navigable :uri, the deepest has nil."
+  [parsed]
+  (let [project (:uri/project parsed)
+        ns-name (:uri/namespace parsed)
+        sym-name (:uri/symbol parsed)
+        proj-uri (uri/with-query (uri/project-uri parsed) {"view" "ns-list"})
+        ns-uri (when ns-name
+                 (uri/with-query (uri/namespace-uri parsed) {"view" "symbol-list"}))]
+    (cond-> []
+            project  (conj {:label project
+                            :uri   (when (or ns-name sym-name) proj-uri)
+                            :level :project})
+            ns-name  (conj {:label ns-name
+                            :uri   (when sym-name ns-uri)
+                            :level :namespace})
+            sym-name (conj {:label sym-name
+                            :uri   nil
+                            :level :symbol}))))
+
 (defn- uri-breadcrumb
-  "Render a breadcrumb from a URI string (query params stripped for display)."
-  [uri-string]
+  "Render a collapsible vertical breadcrumb from a URI string.
+   Collapsed (default): shows chevron + deepest segment.
+   Expanded (click): shows all segments vertically, parents clickable."
+  [widget-id uri-string]
   (when uri-string
-    (let [parsed (uri/parse (uri/base-uri uri-string))]
-      [:div.widget-breadcrumb
-       (when (:uri/project parsed)
-         [:span.breadcrumb-segment (:uri/project parsed)])
-       (when (:uri/namespace parsed)
-         [:<>
-          [:span.breadcrumb-sep " / "]
-          [:span.breadcrumb-segment (:uri/namespace parsed)]])
-       (when (:uri/symbol parsed)
-         [:<>
-          [:span.breadcrumb-sep " / "]
-          [:span.breadcrumb-segment (:uri/symbol parsed)]])])))
+    (let [parsed (uri/parse (uri/base-uri uri-string))
+          segments (build-breadcrumb-segments parsed)
+          expanded? (contains? @!breadcrumb-expanded widget-id)
+          toggle! #(swap! !breadcrumb-expanded
+                          (fn [s] (if (contains? s widget-id)
+                                    (disj s widget-id)
+                                    (conj s widget-id))))
+          deepest (last segments)]
+      (when (seq segments)
+        [:div.widget-breadcrumb {:class (when expanded? "expanded")}
+         (if expanded?
+           ;; Expanded: vertical list with indentation
+           [:div.breadcrumb-vertical
+            [:div.breadcrumb-row {:style {:cursor "pointer"}
+                                  :on-click toggle!}
+             [:span.breadcrumb-chevron "\u25BC"]]
+            (doall
+             (map-indexed
+              (fn [idx {:keys [label uri]}]
+                (let [current? (nil? uri)]
+                  ^{:key idx}
+                  [:div.breadcrumb-row
+                   {:class (if current? "breadcrumb-current" "breadcrumb-parent")
+                    :style {:padding-left (str (* idx 0.75) "rem")}
+                    :on-click (when uri
+                                (fn [e]
+                                  (.stopPropagation e)
+                                  (open-widget! {:uri uri})))}
+                   [:span.breadcrumb-segment label]]))
+              segments))]
+           ;; Collapsed: chevron + deepest label
+           [:div.breadcrumb-collapsed {:on-click toggle!}
+            [:span.breadcrumb-chevron "\u25B6"]
+            [:span.breadcrumb-segment (:label deepest)]])]))))
 
 (defn- widget-header
   "Widget header with title, breadcrumb, refresh and close buttons."
@@ -246,7 +296,7 @@
                             :title "Refresh"} "R"]
        [:button.widget-btn.close-btn {:on-click #(close-widget! widget-id)
                                       :title "Close"} "x"]]]
-     [uri-breadcrumb (:uri widget)]]))
+     [uri-breadcrumb widget-id (:uri widget)]]))
 
 ;; =============================================================================
 ;; Widget Filter Component
@@ -645,4 +695,5 @@
   []
   (reset! !widgets {})
   (reset! !focused-widget nil)
+  (reset! !breadcrumb-expanded #{})
   (js/console.log "[code-browser-v2] Unmounted"))
