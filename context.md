@@ -5,8 +5,42 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-04
-**Version:** v1.15.0
-**Focus:** Code Browser v2 widget architecture + URI query parameters - Complete
+**Version:** v1.15.1
+**Focus:** Code Browser v2 collapsible vertical breadcrumb navigator - Complete
+
+---
+
+## 🟢 Collapsible Vertical Breadcrumb Navigator (2026-02-04) - COMPLETE
+
+### Goal
+
+Replace flat horizontal breadcrumb (`. / ns / sym`) with a collapsible vertical breadcrumb that shows only the deepest segment when collapsed and all levels vertically when expanded, with clickable parent navigation.
+
+### Changes in v1.15.1
+
+| Change | Description |
+|--------|-------------|
+| **`!breadcrumb-expanded`** | New `defonce` atom tracking set of widget-ids with expanded breadcrumbs |
+| **`build-breadcrumb-segments`** | New helper: parses URI into `[{:label :uri :level}]` segments |
+| **`uri-breadcrumb` rewrite** | Collapsed: `▶handle-fetch`; Expanded: vertical indented list with clickable parents |
+| **`widget-header` updated** | Passes `widget-id` to breadcrumb for per-widget expand/collapse state |
+| **`close-widget!` cleanup** | Removes widget from `!breadcrumb-expanded` on close |
+| **`unmount!` cleanup** | Resets `!breadcrumb-expanded` on unmount |
+| **CSS styles** | 10 new breadcrumb rules: `.breadcrumb-collapsed`, `.breadcrumb-vertical`, `.breadcrumb-parent`, etc. |
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | New atom, `build-breadcrumb-segments`, rewritten `uri-breadcrumb`, cleanup |
+| `modules/sente-browser/src/sente_browser/bootstrap.clj` | Collapsible breadcrumb CSS styles |
+
+### Verification
+
+- clj-kondo: 0 errors, 0 warnings on both files
+- cljfmt: All formatted correctly
+- Tests: 34 tests, 492 assertions, 0 failures
+- Playwright visual test: Collapsed/expanded toggle, parent navigation confirmed
 
 ---
 
