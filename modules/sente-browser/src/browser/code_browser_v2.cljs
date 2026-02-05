@@ -17,6 +17,7 @@
      (require '[code-browser-v2 :as cb])
      (cb/mount!)"
     (:require [reagent.core :as r]
+              [reagent.dom :as rdom]
               [clojure.string :as str]
               [sente-lite.client-scittle :as client]
               [code-browser.bootstrap :as bootstrap]
@@ -79,6 +80,12 @@
 (defonce ^{:doc "Set of widget-ids with expanded breadcrumbs"}
  !breadcrumb-expanded (r/atom #{}))
 
+(defonce ^{:doc "WinBox JS instances. {widget-id WinBox-instance}"}
+ !winbox-instances (atom {}))
+
+(defonce ^{:doc "Cascade offset for positioning new windows"}
+ !cascade-offset (atom 0))
+
 (defn- next-widget-id
   "Generate a unique widget ID."
   []
@@ -93,6 +100,48 @@
   "Convert a view name string from URI query params to a widget type keyword."
   [view-name]
   (when view-name (keyword view-name)))
+
+(def ^:private type-labels
+     "Display labels for widget types."
+     {:project-list "Projects"
+      :ns-list "Namespaces"
+      :symbol-list "Symbols"
+      :source "Source"
+      :doc "Doc"
+      :aliases "Aliases"
+      :refers "Refers"
+      :deps "Deps"
+      :callers "Callers"})
+
+(defn- winbox-defaults
+  "Return default WinBox dimensions and position based on widget type."
+  [widget-type]
+  (let [offset (* @!cascade-offset 30)
+        base (case widget-type
+               :project-list {:width 280 :height 400 :x 20 :y 20}
+               :ns-list {:width 300 :height 450 :x 60 :y 30}
+               :symbol-list {:width 320 :height 450 :x 100 :y 40}
+               :source {:width 600 :height 500 :x 150 :y 50}
+               ;; default for doc, aliases, refers, deps, callers
+               {:width 350 :height 400 :x 140 :y 60})]
+    (swap! !cascade-offset #(mod (inc %) 10))
+    (-> base
+        (update :x + offset)
+        (update :y + offset))))
+
+(defn- type->title
+  "Build a WinBox window title from widget type and URI."
+  [widget-type uri]
+  (let [label (get type-labels widget-type "Widget")]
+    (if uri
+      (let [parsed (uri/parse (uri/base-uri uri))
+            detail (or (:uri/symbol parsed)
+                       (:uri/namespace parsed)
+                       (:uri/project parsed))]
+        (if detail
+          (str label " \u2014 " detail)
+          label))
+      label)))
 
 (defn- fetch-widget-data!
   "Send a fetch request to the server for a widget.
@@ -116,6 +165,8 @@
     (swap! !widgets assoc-in [widget-id :loading?] true)
     (send-event! :code-browser-v2/fetch
                  {:uri uri :property property :widget-id widget-id})))
+
+(declare create-winbox!)
 
 (defn open-widget!
   "Open a new widget for the given URI.
@@ -150,12 +201,20 @@
     ;; Update hash to reflect focused widget
     (when full-uri
       (set! (.-hash js/window.location) full-uri))
+    ;; Create WinBox floating window with Reagent content
+    (create-winbox! wid)
     (fetch-widget-data! wid effective-type full-uri)
     wid))
 
 (defn close-widget!
-  "Close a widget by ID."
+  "Close a widget by ID. Dissoc instance then close WinBox (DOM removal handles cleanup)."
   [widget-id]
+  ;; Dissoc before .close to break onclose -> close-widget! loop.
+  ;; try-catch guards against double-close when called from onclose callback
+  ;; (WinBox is already closing itself, .close on it throws).
+  (when-let [wb (get @!winbox-instances widget-id)]
+            (swap! !winbox-instances dissoc widget-id)
+            (try (.close wb) (catch js/Error _e nil)))
   (swap! !widgets dissoc widget-id)
   (swap! !breadcrumb-expanded disj widget-id)
   (when (= @!focused-widget widget-id)
@@ -179,10 +238,15 @@
   (let [{:keys [widget-id success error]} data
         wid (keyword (str (name widget-id)))]
     (if success
-      (swap! !widgets update wid assoc
-             :data (:data data)
-             :loading? false
-             :error nil)
+      (do
+       (swap! !widgets update wid assoc
+              :data (:data data)
+              :loading? false
+              :error nil)
+        ;; Update WinBox title with contextual info
+       (when-let [wb (get @!winbox-instances wid)]
+                 (let [w (get @!widgets wid)]
+                   (.setTitle wb (type->title (:type w) (:uri w))))))
       (swap! !widgets update wid assoc
              :loading? false
              :error (or error "Unknown error")))))
@@ -276,28 +340,6 @@
             [:span.breadcrumb-chevron "\u25B6"]
             [:span.breadcrumb-segment (:label deepest)]])]))))
 
-(defn- widget-header
-  "Widget header with title, breadcrumb, refresh and close buttons."
-  [widget-id widget]
-  (let [type-labels {:project-list "Projects"
-                     :ns-list "Namespaces"
-                     :symbol-list "Symbols"
-                     :source "Source"
-                     :doc "Doc"
-                     :aliases "Aliases"
-                     :refers "Refers"
-                     :deps "Deps"
-                     :callers "Callers"}]
-    [:div.widget-header
-     [:div.widget-title-row
-      [:h3 (get type-labels (:type widget) "Widget")]
-      [:div.widget-actions
-       [:button.widget-btn {:on-click #(refresh-widget! widget-id)
-                            :title "Refresh"} "R"]
-       [:button.widget-btn.close-btn {:on-click #(close-widget! widget-id)
-                                      :title "Close"} "x"]]]
-     [uri-breadcrumb widget-id (:uri widget)]]))
-
 ;; =============================================================================
 ;; Widget Filter Component
 ;; =============================================================================
@@ -313,19 +355,18 @@
                        (-> % .-target .-value))}])
 
 ;; =============================================================================
-;; Widget Components — Project List
+;; Content Components (body only — no header, used inside WinBox)
 ;; =============================================================================
 
-(defn- project-list-widget
-  "Widget: list of all projects."
+(defn- project-list-content
+  "Content body for project list widget (no header)."
   [widget-id widget]
   (let [projects (or (:data widget) [])
         filter-text (or (:filter widget) "")
         filtered (filter #(matches-filter? (or (:uri/project %) (:uri/string %))
                                            filter-text)
                          projects)]
-    [:div.widget.project-list-widget
-     [widget-header widget-id widget]
+    [:<>
      [widget-filter-input widget-id "Filter projects..."]
      [:div.list-container
       (doall
@@ -339,18 +380,13 @@
      [:div.widget-footer
       [:span (str (count filtered) " projects")]]]))
 
-;; =============================================================================
-;; Widget Components — Namespace List
-;; =============================================================================
-
-(defn- ns-list-widget
-  "Widget: namespaces for a project URI."
+(defn- ns-list-content
+  "Content body for namespace list widget (no header)."
   [widget-id widget]
   (let [namespaces (or (:data widget) [])
         filter-text (or (:filter widget) "")
         filtered (filter #(matches-filter? (:ns/name %) filter-text) namespaces)]
-    [:div.widget.ns-list-widget
-     [widget-header widget-id widget]
+    [:<>
      [widget-filter-input widget-id "Filter namespaces..."]
      [:div.list-container
       (doall
@@ -367,20 +403,15 @@
      [:div.widget-footer
       [:span (str (count filtered) " namespaces")]]]))
 
-;; =============================================================================
-;; Widget Components — Symbol List
-;; =============================================================================
-
-(defn- symbol-list-widget
-  "Widget: symbols for a namespace URI."
+(defn- symbol-list-content
+  "Content body for symbol list widget (no header)."
   [widget-id widget]
   (let [symbols (or (:data widget) [])
         filter-text (or (:filter widget) "")
         filtered (->> symbols
                       (filter #(matches-filter? (:symbol/name %) filter-text))
                       (sort-by (juxt :symbol/type :symbol/name)))]
-    [:div.widget.symbol-list-widget
-     [widget-header widget-id widget]
+    [:<>
      [widget-filter-input widget-id "Filter symbols..."]
      [:div.list-container
       (doall
@@ -397,54 +428,38 @@
      [:div.widget-footer
       [:span (str (count filtered) " symbols")]]]))
 
-;; =============================================================================
-;; Widget Components — Source View
-;; =============================================================================
-
-(defn- source-widget-component
-  "Widget: source code for a symbol URI."
-  [widget-id widget]
+(defn- source-content
+  "Content body for source view widget (no header)."
+  [_widget-id widget]
   (let [source (:data widget)]
-    [:div.widget.source-widget
-     [widget-header widget-id widget]
-     (if source
-       [:div.source-view
-        [:pre.source-code (:content source)]
-        [:div.source-info
-         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
-       [:div.empty-message "No source available"])]))
+    (if source
+      [:div.source-view
+       [:pre.source-code (:content source)]
+       [:div.source-info
+        [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
+      [:div.empty-message "No source available"])))
 
-;; =============================================================================
-;; Widget Components — Doc View
-;; =============================================================================
-
-(defn- doc-widget-component
-  "Widget: documentation for a symbol URI."
-  [widget-id widget]
+(defn- doc-content
+  "Content body for doc view widget (no header)."
+  [_widget-id widget]
   (let [sym-data (:data widget)]
-    [:div.widget.doc-widget
-     [widget-header widget-id widget]
-     (if sym-data
-       [:div.doc-view
-        [:div.symbol-header
-         [:span.symbol-name (:symbol/name sym-data)]
-         (when-let [kind (:symbol/type sym-data)]
-                   [:span.symbol-kind (name kind)])]
-        (when-let [arglists (:symbol/arglists sym-data)]
-                  [:div.arglists
-                   [:strong "Args: "]
-                   [:code (pr-str arglists)]])
-        (if-let [doc (:symbol/doc sym-data)]
-                [:div.docstring [:pre doc]]
-                [:div.no-doc "No documentation available"])]
-       [:div.empty-message "No documentation available"])]))
+    (if sym-data
+      [:div.doc-view
+       [:div.symbol-header
+        [:span.symbol-name (:symbol/name sym-data)]
+        (when-let [kind (:symbol/type sym-data)]
+                  [:span.symbol-kind (name kind)])]
+       (when-let [arglists (:symbol/arglists sym-data)]
+                 [:div.arglists
+                  [:strong "Args: "]
+                  [:code (pr-str arglists)]])
+       (if-let [doc (:symbol/doc sym-data)]
+               [:div.docstring [:pre doc]]
+               [:div.no-doc "No documentation available"])]
+      [:div.empty-message "No documentation available"])))
 
-;; =============================================================================
-;; Widget Components — Aliases View
-;; =============================================================================
-
-(defn- aliases-widget-component
-  "Widget: aliases for a namespace URI."
+(defn- aliases-content
+  "Content body for aliases view widget (no header)."
   [widget-id widget]
   (let [aliases (or (:data widget) [])
         filter-text (or (:filter widget) "")
@@ -453,8 +468,7 @@
                    (filter #(or (matches-filter? (:alias/name %) filter-text)
                                 (matches-filter? (:alias/to-ns %) filter-text))
                            aliases))]
-    [:div.widget.aliases-widget
-     [widget-header widget-id widget]
+    [:<>
      [widget-filter-input widget-id "Filter aliases..."]
      [:div.list-container
       (if (seq filtered)
@@ -469,12 +483,8 @@
      [:div.widget-footer
       [:span (str (count filtered) " aliases")]]]))
 
-;; =============================================================================
-;; Widget Components — Refers View
-;; =============================================================================
-
-(defn- refers-widget-component
-  "Widget: refers for a namespace URI."
+(defn- refers-content
+  "Content body for refers view widget (no header)."
   [widget-id widget]
   (let [refers (or (:data widget) [])
         filter-text (or (:filter widget) "")
@@ -483,8 +493,7 @@
                    (filter #(or (matches-filter? (:refer/symbol %) filter-text)
                                 (matches-filter? (:refer/from-ns-source %) filter-text))
                            refers))]
-    [:div.widget.refers-widget
-     [widget-header widget-id widget]
+    [:<>
      [widget-filter-input widget-id "Filter refers..."]
      [:div.list-container
       (if (seq filtered)
@@ -498,46 +507,92 @@
      [:div.widget-footer
       [:span (str (count filtered) " refers")]]]))
 
-;; =============================================================================
-;; Widget Components — Deps / Callers (placeholder)
-;; =============================================================================
+(defn- deps-content
+  "Content body for deps view widget (no header)."
+  [_widget-id _widget]
+  [:div.deps-view
+   [:div.placeholder "Dependencies view coming in next iteration"]
+   [:div.hint "This will show symbols that this symbol calls/uses"]])
 
-(defn- deps-widget-component
-  "Widget: dependencies for a symbol URI."
-  [widget-id widget]
-  [:div.widget.deps-widget
-   [widget-header widget-id widget]
-   [:div.deps-view
-    [:div.placeholder "Dependencies view coming in next iteration"]
-    [:div.hint "This will show symbols that this symbol calls/uses"]]])
-
-(defn- callers-widget-component
-  "Widget: callers for a symbol URI."
-  [widget-id widget]
-  [:div.widget.callers-widget
-   [widget-header widget-id widget]
-   [:div.callers-view
-    [:div.placeholder "Callers view coming in next iteration"]
-    [:div.hint "This will show symbols that call/use this symbol"]]])
+(defn- callers-content
+  "Content body for callers view widget (no header)."
+  [_widget-id _widget]
+  [:div.callers-view
+   [:div.placeholder "Callers view coming in next iteration"]
+   [:div.hint "This will show symbols that call/use this symbol"]])
 
 ;; =============================================================================
-;; Widget Renderer
+;; Widget Content Renderer
 ;; =============================================================================
 
-(defn- render-widget
-  "Render a widget based on its type."
+(defn- render-widget-content
+  "Render the content body for a widget based on its type (no header)."
   [widget-id widget]
   (case (:type widget)
-    :project-list [project-list-widget widget-id widget]
-    :ns-list [ns-list-widget widget-id widget]
-    :symbol-list [symbol-list-widget widget-id widget]
-    :source [source-widget-component widget-id widget]
-    :doc [doc-widget-component widget-id widget]
-    :aliases [aliases-widget-component widget-id widget]
-    :refers [refers-widget-component widget-id widget]
-    :deps [deps-widget-component widget-id widget]
-    :callers [callers-widget-component widget-id widget]
-    [:div.widget "Unknown widget type: " (str (:type widget))]))
+    :project-list [project-list-content widget-id widget]
+    :ns-list [ns-list-content widget-id widget]
+    :symbol-list [symbol-list-content widget-id widget]
+    :source [source-content widget-id widget]
+    :doc [doc-content widget-id widget]
+    :aliases [aliases-content widget-id widget]
+    :refers [refers-content widget-id widget]
+    :deps [deps-content widget-id widget]
+    :callers [callers-content widget-id widget]
+    [:div "Unknown widget type: " (str (:type widget))]))
+
+;; =============================================================================
+;; WinBox Host Component
+;; =============================================================================
+
+(defn- winbox-body-component
+  "Reagent component rendered into a WinBox body via rdom/render.
+   Reads widget state reactively so re-renders when data changes."
+  [widget-id]
+  (let [widget (get @!widgets widget-id)]
+    [:div.winbox-widget-body
+     [uri-breadcrumb widget-id (:uri widget)]
+     (cond
+       (:loading? widget)
+       [:div.loading-overlay [:div.spinner]]
+
+       (:error widget)
+       [:div.error-banner [:span (:error widget)]]
+
+       :else
+       [render-widget-content widget-id widget])]))
+
+(defn- create-winbox!
+  "Create a WinBox floating window for a widget and render Reagent content
+   into its body. Returns the WinBox instance."
+  [widget-id]
+  (let [!closing (atom false)
+        widget (get @!widgets widget-id)
+        wtype (:type widget)
+        uri (:uri widget)
+        defaults (winbox-defaults wtype)
+        title (type->title wtype uri)
+        wb (js/WinBox.
+            (clj->js
+             {:title title
+              :width (:width defaults)
+              :height (:height defaults)
+              :x (:x defaults)
+              :y (:y defaults)
+              :class ["no-full" "no-max"]
+              :onfocus (fn []
+                         (reset! !focused-widget widget-id)
+                         (when-let [u (:uri (get @!widgets widget-id))]
+                                   (set! (.-hash js/window.location) u)))
+              :onclose (fn []
+                         (when-not @!closing
+                           (reset! !closing true)
+                           (close-widget! widget-id))
+                         js/undefined)}))]
+    (swap! !winbox-instances assoc widget-id wb)
+    ;; Render Reagent component into WinBox body
+    (let [body (.-body wb)]
+      (rdom/render [winbox-body-component widget-id] body))
+    wb))
 
 ;; =============================================================================
 ;; Widget Toolbar
@@ -557,6 +612,11 @@
      [:button.toolbar-btn
       {:on-click #(open-widget! {:type :project-list :uri nil})}
       "+ Projects"]
+     (when focused
+       [:button.toolbar-btn
+        {:on-click #(refresh-widget! focused)
+         :title "Refresh focused widget"}
+        "Refresh"])
      (when at-ns?
        (let [base (uri/base-uri focused-uri)]
          [:<>
@@ -584,32 +644,15 @@
 ;; =============================================================================
 
 (defn- widget-container
-  "Container that renders all open widgets in a flex layout."
+  "Workspace background area. WinBox windows float above this.
+   Shows empty message when no widgets are open."
   []
-  (let [widgets @!widgets
-        focused @!focused-widget]
+  (let [widgets @!widgets]
     [:div.widgets-container
-     (if (seq widgets)
-       (doall
-        (for [[wid w] (sort-by key widgets)]
-             ^{:key wid}
-             [:div.widget-wrapper
-              {:class (when (= wid focused) "focused")
-               :on-click #(do (reset! !focused-widget wid)
-                              (when-let [u (:uri w)]
-                                        (set! (.-hash js/window.location) u)))
-               :style {:min-width "250px"
-                       :flex (if (= (:type w) :source) "2" "1")}}
-              (if (:loading? w)
-                [:div.widget
-                 [widget-header wid w]
-                 [:div.loading-overlay [:div.spinner]]]
-                (if-let [err (:error w)]
-                        [:div.widget
-                         [widget-header wid w]
-                         [:div.error-banner [:span err]]]
-                        [render-widget wid w]))]))
-       [:div.empty-message "No widgets open. Click '+ Projects' to start."])]))
+     (when-not (seq widgets)
+       [:div.empty-message
+        {:style {:padding "2rem" :text-align "center"}}
+        "No widgets open. Click '+ Projects' to start."])]))
 
 ;; =============================================================================
 ;; Hash Routing
@@ -691,8 +734,13 @@
   (js/console.log "[code-browser-v2] Mounted (widget architecture)"))
 
 (defn unmount!
-  "Unmount code browser v2. Resets widget state."
+  "Unmount code browser v2. Closes all WinBox windows and resets state."
   []
+  ;; Close all WinBox instances
+  (doseq [[_wid wb] @!winbox-instances]
+         (.close wb))
+  (reset! !winbox-instances {})
+  (reset! !cascade-offset 0)
   (reset! !widgets {})
   (reset! !focused-widget nil)
   (reset! !breadcrumb-expanded #{})

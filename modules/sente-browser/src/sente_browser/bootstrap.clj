@@ -246,6 +246,8 @@
   <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
   <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
   <link href=\"https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap\" rel=\"stylesheet\">
+  <!-- WinBox floating windows -->
+  <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/winbox@0.2.82/dist/css/winbox.min.css\">
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; padding: 0; height: 100vh; }
@@ -425,10 +427,8 @@
     .widget-toolbar { display: flex; gap: 0.25rem; padding: 0.5rem; background: #f0f0f0; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
     .toolbar-btn { font-size: 12px; padding: 0.25rem 0.5rem; border: 1px solid #ccc; border-radius: 3px; background: white; cursor: pointer; }
     .toolbar-btn:hover { background: #e8e8e8; }
-    .widgets-container { display: flex; flex: 1; overflow: hidden; border: 1px solid #ddd; }
-    .widget-wrapper { display: flex; flex-direction: column; border-right: 1px solid #ddd; overflow: hidden; position: relative; }
-    .widget-wrapper:last-child { border-right: none; }
-    .widget-wrapper.focused { box-shadow: inset 0 0 0 2px #2196F3; }
+    .widgets-container { position: relative; flex: 1; overflow: hidden; background: #e8e8e8; border: 1px solid #ddd; }
+    .winbox-widget-body { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
     .widget { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
     .widget-header { padding: 0.4rem 0.5rem; background: #f5f5f5; border-bottom: 1px solid #ddd; }
     .widget-title-row { display: flex; justify-content: space-between; align-items: center; }
@@ -595,6 +595,9 @@
     window.CM6_READY = true;
     console.log('[code-browser] CodeMirror 6 loaded (with decoration support)');
   </script>
+
+  <!-- WinBox floating windows -->
+  <script src=\"https://cdn.jsdelivr.net/npm/winbox@0.2.82/dist/winbox.bundle.min.js\"></script>
 
   <!-- 7. sente-lite-nrepl bundle -->
   <script src=\"/sente-lite-nrepl.cljs\" type=\"application/x-scittle\"></script>
