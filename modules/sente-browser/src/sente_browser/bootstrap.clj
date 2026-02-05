@@ -421,6 +421,26 @@
     .select-btn { padding: 0.4rem 1rem; border: none; border-radius: 4px; background: #4CAF50; color: white; cursor: pointer; }
     .select-btn:hover { background: #388E3C; }
     .select-btn:disabled { background: #ccc; cursor: not-allowed; }
+    /* Widget architecture styles */
+    .widget-toolbar { display: flex; gap: 0.25rem; padding: 0.5rem; background: #f0f0f0; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
+    .toolbar-btn { font-size: 12px; padding: 0.25rem 0.5rem; border: 1px solid #ccc; border-radius: 3px; background: white; cursor: pointer; }
+    .toolbar-btn:hover { background: #e8e8e8; }
+    .widgets-container { display: flex; flex: 1; overflow: hidden; border: 1px solid #ddd; }
+    .widget-wrapper { display: flex; flex-direction: column; border-right: 1px solid #ddd; overflow: hidden; position: relative; }
+    .widget-wrapper:last-child { border-right: none; }
+    .widget-wrapper.focused { box-shadow: inset 0 0 0 2px #2196F3; }
+    .widget { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    .widget-header { padding: 0.4rem 0.5rem; background: #f5f5f5; border-bottom: 1px solid #ddd; }
+    .widget-title-row { display: flex; justify-content: space-between; align-items: center; }
+    .widget-title-row h3 { margin: 0; font-size: 13px; }
+    .widget-actions { display: flex; gap: 0.25rem; }
+    .widget-btn { font-size: 11px; padding: 0.1rem 0.4rem; border: 1px solid #ccc; border-radius: 3px; background: white; cursor: pointer; line-height: 1; }
+    .widget-btn:hover { background: #e8e8e8; }
+    .widget-btn.close-btn { color: #c62828; border-color: #e0e0e0; }
+    .widget-btn.close-btn:hover { background: #ffebee; }
+    .widget-breadcrumb { font-size: 11px; color: #666; font-family: 'Fira Code', monospace; margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .breadcrumb-segment { color: #333; }
+    .widget-footer { padding: 0.2rem 0.5rem; background: #f5f5f5; border-top: 1px solid #ddd; font-size: 11px; color: #666; }
   </style>
 </head>
 <body>
@@ -446,18 +466,24 @@
         const cm6Code = await cm6Resp.text();
         scittle.core.eval_string(cm6Code);
 
-        status.textContent = 'Loading code-browser...';
-        const cbResp = await fetch('/browser/code_browser.cljs');
-        if (!cbResp.ok) throw new Error('Failed to load code_browser.cljs');
+        status.textContent = 'Loading URI module...';
+        const uriResp = await fetch('/cljc/code_browser/uri.cljc');
+        if (!uriResp.ok) throw new Error('Failed to load uri.cljc');
+        const uriCode = await uriResp.text();
+        scittle.core.eval_string(uriCode);
+
+        status.textContent = 'Loading code-browser v2...';
+        const cbResp = await fetch('/browser/code_browser_v2.cljs');
+        if (!cbResp.ok) throw new Error('Failed to load code_browser_v2.cljs');
         const cbCode = await cbResp.text();
         scittle.core.eval_string(cbCode);
 
         status.textContent = 'Mounting UI...';
-        scittle.core.eval_string('(code-browser/mount!)');
+        scittle.core.eval_string('(code-browser-v2/mount!)');
 
         // Hide loader once mounted
         document.getElementById('ui-loader').style.display = 'none';
-        status.textContent = 'Code Browser loaded!';
+        status.textContent = 'Code Browser v2 loaded!';
       } catch (e) {
         console.error('[load-ui] Error:', e);
         status.textContent = 'Error: ' + e.message;
@@ -960,6 +986,20 @@
            (str/ends-with? uri ".cljs"))
       (let [filename (subs uri 9) ;; strip "/browser/"
             file (io/file "modules/sente-browser/src/browser" filename)]
+        (if (.exists file)
+          {:status 200
+           :headers {"Content-Type" "application/x-clojure; charset=utf-8"
+                     "Cache-Control" "no-cache"}
+           :body (slurp file)}
+          {:status 404
+           :headers {"Content-Type" "text/plain"}
+           :body (str "File not found: " filename)}))
+
+      ;; Serve .cljc files from code-browser-v2 module (for browser use)
+      (and (str/starts-with? uri "/cljc/")
+           (str/ends-with? uri ".cljc"))
+      (let [filename (subs uri 6) ;; strip "/cljc/"
+            file (io/file "modules/code-browser-v2/src" filename)]
         (if (.exists file)
           {:status 200
            :headers {"Content-Type" "application/x-clojure; charset=utf-8"
