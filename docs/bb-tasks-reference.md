@@ -15,8 +15,9 @@ I want to...
 ├── Start/stop a server? ──────────► Server Management
 ├── Run tests? ────────────────────► Testing
 ├── Check code quality? ───────────► Verification
+├── Eval code / load files? ───────► bb nrepl-direct CLI (preferred)
 ├── Call an MCP tool? ─────────────► bb mcp CLI
-├── Eval code in nREPL? ───────────► bb nrepl CLI
+├── Eval via MCP nrepl module? ────► bb nrepl CLI (MCP-based alternative)
 ├── Navigate code (definitions)? ──► bb clojure-lsp CLI
 └── Something else? ───────────────► Run `bb tasks`
 ```
@@ -30,7 +31,7 @@ I want to...
 | `curl http://localhost:3000/mcp ...` | `bb mcp call <tool> '<json>'` |
 | Writing bash to parse MCP responses | `bb mcp ... --pprint` |
 | Manual JSON-RPC construction | `bb mcp call` or `bb nrepl eval` |
-| `cat file.clj \| ...` for testing | `bb nrepl load-file <path>` |
+| `cat file.clj \| ...` for testing | `bb nrepl-direct load-local-file <path> -t <nick>` |
 | Custom HTTP health checks | `bb http:health` or `curl localhost:3000/health` |
 | Writing test scripts | Check `bb test:*` tasks first |
 | `bb server & sleep 2 && curl health` | `bb server:start-wait --nickname X` |
@@ -276,7 +277,7 @@ bb mcp call calculate.calculate '{"expr":"(+ 1 2 3)"}' --mcp my-server
 bb mcp call mcp-local-eval.local-eval '{"code":"(+ 1 2)"}' --mcp my-server
 
 # nREPL eval (in connected nREPL)
-bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2)","connection":"browser-1"}' --mcp my-server
+bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2)","connection":"browser-1"}' --mcp my-server
 
 # clojure-lsp
 bb mcp call clojure-lsp.clj-init '{"project-root":"/path/to/project"}' --mcp my-server
@@ -292,9 +293,57 @@ bb mcp call clojure-lsp.clj-init '{"project-root":"/path/to/project"}' --mcp my-
 
 ---
 
-## bb nrepl CLI (nREPL Operations)
+## bb nrepl-direct CLI (Preferred — Direct TCP)
 
-**For connecting to and evaluating in nREPL servers (JVM, browser, etc.).**
+**Direct nREPL client via TCP/bencode. No MCP overhead. Handles `!` safely (set +H).**
+
+### --target (-t) Shorthand
+
+| Target | Expands to |
+|--------|-----------|
+| `-t myserver` | `--nickname myserver --service nrepl-server` |
+| `-t myserver/browser-1` | `--nickname myserver --service nrepl-proxy --connection browser-1` |
+
+When `/browser` is present, the proxy is selected automatically.
+
+### Commands
+
+```bash
+bb nrepl-direct list -t <nick>                          # List connected browsers
+bb nrepl-direct eval '<code>' -t <nick>                 # Eval on server
+bb nrepl-direct eval '<code>' -t <nick>/browser-1       # Eval in browser
+bb nrepl-direct load-local-file <path> -t <nick>/browser-1  # Load file to browser
+bb nrepl-direct load-file <path> -t <nick>              # Load file (server reads)
+```
+
+### Output Modes
+
+```bash
+bb nrepl-direct eval '(+ 1 2)' -t <nick> --output edn   # Clean EDN (for scripting)
+bb nrepl-direct eval '(+ 1 2)' -t <nick> --output full   # Full JSON response
+bb nrepl-direct eval '(+ 1 2)' -t <nick> --output pipe   # stdout+stderr+value
+```
+
+### Options
+
+```bash
+-t, --target TARGET   # Server/browser shorthand (see above)
+--port PORT           # Explicit port (alternative to -t)
+--nickname NAME       # Discover port from .ports/<NAME>.json
+--service SERVICE     # nrepl-server (default) or nrepl-proxy
+--output MODE         # result (default), full, edn, pipe
+--timeout MS          # Timeout (default: 30000)
+--pprint              # Pretty-print output
+--stdout2stderr       # With --output edn: show eval's stdout on stderr
+```
+
+**Full guide:** See `docs/bb-nrepl-direct-user-guide.md`
+
+---
+
+## bb nrepl CLI (MCP-based nREPL Operations)
+
+**For connecting to and evaluating in nREPL servers via the MCP nrepl module. Use `bb nrepl-direct` for simpler, faster access.**
 
 ### Connection Management
 
@@ -412,15 +461,13 @@ bb mcp-eval "<code>"                # Quick eval on running server
 
 ```bash
 # Terminal 1: Start server
-bb server --http --config bb-code-browser-dev-system.edn --nickname code-browser-dev
+bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-system.edn
 
 # Terminal 2: Open browser to http://localhost:8091
 
-# Terminal 3: Find browser connection
-bb nrepl list --mcp code-browser-dev
-
-# Eval in browser
-bb nrepl eval "(+ 1 2)" --connection browser-1 --mcp code-browser-dev
+# Terminal 3: Find browser connection and eval
+bb nrepl-direct list -t code-browser-dev
+bb nrepl-direct eval '(+ 1 2)' -t code-browser-dev/browser-1
 ```
 
 ### Debug a Running Server
@@ -467,7 +514,8 @@ bb mcp call clojure-lsp.clj-init '{"project-root":"/Users/franksiebenlist/Develo
 | `test:*` | Testing |
 | `http:*` | HTTP integration helpers |
 | `lint`, `format`, `check` | Code quality |
-| `mcp`, `nrepl`, `clojure-lsp` | CLI tools |
+| `nrepl-direct` | Direct nREPL client (preferred) |
+| `mcp`, `nrepl`, `clojure-lsp` | MCP-based CLI tools |
 
 ---
 

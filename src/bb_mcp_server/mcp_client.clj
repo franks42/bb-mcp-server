@@ -22,7 +22,8 @@
       (try
        (let [content (slurp port-file)
              data (json/parse-string content true)]
-         (:port data))
+         (or (get-in data [:ports :mcp-http])
+             (:port data)))
        (catch Exception _
               nil)))))
 
@@ -39,7 +40,9 @@
                       (let [content (slurp f)
                             data (json/parse-string content true)
                             nickname (str/replace (.getName f) ".json" "")]
-                        [{:nickname nickname :port (:port data) :data data}])
+                        [{:nickname nickname
+                          :port (or (get-in data [:ports :mcp-http]) (:port data))
+                          :data data}])
                       (catch Exception _
                              []))))))))
 
@@ -305,7 +308,7 @@
   "Build a JSON-RPC request for any MCP tool.
 
    Arguments:
-     tool-name - Fully qualified tool name (e.g., \"nrepl.nrepl-connection\")
+     tool-name - Fully qualified tool name (e.g., \"mcp-nrepl.nrepl-connection\")
      arguments - Map of arguments to pass to the tool
 
    Returns a JSON-RPC request map."
@@ -321,7 +324,7 @@
 
    Arguments:
      port-or-nickname - Server port number or nickname
-     tool-name        - Fully qualified tool name (e.g., \"nrepl.nrepl-connection\")
+     tool-name        - Fully qualified tool name (e.g., \"mcp-nrepl.nrepl-connection\")
      arguments        - Map of arguments to pass to the tool
 
    Returns the raw JSON-RPC response from the server."

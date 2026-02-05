@@ -131,7 +131,7 @@
      (let [args (cond-> {:op "connect"
                          :connection target}
                         nickname (assoc :nickname nickname))
-           response (client/call-tool! mcp "nrepl.nrepl-connection" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-connection" args)
            result (client/extract-tool-result response)]
        (if (= "success" (:status result))
          (do
@@ -151,7 +151,7 @@
    (let [connection (first positional)
          args (cond-> {:op "disconnect"}
                       connection (assoc :connection connection))
-         response (client/call-tool! mcp "nrepl.nrepl-connection" args)
+         response (client/call-tool! mcp "mcp-nrepl.nrepl-connection" args)
          result (client/extract-tool-result response)]
      (if (= "success" (:status result))
        (println "Disconnected:" (:message result))
@@ -166,7 +166,7 @@
   "List all nREPL connections."
   [{:keys [mcp pprint]}]
   (try
-   (let [response (client/call-tool! mcp "nrepl.nrepl-connection" {:op "list"})
+   (let [response (client/call-tool! mcp "mcp-nrepl.nrepl-connection" {:op "list"})
          result (client/extract-tool-result response)]
      (if (= "success" (:status result))
        (if pprint
@@ -188,7 +188,7 @@
   "Show nREPL connection status."
   [{:keys [mcp pprint]}]
   (try
-   (let [response (client/call-tool! mcp "nrepl.nrepl-connection" {:op "status"})
+   (let [response (client/call-tool! mcp "mcp-nrepl.nrepl-connection" {:op "status"})
          result (client/extract-tool-result response)]
      (if (= "success" (:status result))
        (if pprint
@@ -216,7 +216,7 @@
     (try
      (let [args (cond-> {:code code :timeout timeout}
                         connection (assoc :connection connection))
-           response (client/call-tool! mcp "nrepl.nrepl-eval" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-eval" args)
            result (client/extract-tool-result response)]
        (case output
           ;; Result-only mode
@@ -269,7 +269,7 @@
     (try
      (let [args (cond-> {:file-path path :timeout timeout}
                         connection (assoc :connection connection))
-           response (client/call-tool! mcp "nrepl.nrepl-load-file" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-load-file" args)
            result (client/extract-tool-result response)]
        (case output
           ;; Result-only mode
@@ -327,7 +327,7 @@
    (let [args (cond-> {}
                       connection (assoc :connection connection)
                       prefix (assoc :prefix prefix))
-         response (client/call-tool! mcp "nrepl.nrepl-loaded-namespaces" args)
+         response (client/call-tool! mcp "mcp-nrepl.nrepl-loaded-namespaces" args)
          result (client/extract-tool-result response)]
      (if (= "success" (:status result))
        (let [namespaces (:namespaces result)]
@@ -356,7 +356,7 @@
     (try
      (let [args (cond-> {:ns ns-name}
                         connection (assoc :connection connection))
-           response (client/call-tool! mcp "nrepl.nrepl-introspect-ns" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-introspect-ns" args)
            result (client/extract-tool-result response)]
        (if (= "success" (:status result))
          (if pprint
@@ -394,7 +394,7 @@
     (try
      (let [args (cond-> {:symbol symbol-name}
                         connection (assoc :connection connection))
-           response (client/call-tool! mcp "nrepl.nrepl-var-meta" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-var-meta" args)
            result (client/extract-tool-result response)]
        (if (= "success" (:status result))
          (if pprint
@@ -433,7 +433,7 @@
     (try
      (let [args (cond-> {:symbol symbol-name}
                         connection (assoc :connection connection))
-           response (client/call-tool! mcp "nrepl.nrepl-get-value" args)
+           response (client/call-tool! mcp "mcp-nrepl.nrepl-get-value" args)
            result (client/extract-tool-result response)]
        (if (= "success" (:status result))
          (if pprint

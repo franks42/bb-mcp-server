@@ -5,9 +5,16 @@ Direct nREPL client that bypasses MCP - connects directly to nREPL servers via b
 ## Quick Reference
 
 ```bash
+# Using --target (-t) shorthand (PREFERRED)
+bb nrepl-direct eval "(+ 1 2)" -t myserver             # Eval on server
+bb nrepl-direct eval "(+ 1 2)" -t myserver/browser-1   # Eval in browser
+bb nrepl-direct list -t myserver                        # List connected browsers
+bb nrepl-direct load-local-file <path> -t myserver/browser-1  # Load file to browser
+
+# Using explicit --port (when no port file available)
 bb nrepl-direct eval "<code>" --port 7888              # Eval code
 bb nrepl-direct eval "<code>" --port 7888 --output edn # Clean EDN output
-bb nrepl-direct load-local-file <path> --port 7888     # Load file (recommended)
+bb nrepl-direct load-local-file <path> --port 7888     # Load file
 bb nrepl-direct -h                                      # Help
 ```
 
@@ -104,19 +111,20 @@ bb nrepl-direct load-file src/browser/app.cljs --service nrepl-proxy  # FAILS
 
 **Problem:** Bash interprets `!` as history expansion, breaking Clojure function names like `swap!`, `reset!`, `println`.
 
-```bash
-# BROKEN - bash expands ! before nrepl-direct sees it
-bb nrepl-direct eval "(swap! state inc)" --port 7888
-# bash: !: event not found
+> **Note:** The `bb nrepl-direct` shell wrapper already runs `set +H` to disable history expansion, so `!` characters work in most cases. The single-quote workaround below is mainly relevant if you call the script directly or use a non-bash shell.
 
-# WORKS - use single quotes (prevents all shell expansion)
+```bash
+# With the wrapper (set +H), this works:
+bb nrepl-direct eval "(swap! state inc)" -t myserver
+
+# In shells without set +H, use single quotes:
 bb nrepl-direct eval '(swap! state inc)' --port 7888
 
-# WORKS - escape the !
+# Or escape the !
 bb nrepl-direct eval "(swap\! state inc)" --port 7888
 ```
 
-**Best Practice:** Always use single quotes `'...'` for Clojure code containing `!`:
+**Best Practice:** Use single quotes `'...'` for Clojure code containing `!` when in doubt:
 
 ```bash
 # Good - single quotes

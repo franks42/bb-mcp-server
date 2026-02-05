@@ -14,7 +14,7 @@
    to ensure correct resolution in the registry.
 
    Example:
-   (call-async-tool \"nrepl.nrepl-send-message-async\" {:message {:op \"eval\" :code \"(+ 1 2)\"}})
+   (call-async-tool \"mcp-nrepl.nrepl-send-message-async\" {:message {:op \"eval\" :code \"(+ 1 2)\"}})
 
    Returns the full MCP tool response with :content, :isError, etc."
   [tool-name args]

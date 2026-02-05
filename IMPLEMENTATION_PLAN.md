@@ -25,23 +25,23 @@ Production-ready MCP server with complete Code Browser v1 feature set. Code Brow
 
 ### ✅ v2 Browser Loading FIXED (2026-01-19)
 
-**Solution:** Use `nrepl.nrepl-eval-local-file` instead of `bb nrepl load-file`
+**Solution:** Use `mcp-mcp-nrepl.nrepl-eval-local-file` instead of `bb nrepl load-file`
 
 | Tool | How it works | Result |
 |------|--------------|--------|
 | `bb nrepl load-file` ❌ | Uses nREPL `load-file` op (requires filesystem) | Code goes to server, not browser |
-| `nrepl.nrepl-eval-local-file` ✅ | Reads file locally, sends content as code | Code evaluated in browser Scittle |
+| `mcp-mcp-nrepl.nrepl-eval-local-file` ✅ | Reads file locally, sends content as code | Code evaluated in browser Scittle |
 
 **Working v2 browser loading commands:**
 ```bash
 # 1. Load v2 code into browser
-bb mcp call nrepl.nrepl-eval-local-file \
+bb mcp call mcp-mcp-nrepl.nrepl-eval-local-file \
   '{"file-path": "/path/to/modules/sente-browser/src/browser/code_browser_v2.cljs", "connection": "browser-X"}' \
   --mcp <server>
 
 # 2. Mount v2 (use --args-file for ! character)
 echo '{"code":"(code-browser-v2/mount!)","connection":"browser-X"}' > /tmp/mount-v2.json
-bb mcp call nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp <server>
+bb mcp call mcp-nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp <server>
 ```
 
 **✅ Done:** `docs/SCITTLE_DEV_ENVIRONMENT.md` updated with correct tool and stale database fix.
@@ -266,7 +266,7 @@ modules/code-browser-v2/
 
 **Problem:** `bb nrepl load-file` doesn't work for browser code (requires filesystem access).
 
-**Solution:** Use `nrepl.nrepl-eval-local-file` MCP tool instead:
+**Solution:** Use `mcp-mcp-nrepl.nrepl-eval-local-file` MCP tool instead:
 - Reads file locally on the machine running the CLI
 - Sends file content as code to be evaluated
 - Works for browser Scittle because it doesn't require filesystem on target

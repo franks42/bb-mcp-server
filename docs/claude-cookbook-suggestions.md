@@ -188,7 +188,7 @@ to maximize parallelism and reduce latency.
 **When AI Prefers CLI:**
 ```bash
 # This feels natural:
-bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2)"}' --mcp code-browser-dev
+bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2)"}' --mcp code-browser-dev
 
 # Easy to chain:
 bb server:stop code-browser-dev && bb server --http --config ... --nickname code-browser-dev
@@ -354,14 +354,14 @@ If you want the right tool for this job, Babashka wins.
 ### Current Pattern: Bash as CLI
 ```bash
 bb server:list
-bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2)"}' --mcp code-browser-dev
+bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2)"}' --mcp code-browser-dev
 bb server:stop code-browser-dev
 ```
 
 ### Proposed Pattern: REPL as CLI
 ```clojure
 (server/list)
-(mcp/call :nrepl.nrepl-eval {:code "(+ 1 2)"} :mcp "code-browser-dev")
+(mcp/call :mcp-nrepl.nrepl-eval {:code "(+ 1 2)"} :mcp "code-browser-dev")
 (server/stop "code-browser-dev")
 ```
 

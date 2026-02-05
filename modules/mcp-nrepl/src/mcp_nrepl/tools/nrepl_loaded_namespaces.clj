@@ -51,7 +51,7 @@
                "(vec (sort (map str (all-ns))))")
 
         ;; Delegate to nrepl-eval
-        result (delegate/call-async-tool "nrepl.nrepl-eval"
+        result (delegate/call-async-tool "mcp-nrepl.nrepl-eval"
                                          (cond-> {:code code :timeout timeout}
                                                  connection (assoc :connection connection)))]
 

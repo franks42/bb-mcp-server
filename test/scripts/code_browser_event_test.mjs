@@ -14,7 +14,7 @@ async function bbEval(conn, code) {
   // For complex code, use base64 encoding
   const base64Code = Buffer.from(code).toString('base64');
   const { stdout } = await execAsync(
-    `bb mcp call nrepl.nrepl-eval '{"code":"${base64Code}","input-base64":true,"connection":"${conn}","timeout":30000}' --mcp code-browser-dev`,
+    `bb mcp call mcp-nrepl.nrepl-eval '{"code":"${base64Code}","input-base64":true,"connection":"${conn}","timeout":30000}' --mcp code-browser-dev`,
     { cwd: projectDir }
   );
   const jsonMatch = stdout.match(/\{[\s\S]*\}/);
@@ -29,7 +29,7 @@ async function loadFileInBrowser(conn, path) {
   // Use nrepl-eval-local-file - it reads file locally and evals via nrepl-eval
   console.log('[load]', path.split('/').pop());
   const { stdout } = await execAsync(
-    `bb mcp call nrepl.nrepl-eval-local-file '{"file-path":"${path}","connection":"${conn}","timeout":30000}' --mcp code-browser-dev`,
+    `bb mcp call mcp-mcp-nrepl.nrepl-eval-local-file '{"file-path":"${path}","connection":"${conn}","timeout":30000}' --mcp code-browser-dev`,
     { cwd: projectDir }
   );
   const jsonMatch = stdout.match(/\{[\s\S]*\}/);
@@ -44,7 +44,7 @@ async function loadFileInBrowser(conn, path) {
 
 async function getActiveConn() {
   const { stdout: listOut } = await execAsync(
-    `bb mcp call nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev`,
+    `bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev`,
     { cwd: projectDir }
   );
   const jsonMatch = listOut.match(/\{[\s\S]*\}/);

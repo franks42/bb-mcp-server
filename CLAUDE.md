@@ -56,10 +56,16 @@ bb server:list                  # List running servers
 bb lint && bb format            # Verify before commit
 bb test:modules                 # Run all module tests
 
+# nrepl-direct (preferred — direct TCP, no MCP overhead)
+bb nrepl-direct list -t X                   # List connections
+bb nrepl-direct eval '<code>' -t X          # Eval on server
+bb nrepl-direct eval '<code>' -t X/browser-1  # Eval in browser
+bb nrepl-direct load-local-file <path> -t X/browser-1  # Load file
+
+# MCP-based CLIs (fallback)
 bb mcp servers                  # List running MCP servers
 bb mcp tools --mcp X            # List tools
 bb mcp call <tool> '<json>'     # Call any tool
-
 bb nrepl list --mcp X           # List nREPL connections
 bb nrepl eval "<code>" --mcp X  # Eval code
 ```
@@ -70,24 +76,27 @@ bb nrepl eval "<code>" --mcp X  # Eval code
 
 ## Evaluating Code in Running Servers
 
-**Best practice:** Use `.clj` script files with `load-file` instead of inline code.
+**Best practice:** Use `bb nrepl-direct` with the `-t` (target) shorthand.
 
-**Why:** Avoids shell escaping issues with `!` characters in Clojure function names.
+The `bb nrepl-direct` wrapper runs `set +H` to disable bash history expansion, so `!` characters in Clojure function names (like `swap!`, `mount!`) work safely.
 
 ```bash
-# PREFERRED: Use script files
-bb nrepl load-file scripts/cb-v2-init.clj --mcp cb-v2-test --connection server
+# PREFERRED: bb nrepl-direct with --target shorthand
+bb nrepl-direct eval '(+ 1 2 3)' -t myserver              # Server eval
+bb nrepl-direct eval '(mount!)' -t myserver/browser-1      # Browser eval
+bb nrepl-direct load-local-file scripts/init.clj -t myserver/browser-1  # Load file
+bb nrepl-direct list -t myserver                            # List connections
 
-# Also works: JSON args-file (for simple cases)
-bb mcp call mcp-local-eval.local-eval --args-file scripts/cb-v2-init.json --mcp cb-v2-test
+# ALSO WORKS: Script files for complex multi-line code
+bb nrepl-direct load-local-file scripts/cb-v2-init.clj -t cb-v2-test
 
-# AVOID: Inline code with ! characters (escaping issues)
-bb nrepl eval "(init! ...)" --mcp cb-v2-test  # ! gets escaped incorrectly
+# FALLBACK: MCP-based CLIs (when you need MCP-specific tools)
+bb nrepl eval "(+ 1 2 3)" --mcp myserver                   # Via MCP nrepl module
+bb mcp call mcp-local-eval.local-eval '{"code":"..."}' --mcp myserver  # Server-side eval
 ```
 
 **Script locations:**
 - `scripts/*.clj` - Reusable Clojure scripts for server-side execution
-- `scripts/*.json` - JSON args for `--args-file` option (simple cases only)
 
 **When to create scripts:** If you'll run the same code more than once, create a `.clj` script file.
 
@@ -222,4 +231,22 @@ Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more 
 
 ---
 
-*Last Updated: 2026-01-10*
+## Refactoring
+
+After any module/namespace rename, grep the entire codebase for remaining references to the old name before considering the task complete. Check: import statements, require calls, configuration files (JSON, HTML), build files, and test fixtures.
+
+---
+
+## Testing / Verification
+
+After refactoring changes, attempt to start/load the server or run the build to verify nothing is broken before committing.
+
+---
+
+## Language-Specific Notes
+
+When working with Clojure/ClojureScript namespaces, remember that namespace references can appear in HTML files, EDN configs, and JavaScript interop — not just .clj/.cljs files.
+
+---
+
+*Last Updated: 2026-02-04*

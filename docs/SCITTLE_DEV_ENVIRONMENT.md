@@ -126,12 +126,14 @@ In a THIRD terminal:
 
 ```bash
 cd /Users/franksiebenlist/Development/bb-mcp-server
-bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev
+bb nrepl-direct list -t code-browser-dev
 ```
 
 **Verify:** Look for a connection with `"type": "browser"` and `"status": "connected"`. Note the `nickname` (e.g., `browser-1`, `browser-2`).
 
 **CRITICAL:** The nickname changes with each new connection. ALWAYS run this command to get the CURRENT nickname before any eval.
+
+**MCP-based alternative:** `bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev`
 
 Example output:
 ```json
@@ -153,18 +155,12 @@ Example output:
 Using the nickname from Step 3 (replace `browser-1` with your actual nickname):
 
 ```bash
-bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"browser-1","timeout":5000}' --mcp code-browser-dev
+bb nrepl-direct eval '(+ 1 2 3)' -t code-browser-dev/browser-1
 ```
 
-**Verify:** Response should contain `"value": "6"`:
-```json
-{
-  "status": "success",
-  "response": {
-    "value": "6"
-  }
-}
-```
+**Verify:** Response should contain `"value": "6"`.
+
+**MCP-based alternative:** `bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"browser-1","timeout":5000}' --mcp code-browser-dev`
 
 **If you get timeout:** The connection nickname is wrong or browser disconnected. Go back to Step 3.
 
@@ -172,30 +168,32 @@ bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"browser-1","
 
 ## Step 5: Load Files into Scittle
 
-**IMPORTANT:** Use `mcp-nrepl.nrepl-eval-local-file` to load .cljs files. This tool:
-1. Reads the file locally (on the bb server side)
-2. Sends the content via nrepl-eval to the browser
+**IMPORTANT:** Use `load-local-file` to load .cljs files into the browser. This reads the file locally and sends the content via nREPL to the browser.
 
 ```bash
 # Load CM6 editor wrapper
-bb mcp call mcp-nrepl.nrepl-eval-local-file '{"file-path":"/Users/franksiebenlist/Development/bb-mcp-server/modules/sente-browser/src/browser/scittle_cm6.cljs","connection":"browser-1","timeout":30000}' --mcp code-browser-dev
+bb nrepl-direct load-local-file modules/sente-browser/src/browser/scittle_cm6.cljs \
+  -t code-browser-dev/browser-1
 ```
 
 **Verify:** Response should show a var like `"value": "#'scittle-cm6/focus!"`.
 
 ```bash
 # Load code browser UI
-bb mcp call mcp-nrepl.nrepl-eval-local-file '{"file-path":"/Users/franksiebenlist/Development/bb-mcp-server/modules/sente-browser/src/browser/code_browser.cljs","connection":"browser-1","timeout":30000}' --mcp code-browser-dev
+bb nrepl-direct load-local-file modules/sente-browser/src/browser/code_browser.cljs \
+  -t code-browser-dev/browser-1
 ```
 
 **Verify:** Response should show `"value": "#'code-browser/unmount!"`.
+
+**MCP-based alternative:** `bb mcp call mcp-nrepl.nrepl-eval-local-file '{"file-path":"<full-path>","connection":"browser-1","timeout":30000}' --mcp code-browser-dev`
 
 ---
 
 ## Step 6: Mount Code Browser
 
 ```bash
-bb mcp call mcp-nrepl.nrepl-eval '{"code":"(code-browser/mount!)","connection":"browser-1","timeout":5000}' --mcp code-browser-dev
+bb nrepl-direct eval '(code-browser/mount!)' -t code-browser-dev/browser-1
 ```
 
 **Verify:** Response shows `"value": "nil"` and browser console logs:
@@ -204,31 +202,57 @@ bb mcp call mcp-nrepl.nrepl-eval '{"code":"(code-browser/mount!)","connection":"
 [code-browser] Mounted
 ```
 
+**Note:** The `set +H` wrapper handles `!` in function names automatically.
+
 ---
 
 ## Tool Reference
 
-| Tool | Purpose | When to Use |
-|------|---------|-------------|
-| `mcp-nrepl.nrepl-connection op=list` | List all connections | ALWAYS before any eval to get current nickname |
-| `mcp-nrepl.nrepl-eval` | Evaluate code in browser | Short code snippets |
-| `mcp-nrepl.nrepl-eval-local-file` | Load .cljs file into browser | Loading source files (reads locally, evals remotely) |
+| Task | nrepl-direct (preferred) | MCP-based alternative |
+|------|--------------------------|----------------------|
+| List connections | `bb nrepl-direct list -t code-browser-dev` | `bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev` |
+| Eval in browser | `bb nrepl-direct eval '<code>' -t code-browser-dev/browser-1` | `bb mcp call mcp-nrepl.nrepl-eval '{"code":"...","connection":"browser-1"}' --mcp code-browser-dev` |
+| Load file to browser | `bb nrepl-direct load-local-file <path> -t code-browser-dev/browser-1` | `bb mcp call mcp-nrepl.nrepl-eval-local-file '{"file-path":"...","connection":"browser-1"}' --mcp code-browser-dev` |
+| Eval on server | `bb nrepl-direct eval '<code>' -t code-browser-dev` | `bb mcp call mcp-local-eval.local-eval '{"code":"..."}' --mcp code-browser-dev` |
 
 ---
 
 ## Convenient CLI Commands
 
-Instead of `bb mcp call mcp-nrepl.*`, use the shorter `bb nrepl` CLI:
+### bb nrepl-direct (Preferred — Direct TCP, No MCP Overhead)
 
 ```bash
 # List connections (find browser nickname)
+bb nrepl-direct list -t code-browser-dev
+
+# Evaluate code in browser
+bb nrepl-direct eval '(+ 1 2 3)' -t code-browser-dev/browser-1
+
+# Load a .cljs file into browser
+bb nrepl-direct load-local-file modules/sente-browser/src/browser/scittle_cm6.cljs \
+  -t code-browser-dev/browser-1
+
+# Eval on server (not browser)
+bb nrepl-direct eval '(keys @bb-mcp-server.system/!state)' -t code-browser-dev
+
+# EDN output for scripting
+bb nrepl-direct eval '(range 5)' -t code-browser-dev --output edn
+```
+
+**--target (-t) format:** `-t server` for server eval, `-t server/browser-N` for browser eval (auto-selects nrepl-proxy).
+
+### bb nrepl (MCP-based alternative)
+
+```bash
+# List connections
 bb nrepl list --mcp code-browser-dev
 
 # Evaluate code in browser
 bb nrepl eval "(+ 1 2 3)" --connection browser-6 --mcp code-browser-dev
 
 # Load a .cljs file into browser
-bb nrepl load-file modules/sente-browser/src/browser/scittle_cm6.cljs --connection browser-6 --mcp code-browser-dev
+bb nrepl load-file modules/sente-browser/src/browser/scittle_cm6.cljs \
+  --connection browser-6 --mcp code-browser-dev
 
 # Introspection
 bb nrepl namespaces --connection browser-6 --mcp code-browser-dev
@@ -236,72 +260,6 @@ bb nrepl vars user --connection browser-6 --mcp code-browser-dev
 ```
 
 **Tip:** The Code Browser now has a "Load Code Browser" button - click it instead of running CLI commands!
-
----
-
-## Direct nREPL CLI (No MCP)
-
-For scenarios where MCP overhead is unnecessary or when running scripts, use `bb nrepl-direct`.
-This connects directly via TCP/bencode protocol - no MCP JSON-RPC overhead.
-
-### Step-by-Step: Browser Development with nrepl-direct
-
-**Step 1: Start the server**
-```bash
-bb server:start-wait --nickname myserver --config bb-code-browser-dev-system.edn
-```
-
-**Step 2: Open browser** (in another terminal or via Playwright)
-```bash
-# The browser will auto-connect and get a nickname like "browser-1"
-```
-
-**Step 3: List connected browsers**
-```bash
-bb nrepl-direct list -t myserver
-```
-
-**Step 4: Eval code in browser**
-```bash
-bb nrepl-direct eval "(+ 1 2 3)" -t myserver/browser-1
-```
-
-**Step 5: Load file to browser**
-```bash
-bb nrepl-direct load-local-file src/browser/app.cljs -t myserver/browser-1
-```
-
-### Quick Reference
-
-```bash
-# List browsers
-bb nrepl-direct list -t myserver
-
-# Eval in browser
-bb nrepl-direct eval "<code>" -t myserver/browser-1
-
-# Load file to browser
-bb nrepl-direct load-local-file <path> -t myserver/browser-1
-
-# Eval on server (no browser)
-bb nrepl-direct eval "<code>" -t myserver
-
-# EDN output for scripting
-bb nrepl-direct eval "(range 5)" -t myserver --output edn
-```
-
-### --target (-t) Format
-
-The `-t` flag combines server, service, and browser into one:
-
-| Target | Expands to |
-|--------|-----------|
-| `-t myserver` | `--nickname myserver --service nrepl-server` |
-| `-t myserver/browser-1` | `--nickname myserver --service nrepl-proxy --connection browser-1` |
-
-When a `/browser` is present, the proxy is selected automatically.
-
-**Without the browser part**, eval runs on the server (bb) - not in the browser.
 
 ---
 
@@ -335,7 +293,7 @@ bb server:start-wait --nickname code-browser-dev --config bb-code-browser-dev-sy
 ### 2. Wrong Connection Nickname
 **Symptom:** Timeout on eval
 **Cause:** Using stale nickname (browser-3) when new connection is active (browser-4)
-**Fix:** Run `mcp-nrepl.nrepl-connection op=list` BEFORE every debugging session
+**Fix:** Run `bb nrepl-direct list -t <nickname>` BEFORE every debugging session
 
 ### 3. Browser Disconnected
 **Symptom:** No browser connections in list
@@ -380,12 +338,11 @@ bb server:list | grep code-browser-dev
 # 2. Get the MCP HTTP port (ephemeral - varies each start)
 bb server:ports code-browser-dev
 
-# 3. Is browser connected?
-bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev | grep browser
+# 3. Is browser connected? Note the CURRENT nickname (e.g., browser-5)
+bb nrepl-direct list -t code-browser-dev
 
-# 4. Note the CURRENT nickname (e.g., browser-5)
-# 5. Test eval with THAT nickname
-bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"browser-N","timeout":5000}' --mcp code-browser-dev
+# 4. Test eval with THAT nickname
+bb nrepl-direct eval '(+ 1 2 3)' -t code-browser-dev/browser-N
 ```
 
 ---
@@ -642,7 +599,7 @@ bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 open http://localhost:8091
 
 # Wait 3-5 seconds for WebSocket connection, then find browser nickname
-bb nrepl list --mcp cb-v2-test
+bb nrepl-direct list -t cb-v2-test
 ```
 
 Note the browser connection nickname (e.g., `browser-1`, `browser-4`).
@@ -652,6 +609,11 @@ Note the browser connection nickname (e.g., `browser-1`, `browser-4`).
 ```bash
 # Initialize v2 database and sources
 # This now auto-enables browser sync and clears any previous error state
+bb nrepl-direct eval '(require (quote [code-browser.core :as cb-v2])) (cb-v2/init! {:db-path "/tmp/cb-v2-test" :sources [{:type :dir :path "."}]})' -t cb-v2-test
+```
+
+**MCP-based alternative** (if nrepl-direct not available):
+```bash
 cat > /tmp/init-v2.json << 'EOF'
 {"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
 EOF
@@ -671,11 +633,8 @@ bb mcp call mcp-local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-
 
 ```bash
 # Replace browser-N with your actual nickname from Step 2
-BROWSER_NICK="browser-4"  # Change this!
-
-# Load v2 browser code
-bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs \
-  --connection $BROWSER_NICK --mcp cb-v2-test
+bb nrepl-direct load-local-file modules/sente-browser/src/browser/code_browser_v2.cljs \
+  -t cb-v2-test/browser-4
 ```
 
 **Expected output:** Contains `"value": "#'code-browser-v2/unmount!"`
@@ -683,12 +642,8 @@ bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs \
 #### Step 5: Mount v2 UI
 
 ```bash
-# Mount v2 (use args-file due to ! in function name)
-cat > /tmp/mount-v2.json << 'EOF'
-{"code":"(code-browser-v2/mount!)","connection":"browser-4","timeout":30000}
-EOF
-# Replace browser-4 with your actual nickname in the JSON above!
-bb mcp call mcp-nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test
+# Mount v2 (nrepl-direct wrapper handles ! safely via set +H)
+bb nrepl-direct eval '(code-browser-v2/mount!)' -t cb-v2-test/browser-4
 ```
 
 **Expected output:** `"value": "nil"` (success)
@@ -724,10 +679,7 @@ echo "=== Starting v2 server ==="
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 
 echo "=== Initializing v2 backend (scans current commit, populates fresh database) ==="
-cat > /tmp/init-v2.json << 'EOF'
-{"code": "(require '[code-browser.core :as cb-v2]) (cb-v2/init! {:db-path \"/tmp/cb-v2-test\" :sources [{:type :dir :path \".\"}]})"}
-EOF
-bb mcp call mcp-local-eval.local-eval --args-file /tmp/init-v2.json --mcp cb-v2-test
+bb nrepl-direct eval '(require (quote [code-browser.core :as cb-v2])) (cb-v2/init! {:db-path "/tmp/cb-v2-test" :sources [{:type :dir :path "."}]})' -t cb-v2-test
 
 echo "=== Opening browser ==="
 open http://localhost:8091
@@ -735,14 +687,11 @@ sleep 3  # Wait for browser connection
 
 echo ""
 echo "=== NEXT STEPS ==="
-echo "1. Run: bb nrepl list --mcp cb-v2-test"
+echo "1. Run: bb nrepl-direct list -t cb-v2-test"
 echo "2. Note browser nickname (e.g., browser-1)"
-echo "3. Run: bb nrepl load-file modules/sente-browser/src/browser/code_browser_v2.cljs --connection browser-N --mcp cb-v2-test"
-echo "4. Create mount file: cat > /tmp/mount-v2.json << 'EOF'"
-echo '   {"code":"(code-browser-v2/mount!)","connection":"browser-N","timeout":30000}'
-echo "   EOF"
-echo "5. Run: bb mcp call mcp-nrepl.nrepl-eval --args-file /tmp/mount-v2.json --mcp cb-v2-test"
-echo "6. Click on the project '.' to load namespaces, then click namespace/symbol to view source!"
+echo "3. Run: bb nrepl-direct load-local-file modules/sente-browser/src/browser/code_browser_v2.cljs -t cb-v2-test/browser-N"
+echo "4. Run: bb nrepl-direct eval '(code-browser-v2/mount!)' -t cb-v2-test/browser-N"
+echo "5. Click on the project '.' to load namespaces, then click namespace/symbol to view source!"
 ```
 
 ### Datalevin Pod Management
@@ -768,10 +717,7 @@ bb datalevin:cleanup    # Stop pods + remove lock files (use if DB is stuck)
 
 **Check the sync state keys:**
 ```bash
-cat > /tmp/check-v2.json << 'EOF'
-{"code": "(keys @code-browser.sync/!state)"}
-EOF
-bb mcp call mcp-local-eval.local-eval --args-file /tmp/check-v2.json --mcp cb-v2-test
+bb nrepl-direct eval '(keys @code-browser.sync/!state)' -t cb-v2-test
 ```
 
 **v2 state keys:** `(:projects :selected-project :namespaces :selected-ns :symbols :aliases :refers :selected-symbol :source :sort-mode :loading? :error)`

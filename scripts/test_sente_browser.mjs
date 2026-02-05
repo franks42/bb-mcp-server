@@ -40,7 +40,7 @@ async function initMcp() {
 
 async function listConnections() {
   const resp = await mcpRequest('tools/call', {
-    name: 'nrepl.nrepl-connection',
+    name: 'mcp-nrepl.nrepl-connection',
     arguments: { op: 'list' }
   });
   // Response is double-wrapped: result.content[0].text contains EDN that wraps JSON
@@ -55,7 +55,7 @@ async function listConnections() {
 
 async function evalInBrowser(connectionId, code) {
   const resp = await mcpRequest('tools/call', {
-    name: 'nrepl.nrepl-eval',
+    name: 'mcp-nrepl.nrepl-eval',
     arguments: { connection: connectionId, code }
   });
   const outerText = resp.result?.content?.[0]?.text || '{}';

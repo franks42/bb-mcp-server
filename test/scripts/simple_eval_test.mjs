@@ -31,7 +31,7 @@ async function main() {
   // Query for the active connection
   console.log('[test] Checking for active connection...');
   const { stdout: listOut } = await execAsync(
-    `bb mcp call nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev`,
+    `bb mcp call mcp-nrepl.nrepl-connection '{"op":"list"}' --mcp code-browser-dev`,
     { cwd: projectDir }
   );
 
@@ -63,7 +63,7 @@ async function main() {
 
   // Now try eval
   console.log('[test] Attempting eval (+ 1 2 3)...');
-  const evalCmd = `bb mcp call nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"${activeNickname}","timeout":5000}' --mcp code-browser-dev`;
+  const evalCmd = `bb mcp call mcp-nrepl.nrepl-eval '{"code":"(+ 1 2 3)","connection":"${activeNickname}","timeout":5000}' --mcp code-browser-dev`;
   console.log('[test] Command:', evalCmd);
 
   const { stdout: evalOut } = await execAsync(evalCmd, { cwd: projectDir });

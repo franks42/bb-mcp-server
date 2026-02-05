@@ -59,7 +59,7 @@ async function test() {
     // 3. Find browser connection
     console.log('[test] Finding browser connection...');
     const listData = await mcpCall('tools/call', {
-      name: 'nrepl.nrepl-connection',
+      name: 'mcp-nrepl.nrepl-connection',
       arguments: { op: 'list' }
     }, 1);
     const connections = JSON.parse(listData.result.content[0].text);
@@ -73,7 +73,7 @@ async function test() {
     // 4. Test nREPL with simple eval
     console.log('[test] Testing nREPL with (+ 1 2)...');
     const testData = await mcpCall('tools/call', {
-      name: 'nrepl.nrepl-eval',
+      name: 'mcp-nrepl.nrepl-eval',
       arguments: {
         code: '(+ 1 2)',
         connection: browserConn.nickname,
@@ -89,7 +89,7 @@ async function test() {
     // 5. Load scittle_cm6.cljs into browser
     console.log('[test] Loading scittle_cm6.cljs...');
     await mcpCall('tools/call', {
-      name: 'nrepl.nrepl-eval-local-file',
+      name: 'mcp-nrepl.nrepl-eval-local-file',
       arguments: {
         'file-path': '/Users/franksiebenlist/Development/bb-mcp-server/modules/sente-browser/src/browser/scittle_cm6.cljs',
         connection: browserConn.nickname,
@@ -118,7 +118,7 @@ async function test() {
     `;
 
     await mcpCall('tools/call', {
-      name: 'nrepl.nrepl-eval',
+      name: 'mcp-nrepl.nrepl-eval',
       arguments: {
         code: testCode,
         connection: browserConn.nickname,
@@ -131,7 +131,7 @@ async function test() {
     console.log('[test] Getting initial editor content...');
     const getContent = async () => {
       const data = await mcpCall('tools/call', {
-        name: 'nrepl.nrepl-eval',
+        name: 'mcp-nrepl.nrepl-eval',
         arguments: {
           code: '(let [editors @scittle-cm6/!editors] (when (seq editors) (.toString (.-doc (.-state (val (first editors)))))))',
           connection: browserConn.nickname,
