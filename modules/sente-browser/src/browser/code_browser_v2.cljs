@@ -1,532 +1,626 @@
 (ns code-browser-v2
-    "Browser-side Code Browser v2.
+    "Browser-side Code Browser v2 — Widget Architecture.
 
-   URI-centric architecture with atom-sync integration.
+   Every widget is a view over a URI property. Widgets are independent,
+   each bound to its own URI. Selecting something in one widget can
+   spawn a new widget for the resulting URI.
 
-   State model:
-   - Server state: synced via atom-sync (:code-browser-v2 key)
-   - Local UI state: filters, expanded panels, selection highlights
+   Widget model:
+   - !widgets atom: {widget-id {:id :type :uri :data :loading? :error :filter}}
+   - Each widget fetches data via :code-browser-v2/fetch event
+   - Server responds with data, widget manager stores in :data
+   - Clicking an item opens a new widget for the child URI
 
-   Data flow:
-   - Server pushes state updates via [:sync/op ...]
-   - Browser reads from synced atom for server data
-   - Browser sends events for selections and actions
+   Also maintains backwards-compatible shared state via atom-sync.
 
-   Usage (load via nREPL):
+   Usage (load via nREPL or button):
      (require '[code-browser-v2 :as cb])
      (cb/mount!)"
     (:require [reagent.core :as r]
               [clojure.string :as str]
               [sente-lite.client-scittle :as client]
-              [code-browser.bootstrap :as bootstrap]))
+              [code-browser.bootstrap :as bootstrap]
+              [code-browser.uri :as uri]))
 
 ;; =============================================================================
-;; Server State Access
+;; Server State Access (backwards compatibility)
 ;; =============================================================================
 
 (defn get-server-state
-  "Get the synced atom for code-browser-v2 server data.
-   Returns a Reagent atom that auto-updates when server pushes changes.
-
-   Shape:
-   {:projects          []       ;; List of project maps
-    :selected-project  nil      ;; URI string of selected project
-    :namespaces        []       ;; Namespaces for selected project
-    :selected-ns       nil      ;; URI string of selected namespace
-    :symbols           []       ;; Symbols for selected namespace
-    :selected-symbol   nil      ;; URI string of selected symbol
-    :source            nil      ;; {:content ... :file ... :start-line ...}
-    :loading?          false
-    :error             nil}"
+  "Get the synced atom for code-browser-v2 server data."
   []
   (bootstrap/get-synced-atom :code-browser-v2))
-
-;; =============================================================================
-;; Local UI State
-;; =============================================================================
-
-(defonce ^{:doc "Local UI state - not synced to server"}
- !ui-state
-         (r/atom {:ns-filter ""
-                  :symbol-filter ""
-                  :project-filter ""
-                  :alias-filter ""
-                  :inspector-tab :source}))  ;; :source | :doc | :aliases | :deps | :callers
-
-(defonce ^{:doc "Layout configuration"}
- !layout
-         (r/atom {:projects-width "20%"
-                  :ns-width "20%"
-                  :symbols-width "25%"
-                  :source-width "35%"}))
 
 ;; =============================================================================
 ;; Event Dispatch
 ;; =============================================================================
 
 (defn- send-event!
-  "Send event to server via sente-lite.
-   Uses the client-id from code-browser.bootstrap."
+  "Send event to server via sente-lite."
   [event-id data]
   (when-let [client-id @bootstrap/!client-id]
             (client/send! client-id [event-id data])))
 
+;; Legacy event senders (for backwards compat with shared state)
+
 (defn load-projects!
-  "Request project list reload from server."
-  []
-  (send-event! :code-browser-v2/load-projects {}))
+  "Request project list reload via shared state."
+  [] (send-event! :code-browser-v2/load-projects {}))
 
 (defn select-project!
-  "Select a project by URI and load its namespaces."
-  [project-uri]
-  (send-event! :code-browser-v2/select-project {:uri project-uri}))
+  "Select project via shared state (legacy)."
+  [uri] (send-event! :code-browser-v2/select-project {:uri uri}))
 
 (defn select-namespace!
-  "Select a namespace by URI and load its symbols."
-  [ns-uri]
-  (send-event! :code-browser-v2/select-namespace {:uri ns-uri}))
+  "Select namespace via shared state (legacy)."
+  [uri] (send-event! :code-browser-v2/select-namespace {:uri uri}))
 
 (defn select-symbol!
-  "Select a symbol by URI and load its source."
-  [symbol-uri]
-  (send-event! :code-browser-v2/select-symbol {:uri symbol-uri}))
+  "Select symbol via shared state (legacy)."
+  [uri] (send-event! :code-browser-v2/select-symbol {:uri uri}))
 
 (defn toggle-sort-mode!
-  "Toggle symbol sort mode between file-order and alpha."
-  []
-  (send-event! :code-browser-v2/toggle-sort-mode {}))
+  "Toggle sort mode via shared state (legacy)."
+  [] (send-event! :code-browser-v2/toggle-sort-mode {}))
 
 ;; =============================================================================
-;; Filtering
+;; Widget Manager
+;; =============================================================================
+
+(defonce ^{:doc "All open widgets. {widget-id {:id :type :uri :data :loading? :error :filter}}"}
+ !widgets (r/atom {}))
+
+(defonce ^{:doc "Counter for generating unique widget IDs"}
+ !widget-counter (atom 0))
+
+(defonce ^{:doc "The focused widget ID (for hash routing)"}
+ !focused-widget (r/atom nil))
+
+(defn- next-widget-id
+  "Generate a unique widget ID."
+  []
+  (keyword (str "w" (swap! !widget-counter inc))))
+
+(defn- type->view-name
+  "Convert a widget type keyword to a view name string for URI query params."
+  [widget-type]
+  (when widget-type (name widget-type)))
+
+(defn- view-name->type
+  "Convert a view name string from URI query params to a widget type keyword."
+  [view-name]
+  (when view-name (keyword view-name)))
+
+(defn- fetch-widget-data!
+  "Send a fetch request to the server for a widget.
+   Uses the full URI (with ?view= query) for the server to derive the property.
+   Falls back to explicit :property for widgets without a view in URI."
+  [widget-id widget-type uri]
+  (let [parsed (when uri (uri/parse uri))
+        has-view? (get-in parsed [:uri/query "view"])
+        property (when-not has-view?
+                   (case widget-type
+                     :project-list :project-list
+                     :ns-list :ns-list
+                     :symbol-list :symbol-list
+                     :source :source
+                     :doc :doc
+                     :aliases :aliases
+                     :refers :refers
+                     :deps :deps
+                     :callers :callers
+                     nil))]
+    (swap! !widgets assoc-in [widget-id :loading?] true)
+    (send-event! :code-browser-v2/fetch
+                 {:uri uri :property property :widget-id widget-id})))
+
+(defn open-widget!
+  "Open a new widget for the given URI.
+   Accepts {:uri \"dir://...?view=source\"} where type is derived from query,
+   or legacy {:type :source :uri \"dir://...\"} for backwards compat.
+   Returns the widget ID."
+  [{:keys [type uri]}]
+  (let [parsed (when uri (uri/parse uri))
+        query-view (get-in parsed [:uri/query "view"])
+        ;; Derive type: query param > explicit :type > default from URI level
+        effective-type (or (view-name->type query-view)
+                           type
+                           (cond
+                             (nil? parsed)           :project-list
+                             (:uri/symbol parsed)    :source
+                             (:uri/namespace parsed) :symbol-list
+                             :else                   :ns-list))
+        ;; Ensure URI has ?view= query param
+        full-uri (if (and uri (nil? query-view))
+                   (uri/with-query (uri/base-uri uri)
+                                   {"view" (type->view-name effective-type)})
+                   uri)
+        wid (next-widget-id)]
+    (swap! !widgets assoc wid {:id wid
+                               :type effective-type
+                               :uri full-uri
+                               :data nil
+                               :loading? true
+                               :error nil
+                               :filter ""})
+    (reset! !focused-widget wid)
+    ;; Update hash to reflect focused widget
+    (when full-uri
+      (set! (.-hash js/window.location) full-uri))
+    (fetch-widget-data! wid effective-type full-uri)
+    wid))
+
+(defn close-widget!
+  "Close a widget by ID."
+  [widget-id]
+  (swap! !widgets dissoc widget-id)
+  (when (= @!focused-widget widget-id)
+    ;; Focus the last remaining widget, if any
+    (let [remaining (keys @!widgets)]
+      (reset! !focused-widget (last remaining))
+      (if-let [focused (get @!widgets (last remaining))]
+              (when-let [u (:uri focused)]
+                        (set! (.-hash js/window.location) u))
+              (set! (.-hash js/window.location) "")))))
+
+(defn refresh-widget!
+  "Refresh data for a widget."
+  [widget-id]
+  (when-let [w (get @!widgets widget-id)]
+            (fetch-widget-data! widget-id (:type w) (:uri w))))
+
+(defn- handle-fetch-response!
+  "Handle a fetch response from the server, updating the widget's data."
+  [data]
+  (let [{:keys [widget-id success error]} data
+        wid (keyword (str (name widget-id)))]
+    (if success
+      (swap! !widgets update wid assoc
+             :data (:data data)
+             :loading? false
+             :error nil)
+      (swap! !widgets update wid assoc
+             :loading? false
+             :error (or error "Unknown error")))))
+
+;; Register event handler for fetch responses
+(bootstrap/register-event-handler!
+ :code-browser-v2
+ (fn [[event-id data]]
+   (case event-id
+     :code-browser-v2/fetch-response
+     (handle-fetch-response! data)
+     ;; Ignore other events (handled by atom-sync)
+     nil)))
+
+;; =============================================================================
+;; Filtering Helper
 ;; =============================================================================
 
 (defn- matches-filter?
-  "Check if text matches filter pattern (case-insensitive substring)."
+  "Case-insensitive substring match."
   [text pattern]
   (if (str/blank? pattern)
     true
-    (str/includes?
-     (str/lower-case (str text))
-     (str/lower-case pattern))))
-
-(defn filtered-projects
-  "Get projects matching current filter."
-  [filter-text]
-  (let [server-state @(get-server-state)
-        projects (or (:projects server-state) [])]
-    (filter #(matches-filter? (or (:uri/project %) (:uri/string %)) filter-text)
-            projects)))
-
-(defn filtered-namespaces
-  "Get namespaces matching current filter."
-  [filter-text]
-  (let [server-state @(get-server-state)
-        namespaces (or (:namespaces server-state) [])]
-    (filter #(matches-filter? (:ns/name %) filter-text)
-            namespaces)))
-
-(defn filtered-symbols
-  "Get symbols matching current filter.
-   Sorts by file-order (file + line) or alpha (type + name) based on sort-mode."
-  [filter-text]
-  (let [server-state @(get-server-state)
-        symbols (or (:symbols server-state) [])
-        sort-mode (or (:sort-mode server-state) :file-order)
-        filtered (filter #(matches-filter? (:symbol/name %) filter-text) symbols)]
-    (if (= sort-mode :alpha)
-      (sort-by (juxt :symbol/type :symbol/name) filtered)
-      ;; file-order: sort by file then line number
-      (sort-by (juxt :symbol/file :symbol/line) filtered))))
+    (str/includes? (str/lower-case (str text))
+                   (str/lower-case pattern))))
 
 ;; =============================================================================
-;; Inspector Tab Components
+;; Widget Header Component
 ;; =============================================================================
 
-(defn- inspector-tab-bar
-  "Tab bar for symbol inspector."
-  []
-  (let [current-tab (:inspector-tab @!ui-state)]
-    [:div.inspector-tabs
-     (for [[tab-key label] [[:source "Source"]
-                            [:doc "Doc"]
-                            [:aliases "Aliases"]
-                            [:deps "Deps"]
-                            [:callers "Callers"]]]
-          ^{:key tab-key}
-          [:button.tab-btn
-           {:class (when (= tab-key current-tab) "active")
-            :on-click #(swap! !ui-state assoc :inspector-tab tab-key)}
-           label])]))
+(defn- uri-breadcrumb
+  "Render a breadcrumb from a URI string (query params stripped for display)."
+  [uri-string]
+  (when uri-string
+    (let [parsed (uri/parse (uri/base-uri uri-string))]
+      [:div.widget-breadcrumb
+       (when (:uri/project parsed)
+         [:span.breadcrumb-segment (:uri/project parsed)])
+       (when (:uri/namespace parsed)
+         [:<>
+          [:span.breadcrumb-sep " / "]
+          [:span.breadcrumb-segment (:uri/namespace parsed)]])
+       (when (:uri/symbol parsed)
+         [:<>
+          [:span.breadcrumb-sep " / "]
+          [:span.breadcrumb-segment (:uri/symbol parsed)]])])))
 
-(defn- source-view
-  "Source code view for selected symbol."
-  []
-  (let [server-state @(get-server-state)
-        source (:source server-state)]
-    (if source
-      [:div.source-view
-       [:pre.source-code (:content source)]
-       [:div.source-info
-        [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
-      [:div.empty-message "Select a symbol to view source"])))
-
-(defn- doc-view
-  "Documentation view for selected symbol."
-  []
-  (let [server-state @(get-server-state)
-        selected-uri (:selected-symbol server-state)
-        symbols (:symbols server-state)
-        ;; Find the selected symbol in the list
-        selected-sym (->> symbols
-                          (filter #(= (:uri/string %) selected-uri))
-                          first)]
-    (if selected-sym
-      [:div.doc-view
-       [:div.symbol-header
-        [:span.symbol-name (:symbol/name selected-sym)]
-        (when-let [kind (:symbol/type selected-sym)]
-                  [:span.symbol-kind (name kind)])]
-       (when-let [arglists (:symbol/arglists selected-sym)]
-                 [:div.arglists
-                  [:strong "Args: "]
-                  [:code (pr-str arglists)]])
-       (if-let [doc (:symbol/doc selected-sym)]
-               [:div.docstring
-                [:pre doc]]
-               [:div.no-doc "No documentation available"])]
-      [:div.empty-message "Select a symbol to view documentation"])))
-
-(defn- deps-view
-  "Dependencies view for selected symbol."
-  []
-  (let [server-state @(get-server-state)
-        selected-uri (:selected-symbol server-state)]
-    ;; TODO: R3.1 - Fetch deps from server when available
-    (if selected-uri
-      [:div.deps-view
-       [:div.placeholder "Dependencies view coming in next iteration"]
-       [:div.hint "This will show symbols that this symbol calls/uses"]]
-      [:div.empty-message "Select a symbol to view dependencies"])))
-
-(defn- callers-view
-  "Callers view for selected symbol."
-  []
-  (let [server-state @(get-server-state)
-        selected-uri (:selected-symbol server-state)]
-    ;; TODO: R3.1 - Fetch callers from server when available
-    (if selected-uri
-      [:div.callers-view
-       [:div.placeholder "Callers view coming in next iteration"]
-       [:div.hint "This will show symbols that call/use this symbol"]]
-      [:div.empty-message "Select a symbol to view callers"])))
+(defn- widget-header
+  "Widget header with title, breadcrumb, refresh and close buttons."
+  [widget-id widget]
+  (let [type-labels {:project-list "Projects"
+                     :ns-list "Namespaces"
+                     :symbol-list "Symbols"
+                     :source "Source"
+                     :doc "Doc"
+                     :aliases "Aliases"
+                     :refers "Refers"
+                     :deps "Deps"
+                     :callers "Callers"}]
+    [:div.widget-header
+     [:div.widget-title-row
+      [:h3 (get type-labels (:type widget) "Widget")]
+      [:div.widget-actions
+       [:button.widget-btn {:on-click #(refresh-widget! widget-id)
+                            :title "Refresh"} "R"]
+       [:button.widget-btn.close-btn {:on-click #(close-widget! widget-id)
+                                      :title "Close"} "x"]]]
+     [uri-breadcrumb (:uri widget)]]))
 
 ;; =============================================================================
-;; Components
+;; Widget Filter Component
 ;; =============================================================================
 
-(defn filter-input
-  "Reusable filter text input component."
-  [value-key placeholder]
+(defn- widget-filter-input
+  "Filter input for a widget (stores filter in widget local state)."
+  [widget-id placeholder]
   [:input.filter-input
    {:type "text"
     :placeholder placeholder
-    :value (get @!ui-state value-key "")
-    :on-change #(swap! !ui-state assoc value-key (-> % .-target .-value))}])
+    :value (or (get-in @!widgets [widget-id :filter]) "")
+    :on-change #(swap! !widgets assoc-in [widget-id :filter]
+                       (-> % .-target .-value))}])
 
-(defn- alias-item
-  "Single alias list item."
-  [alias-entity]
-  [:div.alias-item
-   [:span.alias-name (:alias/name alias-entity)]
-   [:span.alias-arrow " → "]
-   [:span.alias-target (:alias/to-ns alias-entity)]])
+;; =============================================================================
+;; Widget Components — Project List
+;; =============================================================================
 
-(defn- refer-item
-  "Single refer list item."
-  [refer-entity]
-  [:div.refer-item
-   [:span.refer-name (:refer/symbol refer-entity)]
-   [:span.refer-from (str " (from " (:refer/from-ns-source refer-entity) ")")]])
-
-(defn- aliases-view
-  "Aliases and refers view for selected namespace."
-  []
-  (let [server-state @(get-server-state)
-        selected-ns (:selected-ns server-state)
-        aliases (or (:aliases server-state) [])
-        refers (or (:refers server-state) [])
-        filter-text (:alias-filter @!ui-state)
-        filtered-aliases (if (str/blank? filter-text)
-                           aliases
-                           (filter #(or (matches-filter? (:alias/name %) filter-text)
-                                        (matches-filter? (:alias/to-ns %) filter-text))
-                                   aliases))
-        filtered-refers (if (str/blank? filter-text)
-                          refers
-                          (filter #(or (matches-filter? (:refer/symbol %) filter-text)
-                                       (matches-filter? (:refer/from-ns-source %) filter-text))
-                                  refers))]
-    (if selected-ns
-      [:div.aliases-view
-       [filter-input :alias-filter "Filter aliases/refers..."]
-       [:div.aliases-section
-        [:h4 (str "Aliases (" (count filtered-aliases) ")")]
-        (if (seq filtered-aliases)
-          [:div.alias-list
-           (for [a filtered-aliases]
-                ^{:key (:uri/string a)}
-                [alias-item a])]
-          [:div.empty-hint "No aliases"])]
-       [:div.refers-section
-        [:h4 (str "Refers (" (count filtered-refers) ")")]
-        (if (seq filtered-refers)
-          [:div.refer-list
-           (for [r filtered-refers]
-                ^{:key (:uri/string r)}
-                [refer-item r])]
-          [:div.empty-hint "No refers"])]]
-      [:div.empty-message "Select a namespace to view aliases"])))
-
-(defn project-item
-  "Single project list item."
-  [project]
-  (let [server-state @(get-server-state)
-        uri (:uri/string project)
-        selected? (= uri (:selected-project server-state))]
-    [:div.list-item
-     {:class (when selected? "selected")
-      :on-click #(select-project! uri)}
-     [:span.project-name (or (:uri/project project) uri)]]))
-
-(defn projects-panel
-  "Projects panel - list of available projects."
-  []
-  (let [layout @!layout
-        filter-text (:project-filter @!ui-state)
-        projects (filtered-projects filter-text)]
-    [:div.panel.projects-panel
-     {:style {:width (:projects-width layout)}}
-     [:div.panel-header
-      [:h3 "Projects"]
-      [:button.refresh-btn {:on-click load-projects!} "Refresh"]]
-     [filter-input :project-filter "Filter projects..."]
+(defn- project-list-widget
+  "Widget: list of all projects."
+  [widget-id widget]
+  (let [projects (or (:data widget) [])
+        filter-text (or (:filter widget) "")
+        filtered (filter #(matches-filter? (or (:uri/project %) (:uri/string %))
+                                           filter-text)
+                         projects)]
+    [:div.widget.project-list-widget
+     [widget-header widget-id widget]
+     [widget-filter-input widget-id "Filter projects..."]
      [:div.list-container
-      (for [project projects]
-           ^{:key (:uri/string project)}
-           [project-item project])]
-     [:div.panel-footer
-      [:span (str (count projects) " projects")]]]))
+      (doall
+       (for [project filtered]
+            ^{:key (:uri/string project)}
+            [:div.list-item
+             {:on-click (fn []
+                          (open-widget! {:uri (uri/with-query (:uri/string project)
+                                                              {"view" "ns-list"})}))}
+             [:span.project-name (or (:uri/project project) (:uri/string project))]]))]
+     [:div.widget-footer
+      [:span (str (count filtered) " projects")]]]))
 
-(defn namespace-item
-  "Single namespace list item.
-   Shows file count badge for multi-file namespaces."
-  [ns-entity]
-  (let [server-state @(get-server-state)
-        uri (:uri/string ns-entity)
-        selected? (= uri (:selected-ns server-state))
-        files (:ns/files ns-entity)
-        file-count (count files)]
-    [:div.list-item
-     {:class (when selected? "selected")
-      :on-click #(select-namespace! uri)}
-     [:span.ns-name (:ns/name ns-entity)]
-     ;; Show file count badge for multi-file namespaces
-     (when (> file-count 1)
-       [:span.file-count-badge (str "(" file-count " files)")])]))
+;; =============================================================================
+;; Widget Components — Namespace List
+;; =============================================================================
 
-(defn namespaces-panel
-  "Namespaces panel - list for selected project."
-  []
-  (let [layout @!layout
-        server-state @(get-server-state)
-        selected-project (:selected-project server-state)
-        filter-text (:ns-filter @!ui-state)
-        namespaces (filtered-namespaces filter-text)]
-    [:div.panel.namespace-panel
-     {:style {:width (:ns-width layout)}}
-     [:div.panel-header
-      [:h3 (if selected-project "Namespaces" "Select Project")]]
-     (when selected-project
-       [filter-input :ns-filter "Filter namespaces..."])
+(defn- ns-list-widget
+  "Widget: namespaces for a project URI."
+  [widget-id widget]
+  (let [namespaces (or (:data widget) [])
+        filter-text (or (:filter widget) "")
+        filtered (filter #(matches-filter? (:ns/name %) filter-text) namespaces)]
+    [:div.widget.ns-list-widget
+     [widget-header widget-id widget]
+     [widget-filter-input widget-id "Filter namespaces..."]
      [:div.list-container
-      (if selected-project
-        (for [ns-entity namespaces]
-             ^{:key (:uri/string ns-entity)}
-             [namespace-item ns-entity])
-        [:div.empty-message "Select a project"])]
-     [:div.panel-footer
-      [:span (str (count namespaces) " namespaces")]]]))
+      (doall
+       (for [ns-entity filtered]
+            ^{:key (:uri/string ns-entity)}
+            [:div.list-item
+             {:on-click (fn []
+                          (open-widget! {:uri (uri/with-query (:uri/string ns-entity)
+                                                              {"view" "symbol-list"})}))}
+             [:span.ns-name (:ns/name ns-entity)]
+             (when (> (count (or (:ns/files ns-entity) [])) 1)
+               [:span.file-count-badge
+                (str "(" (count (:ns/files ns-entity)) " files)")])]))]
+     [:div.widget-footer
+      [:span (str (count filtered) " namespaces")]]]))
 
-(defn symbol-item
-  "Single symbol list item.
-   Optionally shows file badge in alpha mode for multi-file namespaces."
-  [sym-entity show-file-badge?]
-  (let [server-state @(get-server-state)
-        uri (:uri/string sym-entity)
-        selected? (= uri (:selected-symbol server-state))
-        kind (:symbol/type sym-entity)
-        filename (:symbol/file sym-entity)]
-    [:div.list-item
-     {:class [(when selected? "selected")
-              (when kind (name kind))]
-      :on-click #(select-symbol! uri)}
-     [:span.symbol-name (:symbol/name sym-entity)]
-     [:span.symbol-kind (when kind (name kind))]
-     ;; Show filename badge in alpha mode for multi-file ns
-     (when (and show-file-badge? filename)
-       [:span.symbol-file-badge (str "[" (last (str/split filename #"/")) "]")])]))
+;; =============================================================================
+;; Widget Components — Symbol List
+;; =============================================================================
 
-(defn- file-divider
-  "File divider component for multi-file namespace display.
-   Visual separator between files in file-order view."
-  [filename]
-  [:div.file-divider
-   [:span.file-divider-line]
-   [:span.file-divider-name (or (last (str/split filename #"/")) filename)]
-   [:span.file-divider-line]])
-
-(defn- symbols-with-dividers
-  "Insert file dividers between symbols from different files.
-   Returns seq of [:divider filename] and [:symbol sym] items."
-  [symbols]
-  (loop [result []
-         remaining symbols
-         current-file nil]
-        (if (empty? remaining)
-          result
-          (let [sym (first remaining)
-                sym-file (:symbol/file sym)]
-            (if (and sym-file (not= sym-file current-file))
-              ;; New file - add divider then symbol
-              (recur (conj result [:divider sym-file] [:symbol sym])
-                     (rest remaining)
-                     sym-file)
-              ;; Same file - just add symbol
-              (recur (conj result [:symbol sym])
-                     (rest remaining)
-                     current-file))))))
-
-(defn sort-mode-button
-  "Toggle button for symbol sort mode.
-   Shows current mode and toggles on click."
-  []
-  (let [server-state @(get-server-state)
-        sort-mode (or (:sort-mode server-state) :file-order)
-        label (if (= sort-mode :alpha) "A→Z" "↓")]
-    [:button.sort-mode-btn
-     {:on-click toggle-sort-mode!
-      :title (if (= sort-mode :alpha)
-               "Sorted alphabetically. Click for file order."
-               "Sorted by file order. Click for alphabetical.")}
-     label]))
-
-(defn symbols-panel
-  "Symbols panel - list for selected namespace.
-   Shows file dividers in file-order mode, file badges in alpha mode for multi-file ns."
-  []
-  (let [layout @!layout
-        server-state @(get-server-state)
-        selected-ns (:selected-ns server-state)
-        sort-mode (or (:sort-mode server-state) :file-order)
-        ;; Find the selected namespace entity to check file count
-        namespaces (:namespaces server-state)
-        selected-ns-entity (->> namespaces
-                                (filter #(= (:uri/string %) selected-ns))
-                                first)
-        files (or (:ns/files selected-ns-entity) [])
-        is-multi-file? (> (count files) 1)
-        ;; In file-order mode with multi-file ns, add dividers
-        show-dividers? (and is-multi-file? (= sort-mode :file-order))
-        ;; In alpha mode with multi-file ns, show file badges
-        show-file-badges? (and is-multi-file? (= sort-mode :alpha))
-        filter-text (:symbol-filter @!ui-state)
-        symbols (filtered-symbols filter-text)]
-    [:div.panel.symbols-panel
-     {:style {:width (:symbols-width layout)}}
-     [:div.panel-header
-      [:h3 (if selected-ns "Symbols" "Select Namespace")]
-      (when selected-ns [sort-mode-button])]
-     (when selected-ns
-       [filter-input :symbol-filter "Filter symbols..."])
+(defn- symbol-list-widget
+  "Widget: symbols for a namespace URI."
+  [widget-id widget]
+  (let [symbols (or (:data widget) [])
+        filter-text (or (:filter widget) "")
+        filtered (->> symbols
+                      (filter #(matches-filter? (:symbol/name %) filter-text))
+                      (sort-by (juxt :symbol/type :symbol/name)))]
+    [:div.widget.symbol-list-widget
+     [widget-header widget-id widget]
+     [widget-filter-input widget-id "Filter symbols..."]
      [:div.list-container
-      (if selected-ns
-        (if show-dividers?
-          ;; File-order with dividers
-          (let [items (symbols-with-dividers symbols)]
-            (doall
-             (for [[idx [item-type item]] (map-indexed vector items)]
-                  (case item-type
-                    :divider ^{:key (str selected-ns "-divider-" item "-" idx)} [file-divider item]
-                    :symbol ^{:key (str selected-ns "-" (:symbol/file item) "-" (:symbol/name item) "-" (:symbol/line item))}
-                    [symbol-item item false]))))
-          ;; Normal list (with optional file badges in alpha mode)
-          (doall
-           (for [sym symbols]
-                ^{:key (str selected-ns "-" (:symbol/file sym) "-" (:symbol/name sym) "-" (:symbol/line sym))}
-                [symbol-item sym show-file-badges?])))
-        [:div.empty-message "Select a namespace"])]
-     [:div.panel-footer
-      [:span (str (count symbols) " symbols")
-       (when is-multi-file?
-         (str " in " (count files) " files"))]
-      [:span.sort-mode-indicator
-       (if (= sort-mode :alpha) " (A→Z)" " (file order)")]]]))
+      (doall
+       (for [sym filtered]
+            ^{:key (:uri/string sym)}
+            [:div.list-item
+             {:class (when-let [kind (:symbol/type sym)] (name kind))
+              :on-click (fn []
+                          (open-widget! {:uri (uri/with-query (:uri/string sym)
+                                                              {"view" "source"})}))}
+             [:span.symbol-name (:symbol/name sym)]
+             (when-let [kind (:symbol/type sym)]
+                       [:span.symbol-kind (name kind)])]))]
+     [:div.widget-footer
+      [:span (str (count filtered) " symbols")]]]))
 
-(defn source-panel
-  "Symbol inspector panel - displays source, docs, aliases, deps, callers in tabs."
-  []
-  (let [layout @!layout
-        server-state @(get-server-state)
-        selected-symbol (:selected-symbol server-state)
-        selected-ns (:selected-ns server-state)
-        current-tab (:inspector-tab @!ui-state)]
-    [:div.panel.source-panel
-     {:style {:width (:source-width layout)}}
-     [:div.panel-header
-      [:h3 (cond selected-symbol "Inspector"
-                 selected-ns "Namespace Info"
-                 :else "Source")]]
-     (when (or selected-symbol selected-ns)
-       [inspector-tab-bar])
-     [:div.inspector-content
-      (case current-tab
-        :source [source-view]
-        :doc [doc-view]
-        :aliases [aliases-view]
-        :deps [deps-view]
-        :callers [callers-view]
-        [source-view])]]))
+;; =============================================================================
+;; Widget Components — Source View
+;; =============================================================================
 
-(defn loading-indicator
-  "Loading indicator overlay."
-  []
-  (let [server-state @(get-server-state)
-        loading? (:loading? server-state)]
-    (when loading?
-      [:div.loading-overlay
-       [:div.spinner]])))
+(defn- source-widget-component
+  "Widget: source code for a symbol URI."
+  [widget-id widget]
+  (let [source (:data widget)]
+    [:div.widget.source-widget
+     [widget-header widget-id widget]
+     (if source
+       [:div.source-view
+        [:pre.source-code (:content source)]
+        [:div.source-info
+         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
+       [:div.empty-message "No source available"])]))
 
-(defn error-display
-  "Error message banner."
+;; =============================================================================
+;; Widget Components — Doc View
+;; =============================================================================
+
+(defn- doc-widget-component
+  "Widget: documentation for a symbol URI."
+  [widget-id widget]
+  (let [sym-data (:data widget)]
+    [:div.widget.doc-widget
+     [widget-header widget-id widget]
+     (if sym-data
+       [:div.doc-view
+        [:div.symbol-header
+         [:span.symbol-name (:symbol/name sym-data)]
+         (when-let [kind (:symbol/type sym-data)]
+                   [:span.symbol-kind (name kind)])]
+        (when-let [arglists (:symbol/arglists sym-data)]
+                  [:div.arglists
+                   [:strong "Args: "]
+                   [:code (pr-str arglists)]])
+        (if-let [doc (:symbol/doc sym-data)]
+                [:div.docstring [:pre doc]]
+                [:div.no-doc "No documentation available"])]
+       [:div.empty-message "No documentation available"])]))
+
+;; =============================================================================
+;; Widget Components — Aliases View
+;; =============================================================================
+
+(defn- aliases-widget-component
+  "Widget: aliases for a namespace URI."
+  [widget-id widget]
+  (let [aliases (or (:data widget) [])
+        filter-text (or (:filter widget) "")
+        filtered (if (str/blank? filter-text)
+                   aliases
+                   (filter #(or (matches-filter? (:alias/name %) filter-text)
+                                (matches-filter? (:alias/to-ns %) filter-text))
+                           aliases))]
+    [:div.widget.aliases-widget
+     [widget-header widget-id widget]
+     [widget-filter-input widget-id "Filter aliases..."]
+     [:div.list-container
+      (if (seq filtered)
+        (doall
+         (for [a filtered]
+              ^{:key (:uri/string a)}
+              [:div.alias-item
+               [:span.alias-name (:alias/name a)]
+               [:span.alias-arrow " -> "]
+               [:span.alias-target (:alias/to-ns a)]]))
+        [:div.empty-hint "No aliases"])]
+     [:div.widget-footer
+      [:span (str (count filtered) " aliases")]]]))
+
+;; =============================================================================
+;; Widget Components — Refers View
+;; =============================================================================
+
+(defn- refers-widget-component
+  "Widget: refers for a namespace URI."
+  [widget-id widget]
+  (let [refers (or (:data widget) [])
+        filter-text (or (:filter widget) "")
+        filtered (if (str/blank? filter-text)
+                   refers
+                   (filter #(or (matches-filter? (:refer/symbol %) filter-text)
+                                (matches-filter? (:refer/from-ns-source %) filter-text))
+                           refers))]
+    [:div.widget.refers-widget
+     [widget-header widget-id widget]
+     [widget-filter-input widget-id "Filter refers..."]
+     [:div.list-container
+      (if (seq filtered)
+        (doall
+         (for [r filtered]
+              ^{:key (:uri/string r)}
+              [:div.refer-item
+               [:span.refer-name (:refer/symbol r)]
+               [:span.refer-from (str " (from " (:refer/from-ns-source r) ")")]]))
+        [:div.empty-hint "No refers"])]
+     [:div.widget-footer
+      [:span (str (count filtered) " refers")]]]))
+
+;; =============================================================================
+;; Widget Components — Deps / Callers (placeholder)
+;; =============================================================================
+
+(defn- deps-widget-component
+  "Widget: dependencies for a symbol URI."
+  [widget-id widget]
+  [:div.widget.deps-widget
+   [widget-header widget-id widget]
+   [:div.deps-view
+    [:div.placeholder "Dependencies view coming in next iteration"]
+    [:div.hint "This will show symbols that this symbol calls/uses"]]])
+
+(defn- callers-widget-component
+  "Widget: callers for a symbol URI."
+  [widget-id widget]
+  [:div.widget.callers-widget
+   [widget-header widget-id widget]
+   [:div.callers-view
+    [:div.placeholder "Callers view coming in next iteration"]
+    [:div.hint "This will show symbols that call/use this symbol"]]])
+
+;; =============================================================================
+;; Widget Renderer
+;; =============================================================================
+
+(defn- render-widget
+  "Render a widget based on its type."
+  [widget-id widget]
+  (case (:type widget)
+    :project-list [project-list-widget widget-id widget]
+    :ns-list [ns-list-widget widget-id widget]
+    :symbol-list [symbol-list-widget widget-id widget]
+    :source [source-widget-component widget-id widget]
+    :doc [doc-widget-component widget-id widget]
+    :aliases [aliases-widget-component widget-id widget]
+    :refers [refers-widget-component widget-id widget]
+    :deps [deps-widget-component widget-id widget]
+    :callers [callers-widget-component widget-id widget]
+    [:div.widget "Unknown widget type: " (str (:type widget))]))
+
+;; =============================================================================
+;; Widget Toolbar
+;; =============================================================================
+
+(defn- widget-toolbar
+  "Toolbar for opening new widgets."
   []
-  (let [server-state @(get-server-state)
-        error (:error server-state)]
-    (when error
-      [:div.error-banner
-       [:span error]
-       [:button {:on-click #(send-event! :code-browser-v2/clear-error {})} "Dismiss"]])))
+  (let [focused @!focused-widget
+        focused-widget (get @!widgets focused)
+        focused-uri (:uri focused-widget)
+        parsed (when focused-uri (uri/parse focused-uri))
+        ;; Determine what extra widgets can be opened based on focused URI level
+        at-ns? (and parsed (:uri/namespace parsed) (nil? (:uri/symbol parsed)))
+        at-sym? (and parsed (:uri/symbol parsed))]
+    [:div.widget-toolbar
+     [:button.toolbar-btn
+      {:on-click #(open-widget! {:type :project-list :uri nil})}
+      "+ Projects"]
+     (when at-ns?
+       (let [base (uri/base-uri focused-uri)]
+         [:<>
+          [:button.toolbar-btn
+           {:on-click #(open-widget! {:uri (uri/with-query base {"view" "aliases"})})}
+           "+ Aliases"]
+          [:button.toolbar-btn
+           {:on-click #(open-widget! {:uri (uri/with-query base {"view" "refers"})})}
+           "+ Refers"]]))
+     (when at-sym?
+       (let [base (uri/base-uri focused-uri)]
+         [:<>
+          [:button.toolbar-btn
+           {:on-click #(open-widget! {:uri (uri/with-query base {"view" "doc"})})}
+           "+ Doc"]
+          [:button.toolbar-btn
+           {:on-click #(open-widget! {:uri (uri/with-query base {"view" "deps"})})}
+           "+ Deps"]
+          [:button.toolbar-btn
+           {:on-click #(open-widget! {:uri (uri/with-query base {"view" "callers"})})}
+           "+ Callers"]]))]))
+
+;; =============================================================================
+;; Widget Container (Dynamic Layout)
+;; =============================================================================
+
+(defn- widget-container
+  "Container that renders all open widgets in a flex layout."
+  []
+  (let [widgets @!widgets
+        focused @!focused-widget]
+    [:div.widgets-container
+     (if (seq widgets)
+       (doall
+        (for [[wid w] (sort-by key widgets)]
+             ^{:key wid}
+             [:div.widget-wrapper
+              {:class (when (= wid focused) "focused")
+               :on-click #(do (reset! !focused-widget wid)
+                              (when-let [u (:uri w)]
+                                        (set! (.-hash js/window.location) u)))
+               :style {:min-width "250px"
+                       :flex (if (= (:type w) :source) "2" "1")}}
+              (if (:loading? w)
+                [:div.widget
+                 [widget-header wid w]
+                 [:div.loading-overlay [:div.spinner]]]
+                (if-let [err (:error w)]
+                        [:div.widget
+                         [widget-header wid w]
+                         [:div.error-banner [:span err]]]
+                        [render-widget wid w]))]))
+       [:div.empty-message "No widgets open. Click '+ Projects' to start."])]))
+
+;; =============================================================================
+;; Hash Routing
+;; =============================================================================
+
+(defn- open-widget-chain-for-uri!
+  "Given a full URI (possibly with ?view= query), open the appropriate widget chain.
+   For a symbol URI: opens project-list, ns-list, symbol-list, and the view widget."
+  [uri-string]
+  (when-let [parsed (uri/parse uri-string)]
+            (let [query-view (get-in parsed [:uri/query "view"])
+                  base (uri/base-uri uri-string)]
+      ;; Always open project list
+              (open-widget! {:type :project-list :uri nil})
+      ;; If we have a namespace, open ns-list for the project
+              (when (:uri/namespace parsed)
+                (let [proj-uri (uri/project-uri parsed)]
+                  (open-widget! {:uri (uri/with-query proj-uri {"view" "ns-list"})})))
+      ;; If we have a symbol, open symbol-list for the namespace
+              (when (:uri/symbol parsed)
+                (let [ns-uri (uri/namespace-uri parsed)]
+                  (open-widget! {:uri (uri/with-query ns-uri {"view" "symbol-list"})})))
+      ;; Open the deepest level with the requested view (or default)
+              (cond
+                (:uri/symbol parsed)
+                (open-widget! {:uri (uri/with-query base {"view" (or query-view "source")})})
+                (:uri/namespace parsed)
+                (open-widget! {:uri (uri/with-query base {"view" (or query-view "symbol-list")})})
+                :else
+                (open-widget! {:uri (uri/with-query base {"view" (or query-view "ns-list")})})))))
+
+(defn- setup-hash-routing!
+  "Set up hash change listener for navigation."
+  []
+  (.addEventListener js/window "hashchange"
+                     (fn [_e]
+                       (let [hash (subs (.-hash js/window.location) 1)] ;; strip #
+                         (when (and (not (str/blank? hash))
+                                    (uri/valid? hash))
+                           ;; Check if any existing widget matches this URI
+                           (let [matching (->> @!widgets
+                                               (filter (fn [[_k v]] (= (:uri v) hash)))
+                                               first)]
+                             (if matching
+                               ;; Focus existing widget
+                               (reset! !focused-widget (first matching))
+                               ;; Open new widget chain
+                               (do
+                                (reset! !widgets {})
+                                (open-widget-chain-for-uri! hash)))))))))
+
+;; =============================================================================
+;; Main Panel (Widget Architecture)
+;; =============================================================================
 
 (defn main-panel
-  "Main code browser v2 component."
+  "Main code browser v2 component with widget architecture."
   []
   [:div.code-browser-v2
-   [error-display]
-   [loading-indicator]
-   [:div.panels-container
-    [projects-panel]
-    [namespaces-panel]
-    [symbols-panel]
-    [source-panel]]])
+   [widget-toolbar]
+   [widget-container]])
 
 ;; =============================================================================
 ;; Lifecycle
@@ -534,17 +628,21 @@
 
 (defn mount!
   "Mount code browser v2 to #code-browser-root element.
-   Initializes by requesting projects from server."
+   Opens a project-list widget on startup, or restores from hash."
   []
+  (setup-hash-routing!)
   (bootstrap/mount-root! [main-panel])
-  (load-projects!)
-  (js/console.log "[code-browser-v2] Mounted"))
+  (let [hash (subs (.-hash js/window.location) 1)]
+    (if (and (not (str/blank? hash)) (uri/valid? hash))
+      ;; Restore from hash
+      (open-widget-chain-for-uri! hash)
+      ;; Default: open project list
+      (open-widget! {:type :project-list :uri nil})))
+  (js/console.log "[code-browser-v2] Mounted (widget architecture)"))
 
 (defn unmount!
-  "Unmount code browser v2.
-   Clears local UI state."
+  "Unmount code browser v2. Resets widget state."
   []
-  (reset! !ui-state {:ns-filter ""
-                     :symbol-filter ""
-                     :project-filter ""})
-  (js/console.log "[code-browser-v2] UI state reset"))
+  (reset! !widgets {})
+  (reset! !focused-widget nil)
+  (js/console.log "[code-browser-v2] Unmounted"))

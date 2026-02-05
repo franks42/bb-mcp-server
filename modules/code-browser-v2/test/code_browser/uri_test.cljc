@@ -170,3 +170,92 @@
          (is (not (uri/temporal-source? :dir)))
          (is (not (uri/temporal-source? :jar)))
          (is (not (uri/temporal-source? :github))))
+
+;;; ---------------------------------------------------------------------------
+;;; Query Parameter Tests
+;;; ---------------------------------------------------------------------------
+
+(deftest parse-query-params-test
+         (testing "Parse URI with single query param"
+                  (let [result (uri/parse "dir://proj@v1?view=source")]
+                    (is (= "dir://proj@v1?view=source" (:uri/string result)))
+                    (is (= :dir (:uri/source result)))
+                    (is (= "proj" (:uri/project result)))
+                    (is (= "v1" (:uri/version result)))
+                    (is (nil? (:uri/namespace result)))
+                    (is (nil? (:uri/symbol result)))
+                    (is (= {"view" "source"} (:uri/query result)))))
+
+         (testing "Parse URI with multiple query params"
+                  (let [result (uri/parse "dir://proj@v1/ns/sym?view=source&line=42")]
+                    (is (= :dir (:uri/source result)))
+                    (is (= "ns" (:uri/namespace result)))
+                    (is (= "sym" (:uri/symbol result)))
+                    (is (= {"view" "source" "line" "42"} (:uri/query result)))))
+
+         (testing "Parse URI without query params has nil query"
+                  (let [result (uri/parse "dir://proj@v1/ns")]
+                    (is (nil? (:uri/query result)))))
+
+         (testing "Parse namespace-level URI with query"
+                  (let [result (uri/parse "dir://proj@v1/some.ns?view=aliases")]
+                    (is (= "some.ns" (:uri/namespace result)))
+                    (is (nil? (:uri/symbol result)))
+                    (is (= {"view" "aliases"} (:uri/query result)))))
+
+         (testing "valid? accepts URIs with query params"
+                  (is (uri/valid? "dir://proj@v1?view=ns-list"))
+                  (is (uri/valid? "jar://lib@1.0/ns?view=symbol-list"))
+                  (is (uri/valid? "github://org/repo@sha/ns/sym?view=source&line=42"))))
+
+(deftest build-with-query-test
+         (testing "Build with query map"
+                  (is (= "dir://foo@abc?view=ns-list"
+                         (uri/build {:source :dir :project "foo" :version "abc"
+                                     :query {"view" "ns-list"}}))))
+
+         (testing "Build with multiple query params (sorted by key)"
+                  (is (= "dir://foo@abc/ns/sym?line=42&view=source"
+                         (uri/build {:source :dir :project "foo" :version "abc"
+                                     :namespace "ns" :symbol "sym"
+                                     :query {"view" "source" "line" "42"}}))))
+
+         (testing "Build without query produces no question mark"
+                  (is (= "dir://foo@abc"
+                         (uri/build {:source :dir :project "foo" :version "abc"})))))
+
+(deftest base-uri-test
+         (testing "Strip query params from URI"
+                  (is (= "dir://proj@v1"
+                         (uri/base-uri "dir://proj@v1?view=ns-list"))))
+
+         (testing "Strip query from symbol-level URI"
+                  (is (= "dir://proj@v1/ns/sym"
+                         (uri/base-uri "dir://proj@v1/ns/sym?view=source&line=42"))))
+
+         (testing "No-op when URI has no query"
+                  (is (= "dir://proj@v1/ns"
+                         (uri/base-uri "dir://proj@v1/ns"))))
+
+         (testing "Returns nil for invalid URI"
+                  (is (nil? (uri/base-uri "invalid")))))
+
+(deftest with-query-test
+         (testing "Add query params to bare URI"
+                  (is (= "dir://proj@v1?view=ns-list"
+                         (uri/with-query "dir://proj@v1" {"view" "ns-list"}))))
+
+         (testing "Add query params to namespace URI"
+                  (is (= "dir://proj@v1/ns?view=aliases"
+                         (uri/with-query "dir://proj@v1/ns" {"view" "aliases"}))))
+
+         (testing "Merge query params onto existing"
+                  (is (= "dir://proj@v1?line=42&view=source"
+                         (uri/with-query "dir://proj@v1?view=source" {"line" "42"}))))
+
+         (testing "Override existing query param"
+                  (is (= "dir://proj@v1?view=doc"
+                         (uri/with-query "dir://proj@v1?view=source" {"view" "doc"}))))
+
+         (testing "Returns nil for invalid URI"
+                  (is (nil? (uri/with-query "invalid" {"view" "source"})))))

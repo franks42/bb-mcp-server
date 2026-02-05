@@ -6,6 +6,7 @@
     (:require [code-browser.sync :as sync]
               [code-browser.db.protocol :as db-proto]
               [code-browser.sources.protocol :as source-proto]
+              [code-browser.uri :as uri]
               [taoensso.trove :as log]))
 
 ;;; ---------------------------------------------------------------------------
@@ -238,6 +239,116 @@
           {:success false :error (ex-message e)})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Stateless Fetch API
+;;; ---------------------------------------------------------------------------
+
+(defn- resolve-ns-name
+  "Resolve namespace name from a namespace URI via database lookup."
+  [db ns-uri]
+  (when (and db ns-uri)
+    (:ns/name (db-proto/pull db '[:ns/name] [:uri/string ns-uri]))))
+
+(defn- derive-property
+  "Derive the property keyword from a parsed URI's query params and level.
+   Explicit :property param takes precedence, then URI ?view= query param,
+   then default based on URI level."
+  [parsed explicit-property]
+  (or explicit-property
+      (when-let [view (get-in parsed [:uri/query "view"])]
+                (keyword view))
+      (cond
+        (nil? parsed)              :project-list
+        (:uri/symbol parsed)       :source
+        (:uri/namespace parsed)    :symbol-list
+        :else                      :ns-list)))
+
+(defn handle-fetch
+  "Stateless query by URI + optional property. Returns data without mutating sync state.
+
+   The view/property can be specified three ways (in priority order):
+   1. Explicit :property param (backwards compat)
+   2. URI query param ?view=ns-list
+   3. Default based on URI level (project→ns-list, namespace→symbol-list, symbol→source)
+
+   Request: {:uri \"dir://...?view=ns-list\"} or {:uri \"dir://...\" :property :ns-list}
+   Response: {:success true :data [...]} or {:success false :error \"...\"}
+
+   URI level determines valid properties:
+   - Project URI  → :ns-list
+   - Namespace URI → :symbol-list, :aliases, :refers
+   - Symbol URI   → :source, :doc, :deps, :callers
+   - (none)       → :project-list"
+  [{:keys [uri property]}]
+  (log/log! {:level :info
+             :id ::handle-fetch
+             :msg "Stateless fetch"
+             :data {:uri uri :property property}})
+  (try
+   (if-let [db (get-db)]
+           (let [parsed (when uri (uri/parse uri))
+                 base (when uri (uri/base-uri uri))
+                 property (derive-property parsed property)]
+             (case property
+               :project-list
+               {:success true :data (query-projects db)}
+
+               :ns-list
+               (if (and parsed (nil? (:uri/namespace parsed)))
+                 {:success true :data (query-namespaces db base)}
+                 {:success false :error "ns-list requires a project-level URI"})
+
+               :symbol-list
+               (if (and parsed (:uri/namespace parsed) (nil? (:uri/symbol parsed)))
+                 {:success true :data (query-symbols db base)}
+                 {:success false :error "symbol-list requires a namespace-level URI"})
+
+               :aliases
+               (if-let [ns-name (and parsed (:uri/namespace parsed)
+                                     (resolve-ns-name db base))]
+                       {:success true :data (query-aliases db ns-name)}
+                       {:success false :error "aliases requires a namespace-level URI"})
+
+               :refers
+               (if-let [ns-name (and parsed (:uri/namespace parsed)
+                                     (resolve-ns-name db base))]
+                       {:success true :data (query-refers db ns-name)}
+                       {:success false :error "refers requires a namespace-level URI"})
+
+               :source
+               (if (and parsed (:uri/symbol parsed))
+                 {:success true :data (fetch-source base)}
+                 {:success false :error "source requires a symbol-level URI"})
+
+               :doc
+               (if (and parsed (:uri/symbol parsed))
+                 (let [symbols (query-symbols db (uri/namespace-uri parsed))
+                       sym (->> symbols
+                                (filter #(= (:uri/string %) base))
+                                first)]
+                   {:success true :data sym})
+                 {:success false :error "doc requires a symbol-level URI"})
+
+               :deps
+               (if (and parsed (:uri/symbol parsed))
+                 {:success true :data []}
+                 {:success false :error "deps requires a symbol-level URI"})
+
+               :callers
+               (if (and parsed (:uri/symbol parsed))
+                 {:success true :data []}
+                 {:success false :error "callers requires a symbol-level URI"})
+
+          ;; Unknown property
+               {:success false :error (str "Unknown property: " property)}))
+           {:success false :error "No database configured"})
+   (catch Exception e
+          (log/log! {:level :error
+                     :id ::handle-fetch-error
+                     :msg "Fetch failed"
+                     :data {:uri uri :property property :error (ex-message e)}})
+          {:success false :error (ex-message e)})))
+
+;;; ---------------------------------------------------------------------------
 ;;; Event Dispatch
 ;;; ---------------------------------------------------------------------------
 
@@ -249,6 +360,7 @@
    - :code-browser-v2/select-project {:uri \"...\"}
    - :code-browser-v2/select-namespace {:uri \"...\"}
    - :code-browser-v2/select-symbol {:uri \"...\"}
+   - :code-browser-v2/fetch {:uri \"...\" :property :ns-list|:symbol-list|... :widget-id :w1}
    - :code-browser-v2/toggle-sort-mode {}
    - :code-browser-v2/clear-error {}
 
@@ -270,6 +382,16 @@
 
     :code-browser-v2/select-symbol
     [:code-browser-v2/symbol-selected (handle-select-symbol! (:uri data))]
+
+    :code-browser-v2/fetch
+    (let [result (handle-fetch {:uri (:uri data) :property (:property data)})]
+      [:code-browser-v2/fetch-response
+       (assoc result
+              :widget-id (:widget-id data)
+              :property (or (:property data)
+                            (derive-property
+                             (when (:uri data) (uri/parse (:uri data)))
+                             nil)))])
 
     :code-browser-v2/toggle-sort-mode
     [:code-browser-v2/sort-mode-toggled {:mode (sync/toggle-sort-mode!)}]
