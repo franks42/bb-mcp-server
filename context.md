@@ -4,9 +4,57 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-03
-**Version:** v1.14.18
-**Focus:** nrepl-direct --target shorthand + browser routing - Complete
+**Last Updated:** 2026-02-04
+**Version:** v1.15.0
+**Focus:** Code Browser v2 widget architecture + URI query parameters - Complete
+
+---
+
+## 🟢 URI Query Parameters & Widget Architecture (2026-02-04) - COMPLETE
+
+### Goal
+
+Make widget views fully addressable via URI query parameters (`?view=source&line=42`), so every widget state is encoded in the URI for hash routing and deep linking.
+
+### Changes in v1.15.0
+
+| Change | Description |
+|--------|-------------|
+| **URI query params** | `parse`/`build` support `?key=value&...` in uri.cljc |
+| **`base-uri`** | Strip query params, return base URI only |
+| **`with-query`** | Add/merge query params onto a URI string |
+| **`derive-property`** | Server derives view from URI `?view=` > explicit `:property` > level default |
+| **`handle-fetch` updated** | Uses `base-uri` for DB queries, resolves view from query params |
+| **Widget `open-widget!`** | Derives type from `?view=`, ensures all widget URIs have `?view=` |
+| **Click handlers** | Use `uri/with-query` instead of `{:type ... :uri ...}` |
+| **Hash routing** | Full URI with query params in hash, chain respects `?view=` |
+| **Bootstrap CSS** | Widget architecture styles (toolbar, container, header, breadcrumb) |
+| **Bootstrap loader** | Loads `uri.cljc` via `/cljc/` route, then `code_browser_v2.cljs` |
+| **`/cljc/` route** | Serves `.cljc` files from code-browser-v2 module to browser |
+
+### URI Examples
+
+| URI | View |
+|-----|------|
+| `dir://bb-mcp-server@abc123?view=ns-list` | Namespace list for project |
+| `dir://bb-mcp-server@abc123/some.ns?view=aliases` | Aliases for namespace |
+| `dir://bb-mcp-server@abc123/some.ns/my-fn?view=source&line=42` | Source with line hint |
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `modules/code-browser-v2/src/code_browser/uri.cljc` | Query param parsing/building, `base-uri`, `with-query` |
+| `modules/code-browser-v2/test/code_browser/uri_test.cljc` | 4 new test groups (34 tests, 492 assertions total) |
+| `modules/code-browser-v2/src/code_browser/handlers.clj` | `derive-property`, updated `handle-fetch` + dispatch |
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | Widget type from query, click handlers, toolbar, hash routing |
+| `modules/sente-browser/src/sente_browser/bootstrap.clj` | Widget CSS, `/cljc/` route, v2 loader |
+
+### Verification
+
+- clj-kondo: 0 errors, 0 warnings on all files
+- cljfmt: All formatted correctly
+- Tests: 34 tests, 492 assertions, 0 failures
 
 ---
 
@@ -104,10 +152,12 @@ Simplify `bb nrepl-direct` CLI ergonomics by replacing verbose `--nickname X --s
 
 ---
 
-## 🟢 v2 Code Browser Status (2026-01-19) - WORKING
+## 🟢 v2 Code Browser Status (2026-02-04) - WORKING
 
-- 30 unit tests pass (459 assertions)
+- 34 unit tests pass (492 assertions)
+- Widget architecture with URI-parameterized views
 - Full browser navigation flow works (project → namespace → symbol → source)
+- URI query params for addressable widget state (`?view=source`)
 - Must clear database on code changes (`rm -rf /tmp/cb-v2-test /tmp/cb-v2-test.lock`)
 
 ---
@@ -160,9 +210,13 @@ bb lint && bb format
 | `src/bb_mcp_server/nrepl_direct/client.clj` | Standalone nREPL client library |
 | `modules/nrepl-proxy-server/src/nrepl_proxy_server/server.clj` | nREPL proxy with browser routing |
 | `scripts/open-browser.js` | Headless Playwright browser launcher |
+| `modules/code-browser-v2/src/code_browser/uri.cljc` | URI parsing/building with query param support |
+| `modules/code-browser-v2/src/code_browser/handlers.clj` | Stateless fetch API with view derivation |
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | Widget-based browser UI |
+| `modules/sente-browser/src/sente_browser/bootstrap.clj` | HTML/CSS/JS bootstrap + routes |
 | `docs/SCITTLE_DEV_ENVIRONMENT.md` | Scittle dev setup guide |
 | `docs/bb-nrepl-direct-user-guide.md` | nrepl-direct usage guide |
 
 ---
 
-*Last Updated: 2026-02-03*
+*Last Updated: 2026-02-04*
