@@ -5,8 +5,42 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-04
-**Version:** v1.15.1
-**Focus:** Code Browser v2 collapsible vertical breadcrumb navigator - Complete
+**Version:** v1.15.2
+**Focus:** CM6 editor in WinBox source view - Complete
+
+---
+
+## 🟢 CM6 Editor for Source View (2026-02-04) - COMPLETE
+
+### Goal
+
+Replace plain-text `<pre>` source view with a CodeMirror 6 read-only editor inside WinBox floating windows. Syntax highlighting, line numbers, code folding, and Clojure language support.
+
+### Changes in v1.15.2
+
+| Change | Description |
+|--------|-------------|
+| **`scittle-cm6` require** | Added `[scittle-cm6 :as cm6]` to code_browser_v2.cljs requires |
+| **`source-content` rewrite** | Replaced `[:pre.source-code]` with `[cm6/editor {:value ... :language :clojure :read-only true}]` |
+| **CM6 WinBox CSS** | 4 new rules: `.source-view` flex layout, `.cm-container`/`.cm-editor` fill, `.source-info` bar |
+
+### Flex Layout Chain
+
+`.winbox-widget-body` (flex column, h:100%) → `.source-view` (flex:1) → `.cm-container` (flex:1) → `.cm-editor` (h:100%)
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | Added cm6 require, rewrote `source-content` |
+| `modules/sente-browser/src/sente_browser/bootstrap.clj` | CM6 WinBox CSS rules |
+
+### Verification
+
+- clj-kondo: 0 errors, 0 warnings on both files
+- cljfmt: All formatted correctly
+- Tests: 34 tests, 492 assertions, 0 failures
+- Playwright visual test: Syntax highlighting, line numbers, code folding, read-only, resize confirmed
 
 ---
 

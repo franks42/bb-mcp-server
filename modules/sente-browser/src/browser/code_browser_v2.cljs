@@ -21,7 +21,8 @@
               [clojure.string :as str]
               [sente-lite.client-scittle :as client]
               [code-browser.bootstrap :as bootstrap]
-              [code-browser.uri :as uri]))
+              [code-browser.uri :as uri]
+              [scittle-cm6 :as cm6]))
 
 ;; =============================================================================
 ;; Server State Access (backwards compatibility)
@@ -434,7 +435,9 @@
   (let [source (:data widget)]
     (if source
       [:div.source-view
-       [:pre.source-code (:content source)]
+       [cm6/editor {:value (:content source)
+                    :language :clojure
+                    :read-only true}]
        [:div.source-info
         [:span (str (:file source) " lines " (:start-line source) "-" (:end-line source))]]]
       [:div.empty-message "No source available"])))

@@ -450,6 +450,11 @@
     .breadcrumb-current .breadcrumb-segment { color: #333; font-weight: 500; }
     .breadcrumb-segment { color: #333; }
     .widget-footer { padding: 0.2rem 0.5rem; background: #f5f5f5; border-top: 1px solid #ddd; font-size: 11px; color: #666; }
+    /* CM6 editor inside WinBox source view */
+    .source-view { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    .source-view .cm-container { flex: 1; overflow: hidden; }
+    .source-view .cm-editor { height: 100%; }
+    .source-info { padding: 0.25rem 0.5rem; font-size: 11px; color: #666; border-top: 1px solid #eee; }
   </style>
 </head>
 <body>
