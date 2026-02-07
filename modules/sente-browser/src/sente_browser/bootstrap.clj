@@ -113,11 +113,14 @@
     `);
   </script>
 
-  <!-- 3. Scittle nREPL (finds our FakeWebSocket) -->
+  <!-- 3. UUIDv7 (zero deps - load first so all code can use temporal IDs) -->
+  <script src=\"https://cdn.jsdelivr.net/gh/franks42/uuidv7.cljc@v0.5.0/src/com/github/franks42/uuidv7/core.cljc\" type=\"application/x-scittle\"></script>
+
+  <!-- 4. Scittle nREPL (finds our FakeWebSocket) -->
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js\"></script>
   <script>console.log('[bb-mcp] scittle.nrepl loaded, ws_nrepl.onmessage:', window.ws_nrepl?.onmessage ? 'SET' : 'NOT SET');</script>
 
-  <!-- 4. Trove (logging) -->
+  <!-- 5. Trove (logging) -->
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc\" type=\"application/x-scittle\"></script>
@@ -143,7 +146,7 @@
        Uses defonce atom so ID persists across WebSocket reconnects.\"
       []
       (or @!browser-session-id
-          (let [new-id (str \"session-\" (random-uuid))]
+          (let [new-id (str \"session-\" (com.github.franks42.uuidv7.core/uuidv7))]
             (reset! !browser-session-id new-id)
             new-id)))
 
@@ -561,7 +564,10 @@
     `);
   </script>
 
-  <!-- 3. React + ReactDOM (required for Reagent) -->
+  <!-- 3. UUIDv7 (zero deps - load first so all code can use temporal IDs) -->
+  <script src=\"https://cdn.jsdelivr.net/gh/franks42/uuidv7.cljc@v0.5.0/src/com/github/franks42/uuidv7/core.cljc\" type=\"application/x-scittle\"></script>
+
+  <!-- 4. React + ReactDOM (required for Reagent) -->
   <script src=\"https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js\"></script>
   <script src=\"https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js\"></script>
 
@@ -857,7 +863,7 @@
 
     (defn get-or-create-session-id []
       (or @!browser-session-id
-          (let [new-id (str \"session-\" (random-uuid))]
+          (let [new-id (str \"session-\" (com.github.franks42.uuidv7.core/uuidv7))]
             (reset! !browser-session-id new-id)
             new-id)))
 

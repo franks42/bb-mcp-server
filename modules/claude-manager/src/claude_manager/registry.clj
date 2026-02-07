@@ -6,7 +6,8 @@
    - Session IDs
    - Pending requests (for async correlation)
    - Response accumulators"
-    (:require [taoensso.trove :as log]))
+    (:require [com.github.franks42.uuidv7.core :as uuidv7]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Registry State
@@ -122,7 +123,7 @@
      Unique request ID string."
   [instance-name]
   (let [n (swap! request-counter inc)
-        uuid-prefix (subs (str (random-uuid)) 0 8)]
+        uuid-prefix (subs (str (uuidv7/uuidv7)) 0 8)]
     (format "%s-%06d-%s" instance-name n uuid-prefix)))
 
 ;; =============================================================================

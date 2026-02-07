@@ -180,7 +180,7 @@
    - :style              - Inline styles for container"
   [{:keys [id value language read-only on-change highlight-line highlight-end-line
            _class _style]}]
-  (let [editor-id (or id (str "cm6-" (random-uuid)))
+  (let [editor-id (or id (str "cm6-" (com.github.franks42.uuidv7.core/uuidv7)))
         !view (atom nil)              ; mutable ref for EditorView
         !container (atom nil)         ; mutable ref for DOM container
         !last-value (atom nil)        ; track last value to detect changes

@@ -317,7 +317,7 @@ modules/sente-browser/
   "Register a browser connection from sente-lite.
    Returns the MCP connection ID."
   [sente-conn-id user-agent]
-  (let [conn-id (str "browser-" (uuid/uuid-v7-string))
+  (let [conn-id (str "browser-" (uuidv7/uuidv7))
         connection-data {:connection-id conn-id
                          :type :browser           ;; NEW field
                          :sente-conn-id sente-conn-id

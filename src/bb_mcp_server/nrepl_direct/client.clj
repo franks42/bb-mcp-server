@@ -10,7 +10,8 @@
 
    No dependency on mcp-nrepl module or its state management."
     (:require [bencode.core :as bencode]
-              [clojure.edn :as edn])
+              [clojure.edn :as edn]
+              [com.github.franks42.uuidv7.core :as uuidv7])
     (:import [java.net Socket]
              [java.io PushbackInputStream]
              [java.util Base64]))
@@ -89,7 +90,7 @@
 (defn- generate-id
   "Generate unique message ID."
   []
-  (str (java.util.UUID/randomUUID)))
+  (str (uuidv7/uuidv7)))
 
 (defn- read-responses
   "Read all responses until 'done' status. Returns vector of responses."

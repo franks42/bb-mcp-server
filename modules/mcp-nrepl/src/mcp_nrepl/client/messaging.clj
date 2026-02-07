@@ -1,14 +1,14 @@
 (ns mcp-nrepl.client.messaging
     "nREPL message handling and bencode protocol implementation integrated with reactive state management"
     (:require [bencode.core :as bencode]
-              [mcp-nrepl.utils.uuid-v7 :as uuid]
+              [com.github.franks42.uuidv7.core :as uuidv7]
               [clojure.set :as set]
               [taoensso.trove :as log]))
 
 (defn generate-id
   "Generate RFC 9562 compliant UUID v7 with operation tag suffix."
   [& {:keys [tag] :or {tag "msg"}}]
-  (uuid/uuid-v7-with-tag :tag tag))
+  (str (uuidv7/uuidv7) "-" tag))
 
 (defn- bytes-to-string
   "Convert byte array to UTF-8 string"

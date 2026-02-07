@@ -7,7 +7,8 @@
 
    Starts in :bb context. User switches with (browser/repl :browser-2),
    returns with :cljs/quit."
-    (:require [taoensso.trove :as log]))
+    (:require [com.github.franks42.uuidv7.core :as uuidv7]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; State
@@ -25,7 +26,7 @@
   "Create a new session with default :bb target.
    Returns the session-id."
   []
-  (let [session-id (str (java.util.UUID/randomUUID))]
+  (let [session-id (str (uuidv7/uuidv7))]
     (swap! !sessions assoc session-id {:target :bb
                                        :created-at (System/currentTimeMillis)})
     (log/log! {:level :debug

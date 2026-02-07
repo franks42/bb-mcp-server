@@ -4,6 +4,7 @@
    JSON helpers, UUID generation, and common utilities."
     (:require [cheshire.core :as json]
               [clojure.string :as str]
+              [com.github.franks42.uuidv7.core :as uuidv7]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -49,9 +50,9 @@
 ;; =============================================================================
 
 (defn generate-uuid
-  "Generate a random UUID string."
+  "Generate a UUIDv7 string (RFC 9562, temporally sortable)."
   []
-  (str (java.util.UUID/randomUUID)))
+  (str (uuidv7/uuidv7)))
 
 ;; =============================================================================
 ;; Time Utilities

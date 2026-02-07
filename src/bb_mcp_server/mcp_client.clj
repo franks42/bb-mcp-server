@@ -4,6 +4,7 @@
               [clojure.string :as str]
               [clojure.edn :as edn]
               [cheshire.core :as json]
+              [com.github.franks42.uuidv7.core :as uuidv7]
               [babashka.http-client :as http]))
 
 ;; Session management
@@ -73,7 +74,7 @@
   (let [needs-b64 (needs-base64? code)
         actual-code (if needs-b64 (encode-base64 code) code)]
     {:jsonrpc "2.0"
-     :id (random-uuid)
+     :id (uuidv7/uuidv7)
      :method "tools/call"
      :params {:name "local-eval.local-eval"
               :arguments {:code actual-code
@@ -110,7 +111,7 @@
   "Build a JSON-RPC request for local-load-file tool"
   [path _session-id]
   {:jsonrpc "2.0"
-   :id (random-uuid)
+   :id (uuidv7/uuidv7)
    :method "tools/call"
    :params {:name "local-eval.local-load-file"
             :arguments {:path path}}})
@@ -314,7 +315,7 @@
    Returns a JSON-RPC request map."
   [tool-name arguments]
   {:jsonrpc "2.0"
-   :id (random-uuid)
+   :id (uuidv7/uuidv7)
    :method "tools/call"
    :params {:name tool-name
             :arguments arguments}})
@@ -377,7 +378,7 @@
   "Build a JSON-RPC request for tools/list."
   []
   {:jsonrpc "2.0"
-   :id (random-uuid)
+   :id (uuidv7/uuidv7)
    :method "tools/list"
    :params {}})
 

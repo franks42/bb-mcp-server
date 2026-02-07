@@ -1,6 +1,6 @@
 (ns mcp-nrepl.state.connection
     "Unified connection state management for nREPL client connections - SINGLE SOURCE OF TRUTH"
-    (:require [mcp-nrepl.utils.uuid-v7 :as uuid]
+    (:require [com.github.franks42.uuidv7.core :as uuidv7]
               [taoensso.trove :as log])
     (:import [java.net InetAddress]))
 
@@ -73,7 +73,7 @@
    Example: 192.168.1.10:7890-01234567-abcd-89ef-ghij-klmnopqrstuv"
   [hostname port]
   (let [resolved-ip (resolve-ip-address hostname)
-        uuid-suffix (uuid/uuid-v7-string)]
+        uuid-suffix (str (uuidv7/uuidv7))]
     (str resolved-ip ":" port "-" uuid-suffix)))
 
 ;; =============================================================================
@@ -322,7 +322,7 @@
    - Claude discovers via list, then selects to eval"
   [sente-conn-id]
   (let [conn-counter (inc (:connection-counter @connection-state))
-        conn-id (str "browser-" conn-counter "-" (uuid/uuid-v7-string))
+        conn-id (str "browser-" conn-counter "-" (uuidv7/uuidv7))
         nickname (str "browser-" conn-counter)
         connection-data {:connection-id conn-id
                          :type :browser              ; Key differentiator from :socket

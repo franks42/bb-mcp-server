@@ -22,7 +22,7 @@
               [mcp-nrepl.state.messages :as msg-state]
               [mcp-nrepl.state.results :as results]
               [mcp-nrepl.state.watchers :as watchers]
-              [mcp-nrepl.utils.uuid-v7 :as uuid]
+              [com.github.franks42.uuidv7.core :as uuidv7]
               [taoensso.trove :as log]))
 
 ;; Forward declarations
@@ -70,7 +70,7 @@
   "Handle :client/ready from browser - this is the handshake initiation.
    Browser is signaling that its handlers are ready for communication."
   [sente-conn-id {:keys [session-id]}]
-  (let [probe-id (str "probe-" (uuid/uuid-v7-string))
+  (let [probe-id (str "probe-" (uuidv7/uuidv7))
         now (System/currentTimeMillis)]
     ;; Register connection with session-id immediately
     (swap! !browser-connections assoc sente-conn-id

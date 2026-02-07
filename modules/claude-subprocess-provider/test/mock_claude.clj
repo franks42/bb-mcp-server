@@ -11,12 +11,13 @@
 ;; Or spawn as subprocess from tests.
 
 (ns mock-claude
-    (:require [cheshire.core :as json]))
+    (:require [cheshire.core :as json]
+              [com.github.franks42.uuidv7.core :as uuidv7]))
 
 (defn generate-session-id
   "Generate a mock session ID."
   []
-  (str "mock-session-" (subs (str (random-uuid)) 0 8)))
+  (str "mock-session-" (subs (str (uuidv7/uuidv7)) 0 8)))
 
 (defn handle-message
   "Process incoming message and emit Claude-like response."

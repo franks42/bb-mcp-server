@@ -9,7 +9,8 @@
    - Request/Response with timeout via Global Response Router
    - Message logging for debugging
    - Thread-safe with standard Clojure concurrency primitives"
-    (:require [taoensso.trove :as log]))
+    (:require [com.github.franks42.uuidv7.core :as uuidv7]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; State
@@ -37,7 +38,7 @@
 (defn- generate-id
   "Generate a unique message/request ID."
   []
-  (str (random-uuid)))
+  (str (uuidv7/uuidv7)))
 
 (defn- enrich-message
   "Add metadata to a message."

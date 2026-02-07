@@ -1,6 +1,6 @@
 (ns mcp-nrepl.state.messages
     "Message queue state management for async nREPL operations"
-    (:require [mcp-nrepl.utils.uuid-v7 :as uuid]
+    (:require [com.github.franks42.uuidv7.core :as uuidv7]
               [mcp-nrepl.state.results :as results]
               [mcp-nrepl.state.connection :as conn-state]
               [taoensso.trove :as log]))
@@ -147,7 +147,7 @@
   [connection-id message]
   ;; Get and validate specific connection by connection-id
   (if-let [raw-connection (conn-state/get-connection-by-id connection-id)]
-          (let [message-id (uuid/uuid-v7-with-tag :tag "msg")
+          (let [message-id (str (uuidv7/uuidv7) "-msg")
                 timestamp (System/currentTimeMillis)
                 message-with-id (assoc message :id message-id)]
 
