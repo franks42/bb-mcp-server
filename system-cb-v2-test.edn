@@ -1,21 +1,28 @@
-;; Test configuration for code-browser-v2 manual testing
+;; Code Browser v2 development/test configuration
 ;;
-;; Start with: bb server --http --port 3000 --config system-cb-v2-test.edn
-;; Then connect nREPL: bb rebel-nrepl-client 1667
-;; Initialize v2: (require '[code-browser.core :as cb-v2])
-;;                (cb-v2/init! {:db-path "/tmp/cb-v2-test" :sources [{:type :dir :path "."}]})
+;; Usage:
+;;   bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+;;   open http://localhost:8091
+;;   Click "Load Code Browser" button
+;;
+;; Or use the single script:
+;;   bb dev:cb-v2
 
 {:modules-dir "modules"
 
- ;; Modules for code-browser-v2 testing (with dependencies)
- ;; mcp-nrepl, directory-browser -> sente-browser
- ;; datalevin-pod, atom-sync -> code-browser-v2
- ;; nrepl-proxy-server -> server-side nREPL for initialization
+ ;; Module load order matters: datalevin-pod must load before code-browser-v2
+ ;; so the pod is available when code-browser-v2 calls init! during startup.
  :modules ["mcp-local-eval" "mcp-nrepl" "directory-browser" "datalevin-pod" "atom-sync"
-           "sente-browser" "code-browser-v2" "nrepl-proxy-server"]
+           "sente-browser" "code-browser-v2" "nrepl-proxy-server" "nrepl-server"]
 
  :config {"sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true
                            :projects ["/Users/franksiebenlist/Development/bb-mcp-server"]}
           "datalevin-pod" {:db-path "/tmp/code-browser-v2-test-db"}
           "nrepl-proxy-server" {:enabled true :port 1667 :write-port-file? true}
-          "code-browser-v2" {:enabled true}}}
+          "nrepl-server" {:port 7888 :host "localhost"}
+          ;; code-browser-v2 auto-initializes during module start:
+          ;; creates Datalevin DB, scans sources, enables browser sync.
+          ;; Delete /tmp/cb-v2-test before restart if you need fresh data.
+          "code-browser-v2" {:enabled true
+                             :db-path "/tmp/cb-v2-test"
+                             :sources [{:type :dir :path "."}]}}}

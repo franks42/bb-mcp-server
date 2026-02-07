@@ -466,7 +466,7 @@
 
 (def module
      "Module lifecycle map for bb-mcp-server module system."
-     {:start (fn [_config]
+     {:start (fn [_deps _config]
                ;; Reset epoch on server start so browsers detect restart
                (reset-server-epoch!)
                {:status :started
@@ -475,4 +475,8 @@
                 :server-epoch !server-epoch})
       :stop (fn [_instance]
               (reset-all!)
-              nil)})
+              nil)
+      :status (fn [_instance]
+                {:status :ok
+                 :synced-atom-count (count @!synced-atoms)
+                 :subscriber-count (count @!subscribers)})})

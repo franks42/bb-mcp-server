@@ -248,10 +248,30 @@
   (sync/unregister-on-connect!))
 
 ;;; ---------------------------------------------------------------------------
-;;; Module Initialization
+;;; Module Lifecycle (bb-mcp-server module system)
 ;;; ---------------------------------------------------------------------------
 
-;; Register auto-enable callback at namespace load time.
-;; When a browser connects and requests :code-browser-v2 atom, this enables
-;; the module if a database has been configured via init! or init-with!.
-(register-auto-enable!)
+(def module
+     "Module lifecycle map for bb-mcp-server module system."
+     {:start (fn [_deps config]
+               (log/log! {:level :info
+                          :id ::module-starting
+                          :msg "Starting code-browser-v2 module"
+                          :data {:config config}})
+               (register-auto-enable!)
+               (when (:enabled config)
+                 (when-let [db-path (:db-path config)]
+                           (init! {:db-path db-path
+                                   :sources (:sources config)
+                                   :auto-scan? (get config :auto-scan? true)
+                                   :auto-enable? (get config :auto-enable? true)})))
+               {:status :started
+                :config config})
+      :stop (fn [_instance]
+              (unregister-auto-enable!)
+              (shutdown!)
+              nil)
+      :status (fn [_instance]
+                {:status :ok
+                 :enabled? (:enabled? @!config)
+                 :db-path (:db-path @!config)})})

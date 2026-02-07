@@ -303,7 +303,14 @@
           :task (load-file "scripts/pprint.clj")}
 
   rebel-nrepl-client {:doc "Open iTerm2 with rebel-readline connected to nREPL [port]"
-                      :task (load-file "scripts/rebel_nrepl_client.clj")}}
+                      :task (load-file "scripts/rebel_nrepl_client.clj")}
+
+  ;; ==========================================================================
+  ;; Dev Environment Tasks
+  ;; ==========================================================================
+
+  dev:cb-v2 {:doc "Code Browser v2 dev env [start|stop|restart|status] (default: start)"
+             :task (apply shell "bb" "scripts/cb_v2_dev.clj" *command-line-args*)}}
 
  :aliases
  {:test {:extra-paths ["test"]
