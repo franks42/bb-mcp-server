@@ -114,6 +114,34 @@
       :deps "Deps"
       :callers "Callers"})
 
+(def ^:private project-list-color
+     "Title bar color for the project-list hub widget."
+     "#37474f")
+
+(def ^:private project-colors
+     "Color palette for per-project WinBox title bars."
+     ["#1e88e5"
+      "#43a047"
+      "#e53935"
+      "#8e24aa"
+      "#f4511e"
+      "#00acc1"
+      "#6d4c41"
+      "#546e7a"])
+
+(defonce ^{:doc "Map of project name to assigned color"}
+ !project-color-map (atom {}))
+
+(defn- project-color
+  "Get a consistent color for a project name."
+  [project-name]
+  (if-let [color (get @!project-color-map project-name)]
+          color
+          (let [idx (count @!project-color-map)
+                color (nth project-colors (mod idx (count project-colors)))]
+            (swap! !project-color-map assoc project-name color)
+            color)))
+
 (defn- winbox-defaults
   "Return default WinBox dimensions and position based on widget type."
   [widget-type]
@@ -168,11 +196,14 @@
                  {:uri uri :property property :widget-id widget-id})))
 
 (declare create-winbox!)
+(declare focus-widget!)
+(declare fit-to-content!)
 
 (defn open-widget!
   "Open a new widget for the given URI.
    Accepts {:uri \"dir://...?view=source\"} where type is derived from query,
    or legacy {:type :source :uri \"dir://...\"} for backwards compat.
+   If a widget with the same URI already exists, focuses it instead.
    Returns the widget ID."
   [{:keys [type uri]}]
   (let [parsed (when uri (uri/parse uri))
@@ -190,22 +221,34 @@
                    (uri/with-query (uri/base-uri uri)
                                    {"view" (type->view-name effective-type)})
                    uri)
-        wid (next-widget-id)]
-    (swap! !widgets assoc wid {:id wid
-                               :type effective-type
-                               :uri full-uri
-                               :data nil
-                               :loading? true
-                               :error nil
-                               :filter ""})
-    (reset! !focused-widget wid)
-    ;; Update hash to reflect focused widget
-    (when full-uri
-      (set! (.-hash js/window.location) full-uri))
-    ;; Create WinBox floating window with Reagent content
-    (create-winbox! wid)
-    (fetch-widget-data! wid effective-type full-uri)
-    wid))
+        ;; Check for existing widget with same URI
+        existing (when full-uri
+                   (->> @!widgets
+                        (some (fn [[wid w]] (when (= (:uri w) full-uri) wid)))))]
+    (if existing
+      ;; Focus existing widget instead of creating a duplicate
+      (do (focus-widget! existing)
+          (reset! !focused-widget existing)
+          (when full-uri
+            (set! (.-hash js/window.location) full-uri))
+          existing)
+      ;; Create new widget
+      (let [wid (next-widget-id)]
+        (swap! !widgets assoc wid {:id wid
+                                   :type effective-type
+                                   :uri full-uri
+                                   :data nil
+                                   :loading? true
+                                   :error nil
+                                   :filter ""})
+        (reset! !focused-widget wid)
+        ;; Update hash to reflect focused widget
+        (when full-uri
+          (set! (.-hash js/window.location) full-uri))
+        ;; Create WinBox floating window with Reagent content
+        (create-winbox! wid)
+        (fetch-widget-data! wid effective-type full-uri)
+        wid))))
 
 (defn close-widget!
   "Close a widget by ID. Dissoc instance then close WinBox (DOM removal handles cleanup)."
@@ -227,6 +270,12 @@
                         (set! (.-hash js/window.location) u))
               (set! (.-hash js/window.location) "")))))
 
+(defn- focus-widget!
+  "Bring an existing widget's WinBox to front."
+  [widget-id]
+  (when-let [wb (get @!winbox-instances widget-id)]
+            (.focus wb)))
+
 (defn refresh-widget!
   "Refresh data for a widget."
   [widget-id]
@@ -247,7 +296,13 @@
         ;; Update WinBox title with contextual info
        (when-let [wb (get @!winbox-instances wid)]
                  (let [w (get @!widgets wid)]
-                   (.setTitle wb (type->title (:type w) (:uri w))))))
+                   (.setTitle wb (type->title (:type w) (:uri w)))))
+        ;; Auto-fit to content after Reagent re-renders
+       (js/setTimeout
+        (fn []
+          (when-let [wb (get @!winbox-instances wid)]
+                    (fit-to-content! wid wb)))
+        100))
       (swap! !widgets update wid assoc
              :loading? false
              :error (or error "Unknown error")))))
@@ -564,6 +619,109 @@
        :else
        [render-widget-content widget-id widget])]))
 
+(defn- measure-content-size
+  "Measure ideal content size for a WinBox widget body.
+   Returns {:w pixels :h pixels} representing ideal window dimensions.
+   For lists: tall enough for all items. For CM6: fits all source lines."
+  [wb]
+  (let [body (.-body wb)
+        header-h 35
+        widget-body (.querySelector body ".winbox-widget-body")
+        list-container (some-> widget-body (.querySelector ".list-container"))
+        cm-editor (some-> widget-body (.querySelector ".cm-editor"))
+        breadcrumb (.querySelector widget-body ".widget-breadcrumb")
+        filter-input (.querySelector widget-body ".filter-input")
+        footer (.querySelector widget-body ".widget-footer")
+        ;; Measure non-content chrome heights
+        bc-h (if breadcrumb (.-offsetHeight breadcrumb) 0)
+        fi-h (if filter-input (+ (.-offsetHeight filter-input) 8) 0)
+        ft-h (if footer (.-offsetHeight footer) 0)
+        chrome-h (+ header-h bc-h fi-h ft-h 12)
+        ;; Measure content dimensions
+        [content-w content-h]
+        (cond
+          list-container
+          ;; Lists: measure unwrapped width of widest item + scrollbar
+          ;; Height: sum item heights (immune to container size feedback loop)
+          (let [items (array-seq (.querySelectorAll list-container ".list-item"))
+                _ (doseq [item items]
+                         (set! (.-whiteSpace (.-style item)) "nowrap")
+                         (set! (.-width (.-style item)) "max-content"))
+                max-w (reduce (fn [m item] (max m (.-offsetWidth item)))
+                              0 items)
+                _ (doseq [item items]
+                         (set! (.-whiteSpace (.-style item)) "")
+                         (set! (.-width (.-style item)) ""))
+                scrollbar-w (- (.-offsetWidth list-container)
+                               (.-clientWidth list-container))
+                h (reduce (fn [total item] (+ total (.-offsetHeight item)))
+                          0 items)]
+            [(+ max-w scrollbar-w) h])
+
+          cm-editor
+          ;; CM6: measure line widths with nowrap, scroller height with shrink
+          (let [cm-scroller (.querySelector cm-editor ".cm-scroller")
+                cm-content (.querySelector cm-editor ".cm-content")
+                cm-gutters (.querySelector cm-editor ".cm-gutters")
+                gutter-w (if cm-gutters (.-offsetWidth cm-gutters) 0)
+                lines (array-seq (.querySelectorAll cm-content ".cm-line"))
+                _ (doseq [ln lines]
+                         (set! (.-whiteSpace (.-style ln)) "nowrap")
+                         (set! (.-width (.-style ln)) "max-content")
+                         (set! (.-display (.-style ln)) "inline-block"))
+                max-line-w (reduce (fn [m ln] (max m (.-offsetWidth ln)))
+                                   0 lines)
+                _ (doseq [ln lines]
+                         (set! (.-whiteSpace (.-style ln)) "")
+                         (set! (.-width (.-style ln)) "")
+                         (set! (.-display (.-style ln)) ""))
+                saved-h (.-height (.-style cm-scroller))
+                _ (set! (.-height (.-style cm-scroller)) "1px")
+                scroller-h (.-scrollHeight cm-scroller)
+                _ (set! (.-height (.-style cm-scroller)) saved-h)
+                source-info (.querySelector widget-body ".source-info")
+                si-h (if source-info (+ (.-offsetHeight source-info) 4) 0)]
+            [(+ max-line-w gutter-w 20)
+             (+ scroller-h si-h)])
+
+          :else
+          ;; Fallback: shrink container to measure true content height
+          (let [saved-h (.-height (.-style widget-body))
+                _ (set! (.-height (.-style widget-body)) "1px")
+                w (.-scrollWidth widget-body)
+                h (.-scrollHeight widget-body)
+                _ (set! (.-height (.-style widget-body)) saved-h)]
+            [w h]))
+        ;; Total with chrome, capped at viewport
+        ideal-w content-w
+        ideal-h (+ content-h chrome-h)
+        max-w (- (.-innerWidth js/window) 40)
+        max-h (- (.-innerHeight js/window) 40)]
+    {:w (min ideal-w max-w)
+     :h (min ideal-h max-h)}))
+
+(defn- fit-to-content!
+  "Resize a WinBox widget to fit its content.
+   Keeps the upper-left corner in place, shifting only if needed to stay in viewport."
+  [_widget-id wb]
+  (let [body (.-body wb)
+        widget-body (.querySelector body ".winbox-widget-body")
+        has-content? (and widget-body
+                          (or (.querySelector widget-body ".list-container")
+                              (.querySelector widget-body ".cm-editor")
+                              (.querySelector widget-body ".doc-view")))]
+    (when has-content?
+      (let [{:keys [w h]} (measure-content-size wb)
+            cur-x (.-x wb)
+            cur-y (.-y wb)
+            vw (.-innerWidth js/window)
+            vh (.-innerHeight js/window)
+            new-x (if (> (+ cur-x w) vw) (max 0 (- vw w)) cur-x)
+            new-y (if (> (+ cur-y h) vh) (max 0 (- vh h)) cur-y)]
+        (.resize wb w h)
+        (when (or (not= new-x cur-x) (not= new-y cur-y))
+          (.move wb new-x new-y))))))
+
 (defn- create-winbox!
   "Create a WinBox floating window for a widget and render Reagent content
    into its body. Returns the WinBox instance."
@@ -574,24 +732,42 @@
         uri (:uri widget)
         defaults (winbox-defaults wtype)
         title (type->title wtype uri)
-        wb (js/WinBox.
-            (clj->js
-             {:title title
-              :width (:width defaults)
-              :height (:height defaults)
-              :x (:x defaults)
-              :y (:y defaults)
-              :class ["no-full" "no-max"]
-              :onfocus (fn []
-                         (reset! !focused-widget widget-id)
-                         (when-let [u (:uri (get @!widgets widget-id))]
-                                   (set! (.-hash js/window.location) u)))
-              :onclose (fn []
-                         (when-not @!closing
-                           (reset! !closing true)
-                           (close-widget! widget-id))
-                         js/undefined)}))]
+        project-list? (= wtype :project-list)
+        project (when uri (:uri/project (uri/parse (uri/base-uri uri))))
+        bg-color (cond
+                   project-list? project-list-color
+                   project (project-color project)
+                   :else nil)
+        wb-opts (cond-> {:title title
+                         :width (:width defaults)
+                         :height (:height defaults)
+                         :x (:x defaults)
+                         :y (:y defaults)
+                         :class (if project-list?
+                                  ["no-full" "no-close"]
+                                  ["no-full"])
+                         :onfocus (fn []
+                                    (reset! !focused-widget widget-id)
+                                    (when-let [u (:uri (get @!widgets widget-id))]
+                                              (set! (.-hash js/window.location) u)))
+                         :onclose (fn []
+                                    (when-not @!closing
+                                      (reset! !closing true)
+                                      (close-widget! widget-id))
+                                    js/undefined)}
+                        bg-color (assoc :background bg-color))
+        wb (js/WinBox. (clj->js wb-opts))]
     (swap! !winbox-instances assoc widget-id wb)
+    (.focus wb)
+    ;; Override maximize button: intercept click in capture phase
+    ;; before WinBox's click handler runs, so we get fit-to-content instead.
+    (when-let [max-btn (.querySelector (.-parentNode (.-body wb)) ".wb-max")]
+              (.addEventListener max-btn "click"
+                                 (fn [e]
+                                   (.stopImmediatePropagation e)
+                                   (.preventDefault e)
+                                   (fit-to-content! widget-id wb))
+                                 true))
     ;; Render Reagent component into WinBox body
     (let [body (.-body wb)]
       (rdom/render [winbox-body-component widget-id] body))
@@ -747,4 +923,5 @@
   (reset! !widgets {})
   (reset! !focused-widget nil)
   (reset! !breadcrumb-expanded #{})
+  (reset! !project-color-map {})
   (js/console.log "[code-browser-v2] Unmounted"))

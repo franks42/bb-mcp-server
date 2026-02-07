@@ -99,7 +99,8 @@
 
    ;; === Symbol Attributes (METADATA ONLY - D5) ===
       :symbol/name     {:db/doc "Symbol name"}
-      :symbol/type     {:db/doc "Symbol type: :defn :def :defmacro :defmulti :defmethod :defprotocol :defrecord :deftype :ns etc"}
+      :symbol/type     {:db/valueType :db.type/keyword
+                        :db/doc "Symbol type: :defn :def :defmacro :defmulti :defmethod :defprotocol :defrecord :deftype :ns etc"}
       :symbol/file     {:db/doc "Source file path (content fetched on demand)"}
       :symbol/line     {:db/doc "Start line number"}
       :symbol/end-line {:db/doc "End line number (for source extraction)"}

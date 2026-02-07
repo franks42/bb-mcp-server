@@ -4,9 +4,54 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-04
-**Version:** v1.15.2
-**Focus:** CM6 editor in WinBox source view - Complete
+**Last Updated:** 2026-02-05
+**Version:** v1.15.3
+**Focus:** WinBox zoom creep fix - Complete
+
+---
+
+## 🟢 WinBox Zoom Creep Fix (2026-02-05) - COMPLETE
+
+### Problem
+
+Clicking the WinBox maximize/zoom button repeatedly caused widget dimensions to creep larger with each click:
+- Symbol-list height: +16px/click
+- Source (CM6) width: +19px/click, height: +13px/click
+- Project-list: also creeping
+
+Root cause: `measure-content-size` used measurements that included current container size, creating feedback loops.
+
+### Solution
+
+Fixed `measure-content-size` in `code_browser_v2.cljs` (lines 643-693):
+
+| Content Type | Width Fix | Height Fix |
+|--------------|-----------|------------|
+| **Lists** | Measure `.list-item` with `nowrap; max-content`, use `offsetWidth` | Sum `offsetHeight` of all items (not `scrollHeight`) |
+| **CM6** | Measure `.cm-line` with `nowrap; max-content; inline-block` | Shrink `.cm-scroller` to `1px`, read `scrollHeight` |
+| **Fallback** | Unchanged | Shrink `widget-body` to `1px`, read `scrollHeight` |
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `modules/sente-browser/src/browser/code_browser_v2.cljs` | Rewrote `measure-content-size` (lines 643-693) |
+
+### Verification
+
+- clj-kondo: 0 errors, 0 warnings
+- cljfmt: formatted correctly
+- Playwright tests: All 6 widget types stable across 5 zoom clicks:
+  - Project list (1 item): 150×138 stable
+  - Namespace list (204 items): 398×858 stable
+  - Symbol list long (20 items): 261×742 stable
+  - Symbol list short (6 items): 152×308 stable
+  - Source CM6 long (36 lines): 913×858 stable
+  - Source CM6 short (8 lines): 666×275 stable
+
+### Not Yet Done
+
+- Git commit not created yet
 
 ---
 
