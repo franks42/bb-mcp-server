@@ -57,9 +57,9 @@ bb lint && bb format            # Verify before commit
 bb test:modules                 # Run all module tests
 
 # nrepl-direct (preferred — direct TCP, no MCP overhead)
-bb nrepl-direct list -t X                   # List connections
-bb nrepl-direct eval '<code>' -t X          # Eval on server
-bb nrepl-direct eval '<code>' -t X/browser-1  # Eval in browser
+bb nrepl-direct list -t X                     # List connections
+bb nrepl-direct eval "<code>" -t X            # Eval on server (use double quotes!)
+bb nrepl-direct eval "<code>" -t X/browser-1  # Eval in browser
 bb nrepl-direct load-local-file <path> -t X/browser-1  # Load file
 
 # MCP-based CLIs (fallback)
@@ -78,12 +78,18 @@ bb nrepl eval "<code>" --mcp X  # Eval code
 
 **Best practice:** Use `bb nrepl-direct` with the `-t` (target) shorthand.
 
-The `bb nrepl-direct` wrapper runs `set +H` to disable bash history expansion, so `!` characters in Clojure function names (like `swap!`, `mount!`) work safely.
+**CRITICAL — `!` character escaping:**
+AI tool environments (including Claude Code's Bash tool) escape `!` to `\!` inside **single-quoted** strings, silently breaking Clojure code containing `swap!`, `reset!`, `mount!`, `!atom-name`, etc.
+
+**Rules:**
+1. **ALWAYS use double quotes** for eval strings containing `!`: `bb nrepl-direct eval "(swap! x inc)" -t X`
+2. **NEVER use single quotes** for eval strings containing `!`: ~~`bb nrepl-direct eval '(swap! x inc)' -t X`~~ — BROKEN
+3. **For complex code, use `load-local-file`** instead of inline eval — avoids all escaping issues
 
 ```bash
-# PREFERRED: bb nrepl-direct with --target shorthand
-bb nrepl-direct eval '(+ 1 2 3)' -t myserver              # Server eval
-bb nrepl-direct eval '(mount!)' -t myserver/browser-1      # Browser eval
+# PREFERRED: Double quotes for eval (REQUIRED when code contains !)
+bb nrepl-direct eval "(+ 1 2 3)" -t myserver               # Server eval
+bb nrepl-direct eval "(mount!)" -t myserver/browser-1       # Browser eval
 bb nrepl-direct load-local-file scripts/init.clj -t myserver/browser-1  # Load file
 bb nrepl-direct list -t myserver                            # List connections
 

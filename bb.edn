@@ -291,8 +291,9 @@
   nrepl {:doc "nREPL CLI - connect, eval, load-file via MCP"
          :task (load-file "scripts/nrepl-task.clj")}
 
-  nrepl-direct {:doc "Direct nREPL CLI - eval, load-file without MCP (! escaping handled)"
-                :task (apply shell "scripts/nrepl-direct.sh" *command-line-args*)}
+  nrepl-direct {:doc "Direct nREPL CLI - eval, load-file without MCP"
+                :depends [-bootstrap]
+                :task (load-file "scripts/nrepl_direct_cli.clj")}
 
   mcp {:doc "MCP CLI - init, tools, call via MCP"
        :task (load-file "scripts/mcp-task.clj")}
