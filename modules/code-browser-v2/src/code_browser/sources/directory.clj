@@ -457,9 +457,16 @@
                :data {:file rel-path
                       :project project-name}})
     (when-let [analysis (run-kondo-file-analysis file-path)]
-              (let [var-defs (:var-definitions analysis)
-                    var-usages (:var-usages analysis)
-                    ns-defs (:namespace-definitions analysis)
+              ;; Normalize :filename from absolute to relative paths
+              ;; (clj-kondo preserves the path format it receives)
+              (let [rel-fn (fn [m]
+                             (if (:filename m)
+                               (update m :filename
+                                       #(relativize-path root-path %))
+                               m))
+                    var-defs (mapv rel-fn (:var-definitions analysis))
+                    var-usages (mapv rel-fn (:var-usages analysis))
+                    ns-defs (mapv rel-fn (:namespace-definitions analysis))
                     ns-usages (:namespace-usages analysis)
                     ns-files (compute-ns-files var-defs)
                     affected-ns-names (into #{} (map #(str (:name %))) ns-defs)
