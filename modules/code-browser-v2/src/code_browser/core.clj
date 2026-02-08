@@ -22,6 +22,7 @@
               [code-browser.db.datalevin :as datalevin]
               [code-browser.sources.protocol :as source-proto]
               [code-browser.sources.directory :as dir-source]
+              [sente-browser.server :as sente-server]
               [taoensso.trove :as log]))
 
 ;;; ---------------------------------------------------------------------------
@@ -152,11 +153,17 @@
               (retract-project-entities! db project-name)
               (scan-and-populate! db source)
               (refresh-browser-view!)
-              (log/log! {:level :info
-                         :id ::rescan-complete
-                         :msg "Project re-scan complete"
-                         :data {:project project-name
-                                :elapsed-ms (- (System/currentTimeMillis) start-ms)}}))))
+              ;; Broadcast invalidation to all browser widgets
+              (let [n (sente-server/broadcast-to-browsers!
+                       [:code-browser-v2/invalidate
+                        {:project project-name}])]
+                (log/log! {:level :info
+                           :id ::rescan-complete
+                           :msg "Project re-scan complete"
+                           :data {:project project-name
+                                  :browsers-notified n
+                                  :elapsed-ms (- (System/currentTimeMillis)
+                                                 start-ms)}})))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Public API

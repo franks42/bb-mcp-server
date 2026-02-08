@@ -336,13 +336,36 @@
                   :msg "Fetch failed"
                   :data {:widget-id wid :error (or error "Unknown error")}})))))
 
-;; Register event handler for fetch responses
+(defn- handle-invalidate!
+  "Handle a server-push invalidation event.
+   Refreshes all widgets whose URI belongs to the affected project."
+  [data]
+  (let [{:keys [project]} data
+        widgets @!widgets
+        affected (filterv
+                  (fn [[_wid w]]
+                    (when-let [u (:uri w)]
+                              (let [parsed (uri/parse (uri/base-uri u))]
+                                (= (:uri/project parsed) project))))
+                  widgets)]
+    (log/log! {:level :info :id ::invalidate-received
+               :msg "Invalidation received from server"
+               :data {:project project
+                      :affected-count (count affected)}})
+    (doseq [[wid _w] affected]
+           (refresh-widget! wid))))
+
+;; Register event handler for fetch responses and invalidation
 (bootstrap/register-event-handler!
  :code-browser-v2
  (fn [[event-id data]]
    (case event-id
      :code-browser-v2/fetch-response
      (handle-fetch-response! data)
+
+     :code-browser-v2/invalidate
+     (handle-invalidate! data)
+
      ;; Ignore other events (handled by atom-sync)
      nil)))
 
