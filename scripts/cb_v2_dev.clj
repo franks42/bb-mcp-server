@@ -23,6 +23,7 @@
 (def ^:private db-path "/tmp/cb-v2-test")
 (def ^:private browser-url "http://localhost:8091")
 (def ^:private ports-dir ".ports")
+(def ^:private catalog-dir "telemetry-catalogs")
 
 ;; =============================================================================
 ;; Helpers
@@ -100,6 +101,31 @@
     (println (str "  Database created at " db-path))
     (println (str "  WARNING: Database not found at " db-path " — init may have failed."))))
 
+(defn- do-generate-catalog!
+  "Generate telemetry catalog with timestamped filename."
+  []
+  (let [dir (io/file catalog-dir)
+        ts (.format (java.time.LocalDateTime/now)
+                    (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
+        filename (str "telemetry-catalog-" ts ".edn")]
+    (.mkdirs dir)
+    (let [result @(p/process {:cmd ["bb" "telemetry:catalog" "--save"]
+                              :out :string
+                              :err :string
+                              :dir "."
+                              :extra-env {"TELEMETRY_CATALOG_PATH"
+                                          (str catalog-dir "/" filename)}})]
+      ;; --save writes to telemetry-catalog.edn by default,
+      ;; so move it to the timestamped name
+      (let [default-file (io/file "telemetry-catalog.edn")
+            target-file (io/file catalog-dir filename)]
+        (when (.exists default-file)
+          (io/copy default-file target-file)
+          (.delete default-file)))
+      (if (zero? (:exit result))
+        (println (str "  Saved " catalog-dir "/" filename))
+        (println "  WARNING: Catalog generation failed (non-fatal).")))))
+
 (defn- do-open-browser!
   "Open browser to bootstrap page."
   []
@@ -135,17 +161,19 @@
   [opts]
   (println "=== Code Browser v2 Dev Environment ===")
   (println "")
-  (println "[1/4] Stopping existing server...")
+  (println "[1/5] Generating telemetry catalog...")
+  (do-generate-catalog!)
+  (println "[2/5] Stopping existing server...")
   (do-stop!)
-  (println "[2/4] Cleaning stale database...")
+  (println "[3/5] Cleaning stale database...")
   (do-clean-db!)
-  (println "[3/4] Starting server (auto-initializes code-browser-v2)...")
+  (println "[4/5] Starting server (auto-initializes code-browser-v2)...")
   (do-start!)
   (if (:open-browser opts)
     (do
-     (println "[4/4] Opening browser...")
+     (println "[5/5] Opening browser...")
      (do-open-browser!))
-    (println "[4/4] Skipping browser (--no-open)."))
+    (println "[5/5] Skipping browser (--no-open)."))
   (print-next-steps))
 
 (defn cmd-stop
@@ -160,11 +188,13 @@
   [_opts]
   (println "=== Restarting Code Browser v2 ===")
   (println "")
-  (println "[1/3] Stopping server...")
+  (println "[1/4] Generating telemetry catalog...")
+  (do-generate-catalog!)
+  (println "[2/4] Stopping server...")
   (do-stop!)
-  (println "[2/3] Cleaning stale database...")
+  (println "[3/4] Cleaning stale database...")
   (do-clean-db!)
-  (println "[3/3] Starting server (auto-initializes code-browser-v2)...")
+  (println "[4/4] Starting server (auto-initializes code-browser-v2)...")
   (do-start!)
   (print-next-steps))
 

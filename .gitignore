@@ -46,6 +46,7 @@ server.log
 
 # Generated files
 telemetry-catalog.edn
+telemetry-catalogs/
 
 # Claude Code local settings
 .claude/
