@@ -142,14 +142,14 @@
   (let [filtered (cond->> catalog
                           level (filter #(= (keyword level) (:telemetry/level %)))
                           ns (filter #(str/starts-with? (:telemetry/ns %) ns)))]
-    (println (format "%-8s %-45s %-30s %s"
-                     "LEVEL" "EVENT-ID" "FUNCTION" "FILE:LINE"))
+    (println (format "%-8s %-40s %-35s %s"
+                     "LEVEL" "EVENT-ID" "MSG" "FILE:LINE"))
     (println (apply str (repeat 120 "-")))
     (doseq [e filtered]
-           (println (format "%-8s %-45s %-30s %s:%d"
+           (println (format "%-8s %-40s %-35s %s:%d"
                             (name (:telemetry/level e))
                             (or (:telemetry/event-id e) "-")
-                            (or (:telemetry/fn e) "-")
+                            (or (:telemetry/msg e) "-")
                             (:telemetry/file e)
                             (:telemetry/line e))))
     (println)
