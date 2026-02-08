@@ -613,6 +613,9 @@
   <!-- 7. sente-lite-nrepl bundle -->
   <script src=\"/sente-lite-nrepl.cljs\" type=\"application/x-scittle\"></script>
 
+  <!-- 7b. Browser telemetry (forwards Trove logs to server) -->
+  <script src=\"/browser/browser_telemetry.cljs\" type=\"application/x-scittle\"></script>
+
   <!-- 8. Code browser infrastructure: error boundary, atom sync, client -->
   <script type=\"application/x-scittle\">
     (ns code-browser.bootstrap
@@ -622,6 +625,7 @@
                 [reagent.dom :as rdom]
                 [sente-lite.client-scittle :as client]
                 [nrepl-sente.browser-adapter :as adapter]
+                [browser-telemetry]
                 [taoensso.trove :as log]))
 
     ;; =========================================================================
@@ -919,6 +923,8 @@
                                          (set-status! \"connected\" (str \"Code Browser - \" nickname))
                                          (log! \"info\" (str (if reconnect \"Reconnected\" \"Registered\")
                                                             \" as \" nickname))
+                                         ;; Start browser telemetry forwarding
+                                         (browser-telemetry/init! @!client-id)
                                          ;; Enable the Load UI button
                                          (when-let [enable-fn (aget js/window \"enableLoadButton\")]
                                            (enable-fn)))

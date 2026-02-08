@@ -4,7 +4,8 @@
 
  ;; Depends on mcp-nrepl module for connection/message state
  ;; Phase 1.5E.16: directory-browser for local filesystem navigation
- :requires ["mcp-nrepl" "directory-browser"]
+ ;; telemetry-db for browser log ingestion
+ :requires ["mcp-nrepl" "directory-browser" "telemetry-db"]
 
  ;; Entry point
  :entry "sente-browser.core/module"

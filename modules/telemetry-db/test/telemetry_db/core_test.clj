@@ -176,6 +176,29 @@
                       (is (= "browser" (:log/source entry)))))))
 
 ;; =============================================================================
+;; Source Filter
+;; =============================================================================
+
+(deftest test-query-by-source
+         (testing "Query filters by exact source"
+                  (tdb/ingest! {:level :info :ns "test" :msg "server msg" :source "server"})
+                  (tdb/ingest! {:level :info :ns "test" :msg "browser msg" :source "browser:browser-1"})
+                  (tdb/ingest! {:level :info :ns "test" :msg "browser-2 msg" :source "browser:browser-2"})
+                  (let [server-results (tdb/query {:source "server"})]
+                    (is (= 1 (count server-results)))
+                    (is (= "server" (:log/source (first server-results))))))
+
+         (testing "Query filters by source prefix"
+                  (let [browser-results (tdb/query {:source "browser"})]
+                    (is (= 2 (count browser-results)))
+                    (is (every? #(str/starts-with? (:log/source %) "browser") browser-results))))
+
+         (testing "Query filters by specific browser source"
+                  (let [b1-results (tdb/query {:source "browser:browser-1"})]
+                    (is (= 1 (count b1-results)))
+                    (is (= "browser:browser-1" (:log/source (first b1-results)))))))
+
+;; =============================================================================
 ;; Retention / Ring Buffer
 ;; =============================================================================
 

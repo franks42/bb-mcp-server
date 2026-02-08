@@ -93,7 +93,7 @@
 
 (defn- matches-filter?
   "Check if a log entry matches the given filter criteria."
-  [entry {:keys [level ns event-id since]}]
+  [entry {:keys [level ns event-id since source]}]
   (and (or (nil? level)
            (= (name level) (:log/level entry)))
        (or (nil? ns)
@@ -101,7 +101,9 @@
        (or (nil? event-id)
            (str/includes? (or (:log/event-id entry) "") (str event-id)))
        (or (nil? since)
-           (>= (or (:log/timestamp entry) 0) since))))
+           (>= (or (:log/timestamp entry) 0) since))
+       (or (nil? source)
+           (str/starts-with? (or (:log/source entry) "") source))))
 
 (defn query
   "Query log entries with filtering.
@@ -111,6 +113,7 @@
      :ns       - Namespace prefix string
      :event-id - Event ID substring
      :since    - Epoch millis timestamp (entries >= this time)
+     :source   - Source prefix string (e.g., \"server\", \"browser\", \"browser:browser-1\")
      :limit    - Max entries to return (default 50)
 
    Returns vector of maps sorted newest-first."

@@ -13,6 +13,7 @@
      --ns PREFIX              Filter by namespace prefix
      --event EVENT            Filter by event-id substring
      --since TIME             Filter by time (e.g., 5m, 1h, 30s)
+     --source SOURCE          Filter by source prefix (server, browser, browser:browser-1)
      --limit N                Max entries (default 50)
      --dump PATH              Dump full DB to EDN file on server
      --query DATALOG          Raw Datalog query string
@@ -68,6 +69,7 @@
                :ns nil
                :event nil
                :since nil
+               :source nil
                :limit 50
                :dump nil
                :query nil
@@ -91,6 +93,9 @@
 
               (= arg "--since")
               (recur (rest rest-args) (assoc opts :since (first rest-args)))
+
+              (= arg "--source")
+              (recur (rest rest-args) (assoc opts :source (first rest-args)))
 
               (= arg "--limit")
               (recur (rest rest-args) (assoc opts :limit (Integer/parseInt (first rest-args))))
@@ -127,6 +132,7 @@
   (println "  --ns PREFIX             Filter by namespace prefix")
   (println "  --event EVENT           Filter by event-id substring")
   (println "  --since TIME            Filter by time (e.g., 5m, 1h, 30s, 2d)")
+  (println "  --source SOURCE         Filter by source prefix (server, browser)")
   (println "  --limit N               Max entries to return (default 50)")
   (println "  --dump PATH             Dump full DB to EDN file on server")
   (println "  --query DATALOG         Raw Datalog query string")
@@ -137,6 +143,7 @@
   (println "  bb logs -t cb-v2-test")
   (println "  bb logs -t cb-v2-test --level error")
   (println "  bb logs -t cb-v2-test --ns code-browser --since 5m")
+  (println "  bb logs -t cb-v2-test --source browser")
   (println "  bb logs -t cb-v2-test --dump /tmp/logs.edn"))
 
 ;; =============================================================================
@@ -145,13 +152,14 @@
 
 (defn- build-query-code
   "Build Clojure code string to eval on server."
-  [{:keys [level ns event since limit]}]
+  [{:keys [level ns event since source limit]}]
   (let [since-ms (when since (parse-since since))
         opts (cond-> {}
                      level (assoc :level (keyword level))
                      ns (assoc :ns ns)
                      event (assoc :event-id event)
                      since-ms (assoc :since since-ms)
+                     source (assoc :source source)
                      limit (assoc :limit limit))]
     (str "(telemetry-db.core/query " (pr-str opts) ")")))
 

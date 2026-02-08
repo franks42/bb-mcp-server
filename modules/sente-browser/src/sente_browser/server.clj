@@ -18,6 +18,7 @@
               [sente-browser.code-browser :as code-browser]
               [code-browser.core :as code-browser-v2]
               [atom-sync.server :as atom-sync]
+              [telemetry-db.core :as telemetry-db]
               [mcp-nrepl.state.connection :as conn-state]
               [mcp-nrepl.state.messages :as msg-state]
               [mcp-nrepl.state.results :as results]
@@ -222,6 +223,13 @@
     ;; Heartbeat pong - update timestamp (no logging; absence is detected by check-stale-connections!)
     :heartbeat/pong
     (update-heartbeat! sente-conn-id)
+
+    ;; Browser telemetry - fire-and-forget ingestion into telemetry-db
+    :telemetry/log
+    (let [conn-info (get @!browser-connections sente-conn-id)]
+      (when (= :validated (:status conn-info))
+        (telemetry-db/ingest!
+         (assoc data :source (str "browser:" (:mcp-conn-id conn-info))))))
 
     ;; nREPL response - native map format (browser_adapter parses before sending)
     :nrepl/response
