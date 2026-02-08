@@ -47,7 +47,7 @@
   [event]
   (when-let [f @broadcast-fn]
             (let [count (f event)]
-              (log/log! {:level :debug
+              (log/log! {:level :trace
                          :id ::broadcast
                          :msg "Broadcast sync op"
                          :data {:event-id (first event)
