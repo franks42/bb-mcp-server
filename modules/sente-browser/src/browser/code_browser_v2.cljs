@@ -193,6 +193,10 @@
                      :callers :callers
                      nil))]
     (swap! !widgets assoc-in [widget-id :loading?] true)
+    (log/log! {:level :info :id ::fetch-requested
+               :msg "Fetch requested"
+               :data {:widget-id widget-id :type widget-type :uri uri
+                      :property property}})
     (send-event! :code-browser-v2/fetch
                  {:uri uri :property property :widget-id widget-id})))
 
@@ -293,6 +297,9 @@
   "Refresh data for a widget."
   [widget-id]
   (when-let [w (get @!widgets widget-id)]
+            (log/log! {:level :info :id ::widget-refreshed
+                       :msg "Widget refresh requested"
+                       :data {:widget-id widget-id :type (:type w) :uri (:uri w)}})
             (fetch-widget-data! widget-id (:type w) (:uri w))))
 
 (defn- handle-fetch-response!
@@ -306,6 +313,11 @@
               :data (:data data)
               :loading? false
               :error nil)
+       (log/log! {:level :info :id ::fetch-success
+                  :msg "Fetch response received"
+                  :data {:widget-id wid
+                         :type (:type (get @!widgets wid))
+                         :uri (:uri (get @!widgets wid))}})
         ;; Update WinBox title with contextual info
        (when-let [wb (get @!winbox-instances wid)]
                  (let [w (get @!widgets wid)]
@@ -316,9 +328,13 @@
           (when-let [wb (get @!winbox-instances wid)]
                     (fit-to-content! wid wb)))
         100))
-      (swap! !widgets update wid assoc
-             :loading? false
-             :error (or error "Unknown error")))))
+      (do
+       (swap! !widgets update wid assoc
+              :loading? false
+              :error (or error "Unknown error"))
+       (log/log! {:level :error :id ::fetch-error
+                  :msg "Fetch failed"
+                  :data {:widget-id wid :error (or error "Unknown error")}})))))
 
 ;; Register event handler for fetch responses
 (bootstrap/register-event-handler!
@@ -443,6 +459,10 @@
             ^{:key (:uri/string project)}
             [:div.list-item
              {:on-click (fn []
+                          (log/log! {:level :info :id ::project-clicked
+                                     :msg "Project selected"
+                                     :data {:project (:uri/project project)
+                                            :uri (:uri/string project)}})
                           (open-widget! {:uri (uri/with-query (:uri/string project)
                                                               {"view" "ns-list"})}))}
              [:span.project-name (or (:uri/project project) (:uri/string project))]]))]
@@ -463,6 +483,10 @@
             ^{:key (:uri/string ns-entity)}
             [:div.list-item
              {:on-click (fn []
+                          (log/log! {:level :info :id ::namespace-clicked
+                                     :msg "Namespace selected"
+                                     :data {:namespace (:ns/name ns-entity)
+                                            :uri (:uri/string ns-entity)}})
                           (open-widget! {:uri (uri/with-query (:uri/string ns-entity)
                                                               {"view" "symbol-list"})}))}
              [:span.ns-name (:ns/name ns-entity)]
@@ -489,6 +513,11 @@
             [:div.list-item
              {:class (when-let [kind (:symbol/type sym)] (name kind))
               :on-click (fn []
+                          (log/log! {:level :info :id ::symbol-clicked
+                                     :msg "Symbol selected"
+                                     :data {:symbol (:symbol/name sym)
+                                            :type (:symbol/type sym)
+                                            :uri (:uri/string sym)}})
                           (open-widget! {:uri (uri/with-query (:uri/string sym)
                                                               {"view" "source"})}))}
              [:span.symbol-name (:symbol/name sym)]
@@ -772,6 +801,9 @@
         wb (js/WinBox. (clj->js wb-opts))]
     (swap! !winbox-instances assoc widget-id wb)
     (.focus wb)
+    (log/log! {:level :info :id ::winbox-created
+               :msg "WinBox window created"
+               :data {:widget-id widget-id :type wtype :title title}})
     ;; Override maximize button: intercept click in capture phase
     ;; before WinBox's click handler runs, so we get fit-to-content instead.
     (when-let [max-btn (.querySelector (.-parentNode (.-body wb)) ".wb-max")]
@@ -857,6 +889,9 @@
   (when-let [parsed (uri/parse uri-string)]
             (let [query-view (get-in parsed [:uri/query "view"])
                   base (uri/base-uri uri-string)]
+              (log/log! {:level :info :id ::restoring-widget-chain
+                         :msg "Restoring widget chain from URI"
+                         :data {:uri uri-string}})
       ;; Always open project list
               (open-widget! {:type :project-list :uri nil})
       ;; If we have a namespace, open ns-list for the project
@@ -884,6 +919,9 @@
                        (let [hash (subs (.-hash js/window.location) 1)] ;; strip #
                          (when (and (not (str/blank? hash))
                                     (uri/valid? hash))
+                           (log/log! {:level :info :id ::hash-navigation
+                                      :msg "Hash navigation"
+                                      :data {:uri hash}})
                            ;; Check if any existing widget matches this URI
                            (let [matching (->> @!widgets
                                                (filter (fn [[_k v]] (= (:uri v) hash)))

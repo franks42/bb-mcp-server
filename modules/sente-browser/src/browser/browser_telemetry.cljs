@@ -97,6 +97,11 @@
       (reset! !original-log-fn original))
     (reset! !active-client-id cid)
     (log/set-log-fn! wrapper)
+    ;; Send init event manually (before wrapper is active for this call)
+    (client/send! cid [:telemetry/log {:level "info"
+                                        :ns "browser-telemetry"
+                                        :event-id "::telemetry-initialized"
+                                        :msg "Browser telemetry forwarding started"}])
     (js/console.log "[browser-telemetry] Installed - forwarding :info+ to server")))
 
 (defn stop!
