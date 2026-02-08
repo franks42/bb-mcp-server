@@ -246,6 +246,7 @@
    For deleted files, only retracts entities without scanning."
   [project-name source file-path event-type]
   (let [start-ms (System/currentTimeMillis)
+        abs-path (str file-path)
         rel-path (str (fs/relativize (:root-path source) file-path))]
     (log/log! {:level :info
                :id ::rescan-file
@@ -255,10 +256,14 @@
                       :project project-name}})
     (when-let [db (handlers/get-db)]
       ;; Find existing namespace names for this file (before retraction)
-              (let [old-ns-names (find-ns-names-for-file db rel-path project-name)]
+      ;; Try both abs and rel paths since full scan stores absolute paths
+              (let [old-ns-names (into
+                                  (find-ns-names-for-file db abs-path project-name)
+                                  (find-ns-names-for-file db rel-path project-name))]
                 (if (= event-type :deleted)
           ;; Deleted file: retract only, no scan
                   (do
+                   (retract-file-entities! db abs-path old-ns-names project-name)
                    (retract-file-entities! db rel-path old-ns-names project-name)
                    (log/log! {:level :info
                               :id ::rescan-file-deleted
@@ -269,7 +274,8 @@
                   (when-let [scan-result (dir-source/scan-file source file-path)]
                             (let [all-ns-names (into old-ns-names
                                                      (:affected-ns-names scan-result))]
-              ;; Retract old entities
+              ;; Retract old entities (both path forms)
+                              (retract-file-entities! db abs-path all-ns-names project-name)
                               (retract-file-entities! db rel-path all-ns-names project-name)
               ;; Transact new entities
                               (transact-file-entities! db scan-result))))

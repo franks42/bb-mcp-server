@@ -457,16 +457,12 @@
                :data {:file rel-path
                       :project project-name}})
     (when-let [analysis (run-kondo-file-analysis file-path)]
-              ;; Normalize :filename from absolute to relative paths
-              ;; (clj-kondo preserves the path format it receives)
-              (let [rel-fn (fn [m]
-                             (if (:filename m)
-                               (update m :filename
-                                       #(relativize-path root-path %))
-                               m))
-                    var-defs (mapv rel-fn (:var-definitions analysis))
-                    var-usages (mapv rel-fn (:var-usages analysis))
-                    ns-defs (mapv rel-fn (:namespace-definitions analysis))
+              ;; clj-kondo preserves the path format it receives,
+              ;; so absolute input → absolute :filename in output,
+              ;; matching the full project scan behavior.
+              (let [var-defs (:var-definitions analysis)
+                    var-usages (:var-usages analysis)
+                    ns-defs (:namespace-definitions analysis)
                     ns-usages (:namespace-usages analysis)
                     ns-files (compute-ns-files var-defs)
                     affected-ns-names (into #{} (map #(str (:name %))) ns-defs)
@@ -542,12 +538,16 @@
                                              :end-line (:symbol/end-line sym)}])
                                          all-symbols))]
         ;; Update symbol cache selectively:
-        ;; remove old entries whose :file matches rel-path, add new ones
+        ;; remove old entries whose :file matches this file path, add new ones
+        ;; Match both absolute and relative forms for robustness
                 (swap! symbol-cache
                        (fn [cache]
-                         (let [pruned (into {}
+                         (let [abs-path (str file-path)
+                               pruned (into {}
                                             (remove (fn [[_uri info]]
-                                                      (= (:file info) rel-path))
+                                                      (let [f (:file info)]
+                                                        (or (= f abs-path)
+                                                            (= f rel-path))))
                                                     cache))]
                            (merge pruned new-cache))))
                 (log/log! {:level :info
