@@ -32,7 +32,8 @@
  !config
          (atom {:enabled? false
                 :db-path nil
-                :auto-scan? true}))
+                :auto-scan? true
+                :watch-handles []}))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Initialization Helpers
@@ -106,6 +107,58 @@
                :refers (count refers)})))
 
 ;;; ---------------------------------------------------------------------------
+;;; File Change Re-scan
+;;; ---------------------------------------------------------------------------
+
+(defn- retract-project-entities!
+  "Retract all entities belonging to a project from the database."
+  [db project-name]
+  (let [entities (db-proto/q db
+                             '[:find ?e
+                               :in $ ?proj
+                               :where [?e :uri/project ?proj]]
+                             [project-name])]
+    (when (seq entities)
+      (let [tx-data (mapv (fn [[eid]] [:db/retractEntity eid]) entities)]
+        (log/log! {:level :debug
+                   :id ::retract-entities
+                   :msg "Retracting project entities"
+                   :data {:project project-name
+                          :count (count tx-data)}})
+        (db-proto/transact! db tx-data)))))
+
+(defn- refresh-browser-view!
+  "Re-query current browser selection and push updated data via atom-sync."
+  []
+  (let [state @sync/!state]
+    (handlers/handle-load-projects!)
+    (when-let [proj (:selected-project state)]
+              (handlers/handle-select-project! proj)
+              (when-let [ns-uri (:selected-ns state)]
+                        (handlers/handle-select-namespace! ns-uri)
+                        (when-let [sym-uri (:selected-symbol state)]
+                                  (handlers/handle-select-symbol! sym-uri))))))
+
+(defn rescan-project!
+  "Re-scan a project source and update the database and browser view.
+   Called by file watcher when source files change."
+  [project-name source]
+  (let [start-ms (System/currentTimeMillis)]
+    (log/log! {:level :info
+               :id ::rescan-project
+               :msg "Re-scanning project after file change"
+               :data {:project project-name}})
+    (when-let [db (handlers/get-db)]
+              (retract-project-entities! db project-name)
+              (scan-and-populate! db source)
+              (refresh-browser-view!)
+              (log/log! {:level :info
+                         :id ::rescan-complete
+                         :msg "Project re-scan complete"
+                         :data {:project project-name
+                                :elapsed-ms (- (System/currentTimeMillis) start-ms)}}))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Public API
 ;;; ---------------------------------------------------------------------------
 
@@ -170,12 +223,23 @@
     (swap! !config assoc
            :db-path db-path
            :auto-scan? auto-scan?)
-    ;; Create and optionally scan sources
+    ;; Create and optionally scan sources, then start file watching
     (when sources
       (doseq [source-config sources]
              (let [source (create-source source-config)]
                (when auto-scan?
-                 (scan-and-populate! db source)))))
+                 (scan-and-populate! db source))
+               ;; Start file watching if supported
+               (when (:supports-watch? (source-proto/source-info source))
+                 (let [proj-name (:project-name source)
+                       watch-handle
+                       (source-proto/watch!
+                        source
+                        (fn [_event]
+                          (rescan-project! proj-name source)))]
+                   (when watch-handle
+                     (swap! !config update :watch-handles
+                            conj watch-handle)))))))
     ;; Auto-enable and load projects if requested
     (when auto-enable?
       (enable!)
@@ -205,11 +269,15 @@
   db)
 
 (defn shutdown!
-  "Full shutdown - disable sync and close database."
+  "Full shutdown - stop watchers, disable sync, and close database."
   []
   (log/log! {:level :info
              :id ::shutdown
              :msg "Shutting down code-browser-v2"})
+  ;; Stop all file watchers
+  (doseq [h (:watch-handles @!config)]
+         (source-proto/unwatch! nil h))
+  (swap! !config assoc :watch-handles [])
   (disable!)
   (when-let [db (handlers/get-db)]
             (db-proto/close! db)

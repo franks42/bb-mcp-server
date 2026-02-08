@@ -13,10 +13,18 @@
     (:require [code-browser.sources.protocol :as proto]
               [code-browser.uri :as uri]
               [babashka.fs :as fs]
+              [babashka.pods :as pods]
               [babashka.process :refer [shell]]
               [clojure.edn :as edn]
               [clojure.string :as str]
               [taoensso.trove :as log]))
+
+;;; ---------------------------------------------------------------------------
+;;; File Watcher Pod (loaded idempotently)
+;;; ---------------------------------------------------------------------------
+
+(pods/load-pod 'org.babashka/fswatcher "0.0.7")
+(require '[pod.babashka.fswatcher :as fw])
 
 ;;; ---------------------------------------------------------------------------
 ;;; Git Helpers
@@ -37,6 +45,53 @@
   "Extract project name from directory path."
   [dir]
   (fs/file-name dir))
+
+;;; ---------------------------------------------------------------------------
+;;; File Watching Helpers
+;;; ---------------------------------------------------------------------------
+
+(def ^:private clojure-extensions
+     "File extensions to watch for changes."
+     #{".clj" ".cljs" ".cljc" ".edn"})
+
+(defn- clojure-file?
+  "Return true if the path has a Clojure-related extension."
+  [path]
+  (let [p (str path)]
+    (some #(str/ends-with? p %) clojure-extensions)))
+
+(def ^:private ignore-patterns
+     "Path segments that indicate files to ignore."
+     ["/.git/" "/.clj-kondo/" "/.lsp/" "/.cpcache/" "/target/"
+      "/node_modules/" "/.shadow-cljs/"])
+
+(defn- should-ignore?
+  "Return true if the path should be ignored by the watcher."
+  [path]
+  (let [p (str path)]
+    (some #(str/includes? p %) ignore-patterns)))
+
+(defn- event-type
+  "Convert fswatcher event type to our protocol event type."
+  [type]
+  (case type
+    :create :created
+    :write :changed
+    :remove :deleted
+    :changed))
+
+(defn- debounced-callback
+  "Wrap callback with trailing-edge debounce.
+   Returns [trigger-fn! scheduled-atom].
+   Calling trigger-fn! resets the timer. Callback fires after delay-ms of quiet."
+  [callback delay-ms]
+  (let [!scheduled (atom nil)]
+    [(fn trigger! [event]
+       (when-let [prev @!scheduled] (future-cancel prev))
+       (reset! !scheduled
+               (future (Thread/sleep delay-ms)
+                       (callback event))))
+     !scheduled]))
 
 ;;; ---------------------------------------------------------------------------
 ;;; clj-kondo Analysis
@@ -258,20 +313,41 @@
                                                   :start-line line
                                                   :end-line (or end-line line)})))))
 
-           (watch! [_this _callback]
-    ;; TODO: Implement file watching with fs/watch
-                   (log/log! {:level :debug
-                              :id ::watch-not-implemented
-                              :msg "File watching not yet implemented"})
-                   nil)
+           (watch! [_this callback]
+                   (let [[trigger! !sched] (debounced-callback callback 500)
+                         watcher (fw/watch root-path
+                                           (fn [{:keys [type path]}]
+                                             (when (and (clojure-file? path)
+                                                        (not (should-ignore? path)))
+                                               (log/log! {:level :debug
+                                                          :id ::file-changed
+                                                          :msg "File changed"
+                                                          :data {:path (str path)
+                                                                 :type type}})
+                                               (trigger! {:type (event-type type)
+                                                          :path (str path)})))
+                                           {:recursive true})]
+                     (log/log! {:level :info
+                                :id ::watch-started
+                                :msg "File watcher started"
+                                :data {:root-path root-path}})
+                     {:watcher watcher :scheduled !sched}))
 
-           (unwatch! [_this _handle]
-                     nil)
+           (unwatch! [_this handle]
+                     (when handle
+                       (when-let [w (:watcher handle)]
+                                 (fw/unwatch w))
+                       (when-let [s @(:scheduled handle)]
+                                 (future-cancel s))
+                       (log/log! {:level :info
+                                  :id ::watch-stopped
+                                  :msg "File watcher stopped"
+                                  :data {:root-path root-path}})))
 
            (source-info [_this]
                         {:type :dir
                          :version-type :static
-                         :supports-watch? false  ;; TODO: implement
+                         :supports-watch? true
                          :description (str "Directory: " root-path)}))
 
 ;;; ---------------------------------------------------------------------------
