@@ -851,7 +851,10 @@
        handler-fn will be called with [event-id data].\"
       [event-prefix handler-fn]
       (swap! !event-handlers assoc event-prefix handler-fn)
-      (js/console.log (str \"[bootstrap] Registered handler for \" event-prefix)))
+      (js/console.log (str \"[bootstrap] Registered handler for \" event-prefix))
+      (log/log! {:level :info :id ::handler-registered
+                 :msg \"Event handler registered\"
+                 :data {:prefix event-prefix}}))
 
     (defn dispatch-custom-event!
       \"Dispatch to custom event handlers by prefix match.\"
@@ -861,8 +864,15 @@
         (if-let [handler (get @!event-handlers (keyword ns-str))]
           (do
             (js/console.log (str \"[dispatch] Found handler for \" ns-str \", calling...\"))
+            (log/log! {:level :debug :id ::event-dispatched
+                       :msg \"Custom event dispatched\"
+                       :data {:event-id event-id :handler-ns ns-str}})
             (handler [event-id data]))
-          (js/console.log (str \"[dispatch] No handler for namespace: \" ns-str)))
+          (do
+            (js/console.log (str \"[dispatch] No handler for namespace: \" ns-str))
+            (log/log! {:level :warn :id ::no-handler
+                       :msg \"No handler for event namespace\"
+                       :data {:event-id event-id :ns ns-str}})))
         (js/console.log \"[dispatch] Event has no namespace\")))
 
     (defn get-or-create-session-id []

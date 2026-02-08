@@ -22,7 +22,8 @@
               [sente-lite.client-scittle :as client]
               [code-browser.bootstrap :as bootstrap]
               [code-browser.uri :as uri]
-              [scittle-cm6 :as cm6]))
+              [scittle-cm6 :as cm6]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Server State Access (backwards compatibility)
@@ -231,6 +232,9 @@
           (reset! !focused-widget existing)
           (when full-uri
             (set! (.-hash js/window.location) full-uri))
+          (log/log! {:level :info :id ::widget-focused
+                     :msg "Focused existing widget"
+                     :data {:widget-id existing :uri full-uri}})
           existing)
       ;; Create new widget
       (let [wid (next-widget-id)]
@@ -248,6 +252,9 @@
         ;; Create WinBox floating window with Reagent content
         (create-winbox! wid)
         (fetch-widget-data! wid effective-type full-uri)
+        (log/log! {:level :info :id ::widget-opened
+                   :msg "Opened new widget"
+                   :data {:widget-id wid :type effective-type :uri full-uri}})
         wid))))
 
 (defn close-widget!
@@ -256,6 +263,12 @@
   ;; Dissoc before .close to break onclose -> close-widget! loop.
   ;; try-catch guards against double-close when called from onclose callback
   ;; (WinBox is already closing itself, .close on it throws).
+  (let [widget-info (get @!widgets widget-id)]
+    (log/log! {:level :info :id ::widget-closed
+               :msg "Closed widget"
+               :data {:widget-id widget-id
+                      :type (:type widget-info)
+                      :uri (:uri widget-info)}}))
   (when-let [wb (get @!winbox-instances widget-id)]
             (swap! !winbox-instances dissoc widget-id)
             (try (.close wb) (catch js/Error _e nil)))
@@ -910,7 +923,8 @@
       (open-widget-chain-for-uri! hash)
       ;; Default: open project list
       (open-widget! {:type :project-list :uri nil})))
-  (js/console.log "[code-browser-v2] Mounted (widget architecture)"))
+  (js/console.log "[code-browser-v2] Mounted (widget architecture)")
+  (log/log! {:level :info :id ::mounted :msg "Code Browser v2 mounted"}))
 
 (defn unmount!
   "Unmount code browser v2. Closes all WinBox windows and resets state."
@@ -924,4 +938,5 @@
   (reset! !focused-widget nil)
   (reset! !breadcrumb-expanded #{})
   (reset! !project-color-map {})
-  (js/console.log "[code-browser-v2] Unmounted"))
+  (js/console.log "[code-browser-v2] Unmounted")
+  (log/log! {:level :info :id ::unmounted :msg "Code Browser v2 unmounted"}))
