@@ -1,7 +1,10 @@
 {:linters {:unresolved-symbol {:level :error}
            :unresolved-var {:level :error}
            :unresolved-namespace {:level :error}
-           :invalid-arity {:level :error}
+           :invalid-arity {:level :error
+                            ;; Trove log! macro accepts 1 map arg but kondo
+                            ;; can't resolve macro in .cljs files → false positive
+                            :skip-args [taoensso.trove/log!]}
            :unused-binding {:level :warning}
            :unused-namespace {:level :warning}
            :unused-referred-var {:level :warning}

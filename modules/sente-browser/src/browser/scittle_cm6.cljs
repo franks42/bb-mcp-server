@@ -16,7 +16,8 @@
      [cm6/editor {:value @!code
                   :on-change #(reset! !code %)
                   :language :clojure}]"
-    (:require [reagent.core :as r]))
+    (:require [reagent.core :as r]
+              [com.github.franks42.uuidv7.core :as uuidv7]))
 
 ;; =============================================================================
 ;; State
@@ -180,7 +181,7 @@
    - :style              - Inline styles for container"
   [{:keys [id value language read-only on-change highlight-line highlight-end-line
            _class _style]}]
-  (let [editor-id (or id (str "cm6-" (com.github.franks42.uuidv7.core/uuidv7)))
+  (let [editor-id (or id (str "cm6-" (uuidv7/uuidv7)))
         !view (atom nil)              ; mutable ref for EditorView
         !container (atom nil)         ; mutable ref for DOM container
         !last-value (atom nil)        ; track last value to detect changes
