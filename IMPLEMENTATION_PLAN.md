@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.19.1 — Comprehensive telemetry coverage, catalog improvements, full lint compliance
+**Status:** v1.20.0 — Live code refresh with file watching + automatic browser widget invalidation
 **Last Updated:** 2026-02-08
 
 ---
@@ -13,6 +13,7 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.20.0 | `d75cb5a` | Live code refresh: file watching, incremental rescan, widget auto-update |
 | v1.19.1 | `e947e77` | Comprehensive telemetry, catalog .cljs/.cljc/.bb, clj-kondo lint fix |
 | v1.19.0 | `47d2fb7` | Browser telemetry ingestion, unified logs, `!` escaping fix |
 | v1.18.0 | `086db91` | Telemetry infrastructure: queryable log store, catalog tools, noise reduction |
@@ -146,10 +147,10 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | R3.2 | Aliases panel (separate alias/refer entities) | ✅ Done |
 | R3.3 | Multi-file namespace support | ✅ Done |
 | R3.x | Fix v2 browser loading (`nrepl-eval-local-file`) | ✅ Done |
-| R3.4 | File watching / cache invalidation | **Pending** |
+| R3.4 | File watching / cache invalidation / live refresh | ✅ Done |
 | R3.5 | Git status display | **Pending** |
 
-**Tests:** 34 tests, 492 assertions passing (`bb test:module code-browser-v2`)
+**Tests:** 34 tests, 494 assertions passing (`bb test:module code-browser-v2`)
 
 #### Browser UI Enhancements (v1.15–v1.16) ✅ COMPLETE
 
@@ -264,6 +265,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 22 | Telemetry infrastructure (v1.18.0) |
 | 23 | Browser telemetry ingestion, `!` escaping fix (v1.19.0) |
 | 24 | Comprehensive telemetry coverage, catalog improvements, lint compliance (v1.19.1) |
+| 25 | Live code refresh: file watching, incremental rescan, browser auto-update (v1.20.0) |
 
 ---
 

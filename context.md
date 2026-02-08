@@ -5,8 +5,8 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-08
-**Version:** v1.19.1 (post `e947e77`)
-**Focus:** Telemetry infrastructure complete — comprehensive browser+server observability with full lint compliance
+**Version:** v1.20.0 (post `d75cb5a`)
+**Focus:** Live code refresh — file watching + automatic browser widget invalidation
 
 ---
 
@@ -14,84 +14,64 @@
 
 ### Committed & Pushed
 
-1. **Comprehensive browser telemetry** (`c4d5552`, `e947e77`):
-   - 15 telemetry points in `code_browser_v2.cljs`: widget lifecycle, fetch, navigation, clicks
-   - Events: `::fetch-requested`, `::fetch-success`, `::fetch-error`, `::widget-refreshed`,
-     `::winbox-created`, `::hash-navigation`, `::restoring-widget-chain`,
-     `::project-clicked`, `::namespace-clicked`, `::symbol-clicked`, `::mounted`, `::unmounted`,
-     `::widget-opened`, `::widget-focused`, `::widget-closed`
-   - Browser Trove `log/log!` calls route to server via sente `:telemetry/log` events
-   - `browser_telemetry.cljs` wraps browser `*log-fn*` — captures `:info+` entries
-   - Feedback loop prevention: excludes `sente-lite.*` namespaces + `volatile!` re-entrancy guard
-   - Source tagging: entries tagged `"browser:<mcp-conn-id>"` for `--source browser` filtering
+1. **Live code refresh** (v1.20.0, `36c82c8`–`d75cb5a`):
+   - File watcher monitors source directories for `.clj`/`.cljs`/`.cljc` changes
+   - Changed files trigger incremental single-file rescan (not full project rescan)
+   - Cache invalidation clears stale source entries on file change
+   - Widget invalidation broadcasts to all connected browsers via sente
+   - Browser widgets auto-refresh their data — no manual reload needed
+   - **Demo:** Edit any `.clj` file → source view in browser updates within seconds
 
-2. **Telemetry catalog improvements** (`8d8b04f`, `dbe97d7`, `022741c`):
-   - Scans all Clojure file types: `.clj`, `.cljs`, `.cljc`, `.bb` (849 log points found)
-   - Shows `:msg` descriptions in filtered output instead of function names
-   - Extracts `:msg` from escaped strings in inline ClojureScript (bootstrap.clj)
+2. **Cyclic dependency fix** (`d75cb5a`):
+   - `sente-browser.server` required `code-browser.core` for `dispatch-event`
+   - `code-browser.core` required `sente-browser.server` for `broadcast-to-browsers!`
+   - Fix: redirect require to `code-browser.handlers` (same function, no back-dependency)
+   - One-line change, broke the cycle, enabled live refresh to work
 
-3. **clj-kondo lint compliance** (`e947e77`):
-   - Added `:skip-args [taoensso.trove/log!]` to suppress false positive arity errors in `.cljs`
-   - Added proper `:require` for uuidv7 in `scittle_cm6.cljs` (was using fully-qualified call)
-   - All browser `.cljs` files now lint clean: 0 errors, 0 warnings
+3. **Telemetry infrastructure** (v1.18.0–v1.19.1):
+   - In-memory queryable log store, Trove `*log-fn*` wrapper
+   - Browser telemetry ingestion via sente `:telemetry/log` events
+   - `bb logs -t <nickname>` CLI, `bb telemetry:catalog` static analysis (849 log points)
+   - Full lint compliance: 0 errors, 0 warnings across all file types
 
-4. **`!` character escaping fix** (bb.edn + CLAUDE.md):
-   - Root cause: Claude Code's Bash tool escapes `!` to `\!` in single-quoted strings
-   - `nrepl-direct` bb task now uses `load-file` directly (no bash wrapper)
-   - Full write-up: `docs/exclamation-escaping.md`
-
-5. **telemetry-db module** (v1.18.0, `671f5f1`):
-   - In-memory queryable log store backed by plain atoms
-   - Wraps Trove `*log-fn*` to capture structured data before Timbre stringifies
-   - Loads FIRST in system.edn to capture all module startup logs
-   - Query API: filter by `:level`, `:ns`, `:event-id`, `:since`, `:source`
-   - `bb logs -t <nickname>` CLI for terminal querying
-   - `bb telemetry:catalog` — static analysis of all 849 log points across .clj/.cljs/.cljc/.bb
-   - 16 tests, 35 assertions passing
-
-### Architecture
+### Architecture — Live Code Refresh
 
 ```
-Browser: Trove log! call
+File saved on disk (e.g., echo/core.clj)
     │
     ▼
-browser_telemetry.cljs wrapper
-    ├── Forward to original log-fn (console output unchanged)
-    └── send-event! :telemetry/log {structured entry}
+code-browser.core file watcher (java.nio WatchService)
+    │
+    ├── Incremental rescan (clj-kondo single-file analysis)
+    ├── Cache invalidation (clear stale source entries)
+    └── broadcast-to-browsers! :code-browser-v2/invalidate
               │
               ▼ (sente WebSocket)
-Server: on-browser-message → telemetry-db/ingest!
+Browser: code_browser_v2.cljs receives invalidation
     │
-    ▼
-telemetry-db atom store (newest-first, 10k retention)
-    │
-    ▼
-bb logs -t cb-v2-test --source browser  ← queryable
+    ├── All open widgets re-fetch their data
+    └── Source view, symbol list, namespace list auto-refresh
 ```
 
-- **Storage:** `(atom [])` newest-first, inline trim at max-entries (default 10000)
-- **Key files:**
-  - `modules/telemetry-db/src/telemetry_db/core.clj` — module core
-  - `modules/sente-browser/src/browser/browser_telemetry.cljs` — browser Trove wrapper
-  - `modules/sente-browser/src/browser/code_browser_v2.cljs` — 15 telemetry points for UI lifecycle
-  - `modules/sente-browser/src/sente_browser/server.clj` — `:telemetry/log` handler
-  - `scripts/logs_cli.clj` — `bb logs` CLI
-  - `scripts/telemetry_catalog.clj` — static log point catalog (849 points, all file types)
-  - `.clj-kondo/config.edn` — `:skip-args` for Trove `log!` false positive suppression
-  - `docs/exclamation-escaping.md` — `!` escaping root cause and solutions
+### Key Files
+
+- `modules/code-browser-v2/src/code_browser/core.clj` — file watcher, `broadcast-to-browsers!`
+- `modules/code-browser-v2/src/code_browser/handlers.clj` — event dispatch, `handle-fetch`
+- `modules/sente-browser/src/sente_browser/server.clj` — `broadcast-to-browsers!`, dispatch routing
+- `modules/sente-browser/src/browser/code_browser_v2.cljs` — widget invalidation handler
 
 ### Key Decisions
 
-- **Datascript NOT compatible with Babashka** — used plain atoms instead.
-- **Wrap Trove `*log-fn*` not Timbre appender** — preserves structured fields.
-- **Exclude `sente-lite.*` from forwarding** — `client/send!` calls Trove `log!` internally.
-- **Fire-and-forget** — browser sends `:telemetry/log`, server ingests with no response.
-- **ALWAYS double quotes for `!`** — Claude Code Bash tool escapes `!` in single quotes.
-- **`:skip-args` for clj-kondo** — Trove `log!` macro arity is unresolvable in `.cljs`, must clear `.cache/` after config change.
+- **Incremental rescan** — single-file clj-kondo analysis, not full project rescan.
+- **Redirect require to handlers** — breaks cyclic dependency with one-line change.
+- **Broadcast invalidation** — server pushes to all browsers, browsers decide what to refresh.
+- **Datascript NOT compatible with Babashka** — used plain atoms for telemetry-db.
 
 ### What's NOT done yet (future PRs)
 
 1. **Browser log viewer** — UI widget for browsing telemetry in browser
+2. **Git status display** — show modified/staged files in code browser
+3. **JAR/GitHub source adapters** — browse dependencies
 
 ---
 
@@ -99,26 +79,19 @@ bb logs -t cb-v2-test --source browser  ← queryable
 
 ```bash
 # Run tests
-bb test:module telemetry-db
+bb test:module code-browser-v2    # 34 tests, 494 assertions
+bb test:module telemetry-db       # 16 tests, 35 assertions
 
 # Start dev environment (generates catalog + starts server)
 bb dev:cb-v2
 
 # Query logs from running server
 bb logs -t cb-v2-test
-bb logs -t cb-v2-test --level error
 bb logs -t cb-v2-test --source browser
-bb logs -t cb-v2-test --source browser --ns code-browser-v2
-bb logs -t cb-v2-test --dump /tmp/logs.edn
 
-# Query via nrepl-direct (ALWAYS use double quotes for !)
-bb nrepl-direct eval "(count @(telemetry-db.core/get-store))" -t cb-v2-test
-bb nrepl-direct eval "(telemetry-db.core/recent 10)" -t cb-v2-test
-bb nrepl-direct eval "(telemetry-db.core/query {:source \"browser\" :limit 20})" -t cb-v2-test
-
-# Telemetry catalog
-bb telemetry:catalog --report    # Summary to stdout
-bb telemetry:catalog --save      # Save to telemetry-catalog.edn
+# nrepl-direct (ALWAYS use double quotes for !)
+bb nrepl-direct eval "<code>" -t cb-v2-test
+bb nrepl-direct list -t cb-v2-test
 ```
 
 ---
@@ -126,16 +99,12 @@ bb telemetry:catalog --save      # Save to telemetry-catalog.edn
 ## Recent Commits
 
 ```
-e947e77 fix: Suppress false positive clj-kondo arity warnings for Trove log! in .cljs
-022741c fix: Extract :msg from escaped strings in inline ClojureScript
-dbe97d7 feat: Show :msg description in telemetry catalog output
-8d8b04f fix: Include .cljs, .cljc, and .bb files in telemetry catalog scanner
-c4d5552 feat: Add comprehensive browser telemetry for widget lifecycle and navigation
-47d2fb7 docs: Browser telemetry milestone + ! escaping fix (v1.19.0)
-2692dc8 feat: Add Trove telemetry alongside console.log in browser UI code
-d4c22c5 fix: Prevent browser telemetry feedback loop via namespace exclusion
-ac3cadb feat: Route browser Trove logs to server telemetry-db via sente
-671f5f1 feat: Add telemetry-db module with queryable log store and catalog tools
+d75cb5a fix: Break cyclic dependency between sente-browser.server and code-browser.core
+a10eb05 fix: Handle both absolute and relative file paths in rescan
+1c37d4d fix: Normalize clj-kondo file paths to relative in scan-file
+ab3b61f feat: Replace full project rescan with incremental single-file rescanning
+3b4acf2 feat: Add widget invalidation broadcast for live code refresh
+36c82c8 feat: Add file watching & cache invalidation for Code Browser v2
 ```
 
 ---
