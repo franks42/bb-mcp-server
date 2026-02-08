@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.19.0 — Browser telemetry ingestion, unified server+browser logs, `!` escaping fix
-**Last Updated:** 2026-02-07
+**Status:** v1.19.1 — Comprehensive telemetry coverage, catalog improvements, full lint compliance
+**Last Updated:** 2026-02-08
 
 ---
 
@@ -13,7 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
-| v1.19.0 | `2692dc8` | Browser telemetry ingestion, unified logs, `!` escaping fix |
+| v1.19.1 | `e947e77` | Comprehensive telemetry, catalog .cljs/.cljc/.bb, clj-kondo lint fix |
+| v1.19.0 | `47d2fb7` | Browser telemetry ingestion, unified logs, `!` escaping fix |
 | v1.18.0 | `086db91` | Telemetry infrastructure: queryable log store, catalog tools, noise reduction |
 | v1.17.0 | `041ea93` | UUIDv7 migration, Scittle dev environment (`bb dev:cb-v2`) |
 | v1.16.x | `d66754d` | CM6 editor, zoom fixes, Phase 1 UI enhancements |
@@ -49,7 +50,8 @@ bb nrepl-direct list -t X                       # List connections
 bb logs -t cb-v2-test                           # Query logs from running server
 bb logs -t cb-v2-test --level error             # Filter by level
 bb logs -t cb-v2-test --ns code-browser         # Filter by namespace
-bb telemetry:catalog --report                   # Static log point analysis
+bb logs -t cb-v2-test --source browser          # Browser-only telemetry
+bb telemetry:catalog --report                   # Static log point analysis (849 points)
 
 # MCP CLI (fallback)
 bb mcp servers                  # List running MCP servers
@@ -89,12 +91,14 @@ Queryable in-memory log store that intercepts Trove `*log-fn*` before Timbre str
 |-----------|--------|-------------|
 | `telemetry-db` module | ✅ Done | Atom-backed store, wraps Trove `*log-fn*`, 10k retention |
 | `bb logs` CLI | ✅ Done | Query by level/ns/event/time via nrepl-direct |
-| `bb telemetry:catalog` | ✅ Done | Static analysis of all 831 log points |
+| `bb telemetry:catalog` | ✅ Done | Static analysis of 849 log points (.clj/.cljs/.cljc/.bb) |
 | Catalog auto-gen | ✅ Done | Timestamped catalogs on `bb dev:cb-v2` start |
 | Log level tuning | ✅ Done | 10k+ noise entries → 482 meaningful (97% reduction) |
 | `TELEMETRY_LEVELS.md` | ✅ Done | Log level policy document |
 | Browser telemetry ingestion | ✅ Done | sente `:telemetry/log` events, `--source browser` filter |
+| Browser telemetry coverage | ✅ Done | 15 events in code_browser_v2.cljs (lifecycle, fetch, navigation) |
 | `!` escaping fix | ✅ Done | Double quotes mandate, `docs/exclamation-escaping.md` |
+| clj-kondo lint compliance | ✅ Done | `:skip-args` for Trove `log!`, uuidv7 require in scittle_cm6 |
 | Browser log viewer | Pending | UI for browsing telemetry in browser |
 
 ### Key Decisions
@@ -259,6 +263,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 21 | UUIDv7 migration (v1.17.0) |
 | 22 | Telemetry infrastructure (v1.18.0) |
 | 23 | Browser telemetry ingestion, `!` escaping fix (v1.19.0) |
+| 24 | Comprehensive telemetry coverage, catalog improvements, lint compliance (v1.19.1) |
 
 ---
 
@@ -276,4 +281,4 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 
 ---
 
-*Last Updated: 2026-02-07*
+*Last Updated: 2026-02-08*
