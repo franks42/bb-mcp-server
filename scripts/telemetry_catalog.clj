@@ -70,8 +70,9 @@
                     ;; Extract :id
                     id-match (re-find #":id\s+:?:?([\w.*/\-]+)" context)
                     event-id (when id-match (second id-match))
-                    ;; Extract :msg (string literal or str expression)
-                    msg-match (re-find #":msg\s+\"([^\"]+)\"" context)
+                    ;; Extract :msg (string literal or escaped string in inline scripts)
+                    msg-match (or (re-find #":msg\s+\"([^\"]+)\"" context)
+                                  (re-find #":msg\s+\\\"([^\\]+)\\\"" context))
                     msg (when msg-match (second msg-match))
                     ;; Find enclosing defn by scanning upward
                     enclosing-fn (loop [i idx]
