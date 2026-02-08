@@ -8,6 +8,9 @@
    Only forwards :info and above to avoid flooding the WebSocket with debug/trace noise.
    Console output is always preserved unchanged.
 
+   IMPORTANT: Uses re-entrancy guard + namespace exclusion to prevent feedback loops.
+   client/send! internally calls Trove log! which would re-enter this wrapper.
+
    Usage:
      (browser-telemetry/init! client-id)   ; After sente connection established
      (browser-telemetry/stop!)             ; Restore original log-fn"
@@ -28,21 +31,39 @@
 
 (def ^:private min-forward-priority 20) ;; :info level
 
+;; Namespaces excluded from forwarding to prevent feedback loops.
+;; sente-lite logs internally when sending messages, which would re-enter this wrapper.
+(def ^:private excluded-ns-prefixes
+  #{"sente-lite." "browser-telemetry"})
+
+(defn- excluded-ns?
+  "Check if namespace should be excluded from forwarding."
+  [ns-str]
+  (some #(.startsWith (or ns-str "") %) excluded-ns-prefixes))
+
 ;; =============================================================================
 ;; Wrapper Log-Fn
 ;; =============================================================================
 
+;; Re-entrancy guard using JS variable for guaranteed synchronous access.
+;; CLJS atoms are synchronous too, but a plain var is simpler and faster.
+(def ^:private sending_ (volatile! false))
+
 (defn- make-wrapper-log-fn
   "Create a wrapper log-fn that forwards structured entries to server.
-   Always calls original log-fn first (console output unchanged)."
+   Always calls original log-fn first (console output unchanged).
+   Excludes sente-lite namespaces and uses re-entrancy guard to prevent loops."
   [original-log-fn client-id]
   (fn [ns-str coords level id lazy_]
     ;; Always forward to original (console output) first
     (when original-log-fn
       (original-log-fn ns-str coords level id lazy_))
-    ;; Forward to server if level >= :info
-    (when (>= (get level-priority level 0) min-forward-priority)
+    ;; Forward to server if: level >= :info, not excluded ns, not re-entrant
+    (when (and (not @sending_)
+              (not (excluded-ns? ns-str))
+              (>= (get level-priority level 0) min-forward-priority))
       (try
+        (vreset! sending_ true)
         (let [forced (if (delay? lazy_) @lazy_ lazy_)
               {:keys [msg data error]} (if (map? forced) forced {})
               entry (cond-> {:level (name level)
@@ -54,7 +75,9 @@
           (client/send! client-id [:telemetry/log entry]))
         (catch :default _e
           ;; Never break the app - silently swallow send errors
-          nil)))))
+          nil)
+        (finally
+          (vreset! sending_ false))))))
 
 ;; =============================================================================
 ;; Public API
@@ -67,12 +90,14 @@
    Args:
      cid - sente client-id for sending events"
   [cid]
-  (when (compare-and-set! !active-client-id nil cid)
-    (let [original log/*log-fn*
-          wrapper (make-wrapper-log-fn original cid)]
-      (reset! !original-log-fn original)
-      (log/set-log-fn! wrapper)
-      (js/console.log "[browser-telemetry] Installed - forwarding :info+ to server"))))
+  ;; Allow re-init with same or new client-id (handles reconnect)
+  (let [original (or @!original-log-fn log/*log-fn*)
+        wrapper (make-wrapper-log-fn original cid)]
+    (when-not @!original-log-fn
+      (reset! !original-log-fn original))
+    (reset! !active-client-id cid)
+    (log/set-log-fn! wrapper)
+    (js/console.log "[browser-telemetry] Installed - forwarding :info+ to server")))
 
 (defn stop!
   "Restore original Trove log-fn, stopping telemetry forwarding."
