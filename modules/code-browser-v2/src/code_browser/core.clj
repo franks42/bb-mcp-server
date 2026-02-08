@@ -23,6 +23,7 @@
               [code-browser.sources.protocol :as source-proto]
               [code-browser.sources.directory :as dir-source]
               [sente-browser.server :as sente-server]
+              [babashka.fs :as fs]
               [taoensso.trove :as log]))
 
 ;;; ---------------------------------------------------------------------------
@@ -128,6 +129,69 @@
                           :count (count tx-data)}})
         (db-proto/transact! db tx-data)))))
 
+(defn- retract-file-entities!
+  "Retract entities belonging to a specific file from the database.
+   Retracts symbols by :symbol/file, namespaces by :ns/file,
+   and aliases/refers by :alias/from-ns and :refer/from-ns for affected namespaces."
+  [db rel-path ns-names project-name]
+  (let [;; Symbols by file + project
+        sym-eids (db-proto/q db
+                             '[:find ?e
+                               :in $ ?file ?proj
+                               :where
+                               [?e :symbol/file ?file]
+                               [?e :uri/project ?proj]]
+                             [rel-path project-name])
+        ;; Namespaces by file + project
+        ns-eids (db-proto/q db
+                            '[:find ?e
+                              :in $ ?file ?proj
+                              :where
+                              [?e :ns/file ?file]
+                              [?e :uri/project ?proj]]
+                            [rel-path project-name])
+        ;; Aliases for affected namespaces
+        alias-eids (when (seq ns-names)
+                     (mapcat
+                      (fn [ns-name]
+                        (db-proto/q db
+                                    '[:find ?e
+                                      :in $ ?ns-name
+                                      :where
+                                      [?e :alias/from-ns ?ns-name]]
+                                    [ns-name]))
+                      ns-names))
+        ;; Refers for affected namespaces
+        refer-eids (when (seq ns-names)
+                     (mapcat
+                      (fn [ns-name]
+                        (db-proto/q db
+                                    '[:find ?e
+                                      :in $ ?ns-name
+                                      :where
+                                      [?e :refer/from-ns ?ns-name]]
+                                    [ns-name]))
+                      ns-names))
+        all-eids (distinct
+                  (concat (map first sym-eids)
+                          (map first ns-eids)
+                          (map first alias-eids)
+                          (map first refer-eids)))]
+    (when (seq all-eids)
+      (let [tx-data (mapv (fn [eid] [:db/retractEntity eid]) all-eids)]
+        (log/log! {:level :debug
+                   :id ::retract-file-entities
+                   :msg "Retracting file entities"
+                   :data {:file rel-path
+                          :project project-name
+                          :ns-names ns-names
+                          :symbol-count (count sym-eids)
+                          :ns-count (count ns-eids)
+                          :alias-count (count alias-eids)
+                          :refer-count (count refer-eids)
+                          :total (count tx-data)}})
+        (db-proto/transact! db tx-data)))))
+
 (defn- refresh-browser-view!
   "Re-query current browser selection and push updated data via atom-sync."
   []
@@ -140,9 +204,93 @@
                         (when-let [sym-uri (:selected-symbol state)]
                                   (handlers/handle-select-symbol! sym-uri))))))
 
+(defn- find-ns-names-for-file
+  "Find namespace names associated with a file path in the database."
+  [db rel-path project-name]
+  (->> (db-proto/q db
+                   '[:find ?ns-name
+                     :in $ ?file ?proj
+                     :where
+                     [?e :ns/file ?file]
+                     [?e :uri/project ?proj]
+                     [?e :ns/name ?ns-name]]
+                   [rel-path project-name])
+       (map first)
+       set))
+
+(defn- transact-file-entities!
+  "Transact new entities from a file scan result into the database."
+  [db {:keys [namespaces symbols aliases refers]}]
+  (let [clean-entity (fn [e]
+                       (->> e
+                            (remove (fn [[_k v]] (nil? v)))
+                            (remove (fn [[k _v]] (= k :uri/parent)))
+                            (into {})))]
+    ;; Transact namespaces
+    (when (seq namespaces)
+      (db-proto/transact! db (mapv clean-entity namespaces)))
+    ;; Transact symbols in batches
+    (when (seq symbols)
+      (doseq [sym-batch (partition-all 100 symbols)]
+             (db-proto/transact! db (mapv clean-entity sym-batch))))
+    ;; Transact aliases
+    (when (seq aliases)
+      (db-proto/transact! db (mapv clean-entity aliases)))
+    ;; Transact refers
+    (when (seq refers)
+      (db-proto/transact! db (mapv clean-entity refers)))))
+
+(defn rescan-file!
+  "Re-scan a single file and update the database and browser view.
+   Much faster than full project rescan (~50ms vs ~2s).
+   For deleted files, only retracts entities without scanning."
+  [project-name source file-path event-type]
+  (let [start-ms (System/currentTimeMillis)
+        rel-path (str (fs/relativize (:root-path source) file-path))]
+    (log/log! {:level :info
+               :id ::rescan-file
+               :msg "Re-scanning file after change"
+               :data {:file rel-path
+                      :event-type event-type
+                      :project project-name}})
+    (when-let [db (handlers/get-db)]
+      ;; Find existing namespace names for this file (before retraction)
+              (let [old-ns-names (find-ns-names-for-file db rel-path project-name)]
+                (if (= event-type :deleted)
+          ;; Deleted file: retract only, no scan
+                  (do
+                   (retract-file-entities! db rel-path old-ns-names project-name)
+                   (log/log! {:level :info
+                              :id ::rescan-file-deleted
+                              :msg "Retracted entities for deleted file"
+                              :data {:file rel-path
+                                     :project project-name}}))
+          ;; Changed/created file: scan, retract old, transact new
+                  (when-let [scan-result (dir-source/scan-file source file-path)]
+                            (let [all-ns-names (into old-ns-names
+                                                     (:affected-ns-names scan-result))]
+              ;; Retract old entities
+                              (retract-file-entities! db rel-path all-ns-names project-name)
+              ;; Transact new entities
+                              (transact-file-entities! db scan-result))))
+        ;; Refresh browser and broadcast
+                (refresh-browser-view!)
+                (let [n (sente-server/broadcast-to-browsers!
+                         [:code-browser-v2/invalidate
+                          {:project project-name}])]
+                  (log/log! {:level :info
+                             :id ::rescan-file-complete
+                             :msg "File re-scan complete"
+                             :data {:file rel-path
+                                    :event-type event-type
+                                    :project project-name
+                                    :browsers-notified n
+                                    :elapsed-ms (- (System/currentTimeMillis)
+                                                   start-ms)}}))))))
+
 (defn rescan-project!
   "Re-scan a project source and update the database and browser view.
-   Called by file watcher when source files change."
+   Full project re-index. Prefer rescan-file! for single-file changes."
   [project-name source]
   (let [start-ms (System/currentTimeMillis)]
     (log/log! {:level :info
@@ -242,8 +390,9 @@
                        watch-handle
                        (source-proto/watch!
                         source
-                        (fn [_event]
-                          (rescan-project! proj-name source)))]
+                        (fn [event]
+                          (rescan-file! proj-name source
+                                        (:path event) (:type event))))]
                    (when watch-handle
                      (swap! !config update :watch-handles
                             conj watch-handle)))))))

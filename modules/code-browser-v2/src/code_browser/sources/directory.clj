@@ -94,8 +94,53 @@
      !scheduled]))
 
 ;;; ---------------------------------------------------------------------------
+;;; Path Helpers
+;;; ---------------------------------------------------------------------------
+
+(defn- relativize-path
+  "Convert absolute path to relative path from project root."
+  [root-path abs-path]
+  (str (fs/relativize root-path abs-path)))
+
+;;; ---------------------------------------------------------------------------
 ;;; clj-kondo Analysis
 ;;; ---------------------------------------------------------------------------
+
+(defn- run-kondo-file-analysis
+  "Run clj-kondo on a single file.
+
+   Returns clj-kondo analysis map with:
+   - :var-definitions
+   - :var-usages (for defmethod detection)
+   - :namespace-definitions
+   - :namespace-usages (for aliases/refers)"
+  [file-path]
+  (log/log! {:level :debug
+             :id ::kondo-scanning-file
+             :msg "Scanning single file with clj-kondo"
+             :data {:file file-path}})
+  (try
+   (let [cmd-args ["clj-kondo" "--lint" (str file-path)
+                   "--config"
+                   "{:output {:analysis {:var-definitions true :var-usages true :namespace-definitions true :namespace-usages true} :format :edn}}"]
+         result (apply shell {:out :string :err :string :continue true} cmd-args)
+         output (:out result)]
+     (when (seq output)
+       (let [analysis (edn/read-string output)]
+         (log/log! {:level :debug
+                    :id ::kondo-file-complete
+                    :msg "clj-kondo file analysis complete"
+                    :data {:file (str file-path)
+                           :var-count (count (get-in analysis [:analysis :var-definitions]))
+                           :ns-count (count (get-in analysis [:analysis :namespace-definitions]))}})
+         (:analysis analysis))))
+   (catch Exception e
+          (log/log! {:level :warn
+                     :id ::kondo-file-error
+                     :msg "clj-kondo file analysis failed"
+                     :data {:file (str file-path)
+                            :error (ex-message e)}})
+          nil)))
 
 (defn- run-kondo-project-analysis
   "Run clj-kondo on a project directory.
@@ -383,3 +428,133 @@
                        :version ver
                        :uri-base uri-base}})
      (->DirectorySource abs-path proj-name ver uri-base cache))))
+
+;;; ---------------------------------------------------------------------------
+;;; Single-File Scanning (Incremental Update)
+;;; ---------------------------------------------------------------------------
+
+(defn scan-file
+  "Scan a single file and return metadata for its namespaces and symbols.
+
+   Returns the same structure as scan-project but only for entities in this file.
+   Also updates the source's symbol-cache selectively (removes old entries for
+   this file, adds new ones).
+
+   Arguments:
+     source    - DirectorySource instance
+     file-path - Absolute path to the changed file
+
+   Returns:
+     {:namespaces [...] :symbols [...] :aliases [...] :refers [...]
+      :affected-ns-names #{...}}
+     or nil if analysis fails."
+  [source file-path]
+  (let [{:keys [root-path project-name version uri-base symbol-cache]} source
+        rel-path (relativize-path root-path file-path)]
+    (log/log! {:level :info
+               :id ::scan-file
+               :msg "Scanning single file"
+               :data {:file rel-path
+                      :project project-name}})
+    (when-let [analysis (run-kondo-file-analysis file-path)]
+              (let [var-defs (:var-definitions analysis)
+                    var-usages (:var-usages analysis)
+                    ns-defs (:namespace-definitions analysis)
+                    ns-usages (:namespace-usages analysis)
+                    ns-files (compute-ns-files var-defs)
+                    affected-ns-names (into #{} (map #(str (:name %))) ns-defs)
+            ;; Build namespace entities
+                    namespaces (for [ns-def ns-defs
+                                     :let [ns-name (str (:name ns-def))
+                                           files (get ns-files ns-name
+                                                      [(:filename ns-def)])]]
+                                    (merge
+                                     (proto/kondo-ns->namespace-map ns-def uri-base files)
+                                     {:uri/source :dir
+                                      :uri/project project-name
+                                      :uri/version version
+                                      :uri/version-type :static
+                                      :uri/parent [:uri/string uri-base]}))
+            ;; Build alias entities
+                    aliases (for [ns-def ns-defs
+                                  :let [ns-name (str (:name ns-def))
+                                        ns-uri (str uri-base "/" ns-name)]
+                                  alias-map (proto/extract-aliases-from-usages
+                                             ns-usages ns-name)]
+                                 {:uri/string (str ns-uri "#alias:" (:alias alias-map))
+                                  :uri/source :dir
+                                  :uri/project project-name
+                                  :uri/version version
+                                  :uri/version-type :static
+                                  :alias/from-ns ns-name
+                                  :alias/name (:alias alias-map)
+                                  :alias/to-ns (:ns alias-map)})
+            ;; Build refer entities
+                    refers (for [ns-def ns-defs
+                                 :let [ns-name (str (:name ns-def))
+                                       ns-uri (str uri-base "/" ns-name)]
+                                 refer-map (proto/extract-refers-from-usages
+                                            ns-usages ns-name)]
+                                {:uri/string (str ns-uri "#refer:" (:sym refer-map))
+                                 :uri/source :dir
+                                 :uri/project project-name
+                                 :uri/version version
+                                 :uri/version-type :static
+                                 :refer/from-ns ns-name
+                                 :refer/symbol (:sym refer-map)
+                                 :refer/from-ns-source (:from-ns refer-map)})
+            ;; Build symbol entities from var-definitions
+                    symbols-from-vars (for [var-def var-defs]
+                                           (merge
+                                            (proto/kondo-var->symbol-map var-def uri-base)
+                                            {:uri/source :dir
+                                             :uri/project project-name
+                                             :uri/version version
+                                             :uri/version-type :static
+                                             :uri/parent
+                                             [:uri/string
+                                              (str uri-base "/" (:ns var-def))]}))
+            ;; Extract defmethod symbols from var-usages
+                    defmethods (->> var-usages
+                                    (filter :defmethod)
+                                    (map (fn [usage]
+                                           (merge
+                                            (proto/kondo-defmethod->symbol-map
+                                             usage uri-base)
+                                            {:uri/source :dir
+                                             :uri/project project-name
+                                             :uri/version version
+                                             :uri/version-type :static}))))
+                    all-symbols (concat symbols-from-vars defmethods)
+            ;; Build cache entries for new symbols
+                    new-cache (into {}
+                                    (map (fn [sym]
+                                           [(:uri/string sym)
+                                            {:file (:symbol/file sym)
+                                             :line (:symbol/line sym)
+                                             :end-line (:symbol/end-line sym)}])
+                                         all-symbols))]
+        ;; Update symbol cache selectively:
+        ;; remove old entries whose :file matches rel-path, add new ones
+                (swap! symbol-cache
+                       (fn [cache]
+                         (let [pruned (into {}
+                                            (remove (fn [[_uri info]]
+                                                      (= (:file info) rel-path))
+                                                    cache))]
+                           (merge pruned new-cache))))
+                (log/log! {:level :info
+                           :id ::scan-file-complete
+                           :msg "Single file scan complete"
+                           :data {:file rel-path
+                                  :project project-name
+                                  :namespace-count (count namespaces)
+                                  :symbol-count (count all-symbols)
+                                  :alias-count (count aliases)
+                                  :refer-count (count refers)
+                                  :affected-ns-names affected-ns-names}})
+                {:namespaces (vec namespaces)
+                 :symbols (vec all-symbols)
+                 :aliases (vec aliases)
+                 :refers (vec refers)
+                 :affected-ns-names affected-ns-names}))))
