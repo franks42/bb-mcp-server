@@ -280,6 +280,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - [BB Tasks Reference](docs/bb-tasks-reference.md)
 - [nREPL Direct Guide](docs/bb-nrepl-direct-user-guide.md)
 - [Exclamation Escaping](docs/exclamation-escaping.md)
+- [Nexus Pattern Reference](docs/NEXUS_PATTERN_REFERENCE.md)
 
 ---
 

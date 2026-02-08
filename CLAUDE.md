@@ -160,6 +160,7 @@ bb lint-fix <file>          # Lint, auto-fix parens if needed, re-lint
 9. **rebel-nrepl-client** - Use `bb rebel-nrepl-client [port]` to open iTerm2 with rebel-readline connected to nREPL
 10. **mcp CLI** - Use `bb mcp <cmd>` to explore/test any MCP tool: `servers`, `tools`, `call`, `init` (see README)
 11. **E2E tests** - Use `bb test:e2e` to run real protocol tests (requires running server with `--nickname e2e-test`)
+12. **Action-dispatch pattern** - For new event handlers, prefer pure functions returning action data over direct I/O. See `docs/NEXUS_PATTERN_REFERENCE.md` for the Nexus-inspired pattern guide
 
 ---
 
