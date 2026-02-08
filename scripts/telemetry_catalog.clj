@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Telemetry Catalog Generator
 ;;
-;; Scans all .clj files for trove/log! and log/log! calls, extracts structured
+;; Scans all .clj, .cljs, .cljc, and .bb files for trove/log! and log/log! calls, extracts structured
 ;; metadata (level, event-id, msg, file, line, enclosing function), and outputs
 ;; a queryable catalog as EDN.
 ;;
@@ -27,8 +27,12 @@
      "Directories to scan for telemetry calls."
      ["src" "modules"])
 
+(def ^:private clojure-extensions
+     "File extensions to scan for telemetry calls."
+     #{".clj" ".cljs" ".cljc" ".bb"})
+
 (defn- find-clj-files
-  "Find all .clj files in the given directories."
+  "Find all Clojure source files (.clj, .cljs, .cljc, .bb) in the given directories."
   [dirs]
   (->> dirs
        (mapcat (fn [dir]
@@ -36,7 +40,8 @@
                    (when (.exists f)
                      (->> (file-seq f)
                           (filter #(.isFile %))
-                          (filter #(str/ends-with? (.getName %) ".clj"))
+                          (filter #(some (fn [ext] (str/ends-with? (.getName %) ext))
+                                         clojure-extensions))
                           (map #(.getPath %)))))))
        sort
        vec))
