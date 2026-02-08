@@ -66,7 +66,7 @@
   (when (and (clojure-file? path)
              (not (should-ignore? path)))
     (let [lsp-type (event-type type)]
-      (trove/log! {:level :debug
+      (trove/log! {:level :trace
                    :id :clojure-lsp.watcher/event
                    :msg (str "File " (name lsp-type) ": " path)
                    :data {:path path :type lsp-type}})

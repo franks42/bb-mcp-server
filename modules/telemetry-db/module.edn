@@ -1,0 +1,14 @@
+;; Telemetry DB module configuration
+;;
+;; Queryable in-memory log store using plain atoms.
+;; Wraps Trove *log-fn* to capture structured log entries.
+
+{:name "telemetry-db"
+ :version "0.1.0"
+ :description "Queryable in-memory log store for structured telemetry"
+ :requires []
+ :entry "telemetry-db.core/module"
+ :defaults {:max-entries 10000
+             :min-level nil
+             :exclude-ns nil}
+ :test-runner "test/run_tests.clj"}

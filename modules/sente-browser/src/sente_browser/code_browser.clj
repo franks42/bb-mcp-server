@@ -111,7 +111,7 @@
                             :data {:action-key action-key}})
                  (action-fn)))]
     (swap! !pending-actions assoc action-key {:timer timer})
-    (log/log! {:level :debug
+    (log/log! {:level :trace
                :id ::debounce-scheduled
                :msg "Scheduled debounced action"
                :data {:action-key action-key :delay-ms debounce-delay-ms}})))
@@ -304,7 +304,7 @@
          modules-dir (str project-root "/modules")
          lint-paths (filterv #(fs/exists? %)
                              [src-dir test-dir modules-dir])
-         _ (log/log! {:level :debug
+         _ (log/log! {:level :trace
                       :id ::kondo-project-paths
                       :msg "Running clj-kondo on project paths"
                       :data {:project-root project-root
@@ -967,7 +967,7 @@
   []
   (let [git-info (get-git-info)]
     (swap! !code-browser-state assoc :git git-info)
-    (log/log! {:level :debug
+    (log/log! {:level :trace
                :id ::git-info-refreshed
                :msg "Git info refreshed"
                :data {:branch (:branch git-info)

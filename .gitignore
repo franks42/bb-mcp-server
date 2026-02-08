@@ -44,6 +44,9 @@ server.log
 .nrepl-proxy-port
 .cak.sh
 
+# Generated files
+telemetry-catalog.edn
+
 # Claude Code local settings
 .claude/
 .ports/

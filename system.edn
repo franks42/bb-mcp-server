@@ -10,7 +10,8 @@
  ;; Only these modules will be loaded, in this order if no dependencies
  ;; Note: Modules can be internal (in modules/) or external (via BB_MCP_EXTERNAL_MODULES)
  ;; Note: "hello" is intentionally NOT in this list for dynamic load testing
- :modules ["echo" "strings" "calculate" "mcp-local-eval" "mcp-nrepl" "math"
+ :modules ["telemetry-db"
+           "echo" "strings" "calculate" "mcp-local-eval" "mcp-nrepl" "math"
            "datalevin-pod" "datalevin-mcp"
            "ai-orchestrator" "anthropic-http-provider" "openai-http-provider"
            "claude-subprocess-provider" "ai-orchestrator-tools"
@@ -19,7 +20,10 @@
 
  ;; Module-specific configuration (optional)
  ;; Keys match module names, values are passed to module's start function
- :config {"hello" {:greeting "Hi"}
+ :config {"telemetry-db" {:max-entries 10000
+                         :min-level :debug
+                         :exclude-ns #{"sente-lite."}}
+          "hello" {:greeting "Hi"}
           "nrepl-server" {:port 7888 :host "localhost"}
           "datalevin-pod" {:db-path "/var/db/datalevin/bb-mcp-server"}
           "sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true

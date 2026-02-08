@@ -12,10 +12,13 @@
 
  ;; Module load order matters: datalevin-pod must load before code-browser-v2
  ;; so the pod is available when code-browser-v2 calls init! during startup.
- :modules ["mcp-local-eval" "mcp-nrepl" "directory-browser" "datalevin-pod" "atom-sync"
+ :modules ["telemetry-db" "mcp-local-eval" "mcp-nrepl" "directory-browser" "datalevin-pod" "atom-sync"
            "sente-browser" "code-browser-v2" "nrepl-proxy-server" "nrepl-server"]
 
- :config {"sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true
+ :config {"telemetry-db" {:max-entries 10000
+                         :min-level :debug
+                         :exclude-ns #{"sente-lite."}}
+          "sente-browser" {:enabled true :ws-port 8090 :bootstrap-port 8091 :code-browser true
                            :projects ["/Users/franksiebenlist/Development/bb-mcp-server"]}
           "datalevin-pod" {:db-path "/tmp/code-browser-v2-test-db"}
           "nrepl-proxy-server" {:enabled true :port 1667 :write-port-file? true}

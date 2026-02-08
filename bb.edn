@@ -266,7 +266,8 @@
                           (run 'test:clojure-lsp)
                           (run 'test:atom-sync)
                           (run 'test:stdio)
-                          (run 'test:streamable))}
+                          (run 'test:streamable)
+                          (run 'test:telemetry-db))}
 
   test:http {:doc "Run HTTP integration tests (server must be running)"
              :task (load-file "scripts/http_integration_test.clj")}
@@ -310,7 +311,21 @@
   ;; ==========================================================================
 
   dev:cb-v2 {:doc "Code Browser v2 dev env [start|stop|restart|status] (default: start)"
-             :task (apply shell "bb" "scripts/cb_v2_dev.clj" *command-line-args*)}}
+             :task (apply shell "bb" "scripts/cb_v2_dev.clj" *command-line-args*)}
+
+  ;; ==========================================================================
+  ;; Telemetry Tasks
+  ;; ==========================================================================
+
+  logs {:doc "Query telemetry logs from running server [-t target] [--level LEVEL] [--since TIME]"
+        :task (apply shell "bb" "scripts/logs_cli.clj" *command-line-args*)}
+
+  telemetry:catalog {:doc "Generate telemetry catalog [--report] [--level LVL] [--ns PREFIX] [--save] [--diff]"
+                     :task (apply shell "bb" "scripts/telemetry_catalog.clj" *command-line-args*)}
+
+  test:telemetry-db {:doc "Run telemetry-db module tests"
+                     :depends [-bootstrap]
+                     :task (load-file "modules/telemetry-db/test/run_tests.clj")}}
 
  :aliases
  {:test {:extra-paths ["test"]

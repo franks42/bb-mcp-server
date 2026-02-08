@@ -131,7 +131,7 @@
   "Handle a JSON-RPC notification from the server.
    Stores diagnostics and notifies all registered callbacks."
   [{:keys [method params] :as notification}]
-  (trove/log! {:level :debug
+  (trove/log! {:level :trace
                :id :clojure-lsp/notification
                :msg (str "Received notification: " method)
                :data {:method method}})
@@ -235,7 +235,7 @@
   [method params]
   (when-not (running?)
     (throw (ex-info "clojure-lsp not running" {:method method})))
-  (trove/log! {:level :debug
+  (trove/log! {:level :trace
                :id :clojure-lsp/notify
                :msg (str "Sending notification: " method)
                :data {:method method}})

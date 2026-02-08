@@ -5,8 +5,8 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-07
-**Version:** v1.16.0
-**Focus:** Scittle dev environment fixed and verified end-to-end
+**Version:** v1.17.0
+**Focus:** telemetry-db module — queryable in-memory log store
 
 ---
 
@@ -14,77 +14,65 @@
 
 ### What's been done this session
 
-1. **UUIDv7 migration (v1.16.0)** — Committed at `cef8def`. All tests pass.
+1. **telemetry-db module implemented (uncommitted):**
 
-2. **Module loading bugs FIXED (uncommitted)** — atom-sync and code-browser-v2 modules now load correctly:
+   | File | Status |
+   |------|--------|
+   | `modules/telemetry-db/module.edn` | NEW: module manifest |
+   | `modules/telemetry-db/src/telemetry_db/core.clj` | NEW: core module (207 LOC) |
+   | `modules/telemetry-db/test/run_tests.clj` | NEW: test runner |
+   | `modules/telemetry-db/test/telemetry_db/core_test.clj` | NEW: 16 tests, 35 assertions |
+   | `scripts/logs_cli.clj` | NEW: `bb logs` CLI |
+   | `bb.edn` | Added `logs` task, `test:telemetry-db` task |
+   | `system.edn` | Added `telemetry-db` first in modules list |
+   | `system-cb-v2-test.edn` | Added `telemetry-db` first in modules list |
 
-   | File | Fix |
-   |------|-----|
-   | `modules/atom-sync/src/atom_sync/core.clj` | Added `:status` fn, fixed `:start` arity to `[_deps _config]` |
-   | `modules/code-browser-v2/module.edn` | Fixed `:entry` and `:requires` to use strings |
-   | `modules/code-browser-v2/src/code_browser/core.clj` | Added `module` var with lifecycle map |
-   | `system-cb-v2-test.edn` | Added `nrepl-server`, added `db-path`/`sources` to code-browser-v2 config |
+2. **Key architectural decision:**
+   - **Original plan:** Use Datascript for in-memory Datalog queries
+   - **Problem:** Datascript 1.7.8 (and 1.3.10) are NOT compatible with Babashka — `deftype` in `lru.cljc` uses `clojure.lang.ILookup` which SCI doesn't support
+   - **Solution:** Plain atoms with vectors of maps. Same API, simpler, fully bb-compatible.
+   - Retention uses inline trim in `add-entry!` (on every write, checks count > max-entries)
 
-3. **Scittle dev environment FIXED (uncommitted):**
+3. **Architecture:**
+   - Wraps Trove `*log-fn*` (not Timbre appender) to capture structured data
+   - Stores entries newest-first in `(atom [])`
+   - Query API: filter by `:level`, `:ns` prefix, `:event-id` substring, `:since` timestamp
+   - `ingest!` for external entries (browser telemetry via sente)
+   - `dump!` / `load-dump` for EDN persistence
+   - `bb logs -t <nickname>` CLI for querying from terminal
 
-   **Root cause of init! hanging:** `system-cb-v2-test.edn` had no `db-path` or `sources` in the code-browser-v2 module config, so `init!` never ran during server startup. Users had to call it manually via nrepl-direct, which hung because Datalevin pod operations blocked the nREPL thread.
-
-   **Fix:** Added `db-path` and `sources` to module config so `init!` runs during server startup in the main process. No manual nrepl-direct calls needed.
-
-   **Also fixed:** The guide falsely warned "Load Code Browser button loads v1" — it actually loads v2 (scittle_cm6.cljs, uri.cljc, code_browser_v2.cljs, mount!).
-
-4. **New files created (uncommitted):**
-   - `scripts/cb_v2_dev.clj` — bb task script for v2 dev environment (`bb dev:cb-v2`)
-   - `docs/SCITTLE_DEV_ENVIRONMENT.md` — Complete rewrite, v2-focused, correct info
-   - `bb.edn` — Added `dev:cb-v2` task
-
-5. **End-to-end verification PASSED (Playwright):**
-   - Server starts with all 9 modules, code-browser-v2 auto-initializes (208 namespaces, 2423 symbols)
-   - Browser connects, "Load Code Browser" button works
-   - Projects widget shows 1 project, clicking navigates to 203 namespaces
-   - Symbol list loads (14 symbols for code-browser.core)
-   - Source view works with CM6 editor (init! source displayed with line numbers)
-   - Screenshot saved: `cb-v2-working-e2e.png`
+4. **Verification PASSED:**
+   - `clj-kondo` — 0 errors, 0 warnings
+   - `cljfmt` — all files formatted correctly
+   - `bb test:module telemetry-db` — 16 tests, 35 assertions, 0 failures
 
 ### What's NOT done yet
 
-1. **Git commit** — 6 changed files not committed yet
-2. **R3.4** — File watching / cache invalidation (pending)
-3. **R3.5** — Git status display (pending)
-
----
-
-## Uncommitted Changes
-
-```
-modules/atom-sync/src/atom_sync/core.clj            # Module lifecycle fix
-modules/code-browser-v2/module.edn                   # Entry point and requires fix
-modules/code-browser-v2/src/code_browser/core.clj    # Module lifecycle var
-system-cb-v2-test.edn                                # Auto-init config + nrepl-server
-scripts/cb_v2_dev.clj                                  # NEW: bb task script (bb dev:cb-v2)
-bb.edn                                                 # Added dev:cb-v2 task
-docs/SCITTLE_DEV_ENVIRONMENT.md                      # REWRITTEN: v2-focused guide
-```
+1. **Git commit** — All changes uncommitted
+2. **Live server test** — Not tested with running server yet
+3. **Browser telemetry ingestion** — sente `:telemetry/log` handler not wired (future PR)
+4. **Browser log viewer** — Not implemented (future PR)
 
 ---
 
 ## Quick Resume
 
 ```bash
-# Single command to start v2 dev environment:
+# Run tests
+bb test:module telemetry-db
+
+# Start server with telemetry-db
 bb dev:cb-v2
 
-# Then click "Load Code Browser" button in browser.
-# That's it.
+# Query logs from running server
+bb logs -t cb-v2-test
+bb logs -t cb-v2-test --level error
+bb logs -t cb-v2-test --ns code-browser --since 5m
+bb logs -t cb-v2-test --dump /tmp/logs.edn
 
-# Other commands:
-bb dev:cb-v2 status     # Check status
-bb dev:cb-v2 stop       # Stop server
-bb dev:cb-v2 restart    # Restart with fresh data
-
-# Run tests
-bb test:module code-browser-v2
-bb lint && bb format
+# Query via nrepl-direct
+bb nrepl-direct eval '(count @(telemetry-db.core/get-store))' -t cb-v2-test
+bb nrepl-direct eval '(telemetry-db.core/recent 10)' -t cb-v2-test
 ```
 
 ---

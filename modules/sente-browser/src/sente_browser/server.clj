@@ -207,7 +207,7 @@
 (defn- on-browser-message
   "Handle message from browser - route based on handshake state and event type."
   [sente-conn-id event-id data]
-  (log/log! {:level :debug
+  (log/log! {:level :trace
              :id ::browser-message
              :msg "Received browser message"
              :data {:sente-conn-id sente-conn-id
@@ -219,14 +219,9 @@
     :client/ready
     (handle-client-ready! sente-conn-id data)
 
-    ;; Heartbeat pong - update timestamp
+    ;; Heartbeat pong - update timestamp (no logging; absence is detected by check-stale-connections!)
     :heartbeat/pong
-    (do
-     (update-heartbeat! sente-conn-id)
-     (log/log! {:level :trace
-                :id ::heartbeat-pong
-                :msg "Heartbeat pong received"
-                :data {:sente-conn-id sente-conn-id}}))
+    (update-heartbeat! sente-conn-id)
 
     ;; nREPL response - native map format (browser_adapter parses before sending)
     :nrepl/response
@@ -241,7 +236,7 @@
         ;; Validated connection - route to waiting promises
         (= :validated (:status conn-info))
         (do
-         (log/log! {:level :debug
+         (log/log! {:level :trace
                     :id ::routing-response
                     :msg "Routing nREPL response"
                     :data {:msg-id msg-id
