@@ -16,7 +16,7 @@
     (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [sente-browser.code-browser :as code-browser]
-              [code-browser.core :as code-browser-v2]
+              [code-browser.handlers :as code-browser-v2]
               [atom-sync.server :as atom-sync]
               [telemetry-db.core :as telemetry-db]
               [mcp-nrepl.state.connection :as conn-state]
