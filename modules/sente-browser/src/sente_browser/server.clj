@@ -23,6 +23,7 @@
               [mcp-nrepl.state.messages :as msg-state]
               [mcp-nrepl.state.results :as results]
               [mcp-nrepl.state.watchers :as watchers]
+              [statecharts.core :as fsm]
               [com.github.franks42.uuidv7.core :as uuidv7]
               [taoensso.trove :as log]))
 
@@ -33,9 +34,8 @@
 ;; State
 ;; =============================================================================
 
-;; Map of sente-conn-id -> {:mcp-conn-id string, :last-heartbeat epoch-ms,
-;;                          :status :pending-client-ready | :pending-validation | :validated,
-;;                          :probe-id string, :capabilities {...}, :session-id string}
+;; Map of sente-conn-id -> FSM state map with :_state keyword
+;; plus context: :mcp-conn-id, :last-heartbeat, :probe-id, :capabilities, :session-id, etc.
 (defonce ^:private !browser-connections (atom {}))
 
 ;; Session registry: session-id -> mcp-conn-id
@@ -51,6 +51,101 @@
 
 ;; Session registry cleanup (truly stale sessions that won't reconnect)
 (def ^:private session-stale-threshold-ms (* 60 60 1000))  ; 1 hour
+
+;; =============================================================================
+;; Per-Connection State Machine - Assign Functions (pure context updates)
+;; =============================================================================
+
+(defn assign-validated
+  "Store connection info after successful :describe validation."
+  [ctx event]
+  (assoc ctx
+         :mcp-conn-id (:mcp-conn-id event)
+         :nickname (:nickname event)
+         :capabilities (:capabilities event)
+         :error nil))
+
+(defn assign-error
+  "Store error reason on validation failure."
+  [ctx event]
+  (assoc ctx :error (:error event)))
+
+(defn assign-heartbeat
+  "Update last-heartbeat timestamp on heartbeat pong."
+  [ctx _event]
+  (assoc ctx :last-heartbeat (System/currentTimeMillis)))
+
+;; =============================================================================
+;; Per-Connection State Machine - Definition
+;; =============================================================================
+
+(def browser-connection-machine-config
+     "Configuration map for per-connection browser lifecycle.
+   Inspectable at runtime — use this var to see states/transitions."
+     {:id      :browser-connection
+      :initial :pending-validation
+      :context {:sente-conn-id  nil
+                :session-id     nil
+                :mcp-conn-id    nil
+                :nickname       nil
+                :probe-id       nil
+                :capabilities   nil
+                :connected-at   nil
+                :last-heartbeat nil
+                :error          nil}
+      :states
+      {:pending-validation {:on {:describe-ok     {:target  :validated
+                                                   :actions [(fsm/assign assign-validated)]}
+                                 :describe-failed {:target  :validation-failed
+                                                   :actions [(fsm/assign assign-error)]}
+                                 :ws-close        :disconnected}}
+       :validated          {:on {:heartbeat-pong    {:actions [(fsm/assign assign-heartbeat)]}
+                                 :heartbeat-timeout :disconnected
+                                 :ws-close          :disconnected}}
+       :validation-failed  {:on {:ws-close :disconnected}}
+       :disconnected       {}}})
+
+(def browser-connection-machine
+     "Compiled state machine for per-connection browser lifecycle.
+
+   States: pending-validation -> validated -> disconnected
+                    |                 |
+           validation-failed    heartbeat-timeout
+                    |                 |
+                    +-> disconnected <+"
+     (fsm/machine browser-connection-machine-config))
+
+;; =============================================================================
+;; Per-Connection State Machine - Transition Helper
+;; =============================================================================
+
+(defn- conn-transition!
+  "Apply state machine transition for a specific browser connection.
+   Logs before/after state for observability."
+  [sente-conn-id event]
+  (let [before (:_state (get @!browser-connections sente-conn-id))]
+    (swap! !browser-connections update sente-conn-id
+           #(fsm/transition browser-connection-machine % event))
+    (let [after (:_state (get @!browser-connections sente-conn-id))]
+      (log/log! {:level :info :id ::conn-transition
+                 :msg (str "Connection " (name before) " -> " (name after))
+                 :data {:sente-conn-id sente-conn-id
+                        :from before :to after
+                        :event (:type event)}}))))
+
+;; =============================================================================
+;; Per-Connection State Machine - Query Helpers
+;; =============================================================================
+
+(defn validated?
+  "Check if a browser connection has completed handshake validation."
+  [sente-conn-id]
+  (= :validated (:_state (get @!browser-connections sente-conn-id))))
+
+(defn get-connection-state
+  "Get the current state keyword for a browser connection."
+  [sente-conn-id]
+  (:_state (get @!browser-connections sente-conn-id)))
 
 ;; =============================================================================
 ;; Browser Connection Management
@@ -69,22 +164,25 @@
 
 (defn- handle-client-ready!
   "Handle :client/ready from browser - this is the handshake initiation.
-   Browser is signaling that its handlers are ready for communication."
+   Browser is signaling that its handlers are ready for communication.
+   Creates a per-connection state machine instance in :pending-validation."
   [sente-conn-id {:keys [session-id]}]
   (let [probe-id (str "probe-" (uuidv7/uuidv7))
-        now (System/currentTimeMillis)]
-    ;; Register connection with session-id immediately
-    (swap! !browser-connections assoc sente-conn-id
-           {:status :pending-validation
-            :session-id session-id
-            :probe-id probe-id
-            :connected-at now
-            :last-heartbeat now})
+        now (System/currentTimeMillis)
+        initial-state (-> (fsm/initialize browser-connection-machine {:exec false})
+                          (assoc :sente-conn-id sente-conn-id
+                                 :session-id session-id
+                                 :probe-id probe-id
+                                 :connected-at now
+                                 :last-heartbeat now))]
+    ;; Register connection with FSM state
+    (swap! !browser-connections assoc sente-conn-id initial-state)
     (log/log! {:level :info
                :id ::client-ready-received
                :msg "Browser client-ready received, starting validation"
                :data {:sente-conn-id sente-conn-id
                       :session-id session-id
+                      :state (:_state initial-state)
                       :has-registry-entry (boolean (get @!session-registry session-id))}})
     ;; Send describe probe to validate nREPL capability
     ;; Return nil to avoid sente-lite echoing response back to browser
@@ -93,34 +191,39 @@
 
 (defn handle-browser-disconnect!
   "Called when a browser disconnects.
+   Transitions to :disconnected state, then removes from map.
 
    Note: Does NOT remove session-id from !session-registry so browser
    can reconnect with same identity. Registry cleanup happens separately
    for truly stale sessions."
   [sente-conn-id]
   (when-let [conn-info (get @!browser-connections sente-conn-id)]
-    ;; Only close in conn-state if it was validated (has mcp-conn-id)
-            (when-let [mcp-conn-id (:mcp-conn-id conn-info)]
-                      (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed"))
-            (swap! !browser-connections dissoc sente-conn-id)
-            (log/log! {:level :info
-                       :id ::browser-disconnected
-                       :msg "Browser disconnected (session registry preserved for reconnect)"
-                       :data {:sente-conn-id sente-conn-id
-                              :status (:status conn-info)
-                              :session-id (:session-id conn-info)
-                              :mcp-conn-id (:mcp-conn-id conn-info)}})))
+            (let [from-state (:_state conn-info)]
+      ;; Transition to :disconnected (unless already disconnected)
+              (when (not= :disconnected from-state)
+                (conn-transition! sente-conn-id {:type :ws-close}))
+      ;; Only close in conn-state if it was validated (has mcp-conn-id)
+              (when-let [mcp-conn-id (:mcp-conn-id conn-info)]
+                        (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed"))
+      ;; Remove from map after side effects
+              (swap! !browser-connections dissoc sente-conn-id)
+              (log/log! {:level :info
+                         :id ::browser-disconnected
+                         :msg "Browser disconnected (session registry preserved for reconnect)"
+                         :data {:sente-conn-id sente-conn-id
+                                :state from-state
+                                :session-id (:session-id conn-info)
+                                :mcp-conn-id (:mcp-conn-id conn-info)}}))))
 
 (defn- update-heartbeat!
-  "Update last-heartbeat timestamp for a connection."
+  "Update last-heartbeat timestamp via FSM heartbeat-pong transition."
   [sente-conn-id]
-  (swap! !browser-connections update sente-conn-id
-         assoc :last-heartbeat (System/currentTimeMillis)))
+  (when (validated? sente-conn-id)
+    (conn-transition! sente-conn-id {:type :heartbeat-pong})))
 
 (defn- promote-to-validated!
   "Promote a pending connection to validated after successful :describe response.
-   Registers with conn-state and stores capabilities.
-   Sends :server/ready event to browser with connection nickname.
+   Uses FSM transition, then performs side effects (conn-state, server/ready, atom-sync).
 
    If browser sent session-id with a known registry entry, reuses existing
    mcp-conn-id for stable identity across WebSocket reconnects."
@@ -151,12 +254,12 @@
           (swap! !session-registry assoc session-id mcp-conn-id))
         ;; Update connection state with capabilities
         (conn-state/update-browser-capabilities! mcp-conn-id capabilities)
-        ;; Update our tracking
-        (swap! !browser-connections update sente-conn-id merge
-               {:status :validated
-                :mcp-conn-id mcp-conn-id
-                :nickname nickname
-                :capabilities capabilities})
+        ;; FSM transition: :pending-validation -> :validated
+        (conn-transition! sente-conn-id
+                          {:type :describe-ok
+                           :mcp-conn-id mcp-conn-id
+                           :nickname nickname
+                           :capabilities capabilities})
         ;; Send server/ready to complete handshake - browser is now fully connected
         (send-to-browser! sente-conn-id [:server/ready {:nickname nickname
                                                         :connection-id mcp-conn-id
@@ -176,8 +279,6 @@
         ;; Push synced atoms to newly connected browser
         (atom-sync/on-browser-connected! sente-conn-id)
         ;; Return nil - :server/ready already sent the info to browser
-        ;; Returning mcp-conn-id would cause sente-lite to send it as raw response,
-        ;; which breaks client's parse-message (expects vector, not string)
         nil)
       ;; No eval capability - not a valid nREPL
       (do
@@ -186,6 +287,11 @@
                   :msg "Browser lacks eval capability, not registering"
                   :data {:sente-conn-id sente-conn-id
                          :ops (keys ops)}})
+       ;; FSM transition: :pending-validation -> :validation-failed
+       (conn-transition! sente-conn-id
+                         {:type :describe-failed
+                          :error "Browser lacks eval capability"})
+       ;; Remove from connections
        (swap! !browser-connections dissoc sente-conn-id)
        nil))))
 
@@ -195,7 +301,7 @@
   (let [conn-info (get @!browser-connections sente-conn-id)
         probe-id (:probe-id conn-info)
         response-id (:id response)]
-    (when (and (= :pending-validation (:status conn-info))
+    (when (and (= :pending-validation (:_state conn-info))
                (= probe-id response-id))
       (log/log! {:level :debug
                  :id ::describe-response-received
@@ -206,7 +312,8 @@
       (promote-to-validated! sente-conn-id response))))
 
 (defn- on-browser-message
-  "Handle message from browser - route based on handshake state and event type."
+  "Handle message from browser - route based on handshake state and event type.
+   Uses validated? helper for connection state guards."
   [sente-conn-id event-id data]
   (log/log! {:level :trace
              :id ::browser-message
@@ -226,8 +333,8 @@
 
     ;; Browser telemetry - fire-and-forget ingestion into telemetry-db
     :telemetry/log
-    (let [conn-info (get @!browser-connections sente-conn-id)]
-      (when (= :validated (:status conn-info))
+    (when (validated? sente-conn-id)
+      (let [conn-info (get @!browser-connections sente-conn-id)]
         (telemetry-db/ingest!
          (assoc data :source (str "browser:" (:mcp-conn-id conn-info))))))
 
@@ -237,12 +344,12 @@
           msg-id (:id data)]
       (cond
         ;; Check if this is a describe probe response for pending validation
-        (and (= :pending-validation (:status conn-info))
+        (and (= :pending-validation (:_state conn-info))
              (= (:probe-id conn-info) msg-id))
         (handle-describe-response! sente-conn-id data)
 
         ;; Validated connection - route to waiting promises
-        (= :validated (:status conn-info))
+        (validated? sente-conn-id)
         (do
          (log/log! {:level :trace
                     :id ::routing-response
@@ -258,68 +365,66 @@
                    :id ::unexpected-response
                    :msg "Response from unvalidated connection"
                    :data {:sente-conn-id sente-conn-id
-                          :status (:status conn-info)
+                          :state (:_state conn-info)
                           :msg-id msg-id
                           :probe-id (:probe-id conn-info)
                           :response-keys (keys data)}})))
 
     ;; Phase 1.5E.17: Clone repo - special async handling
     :code-browser/clone-repo
-    (let [conn-info (get @!browser-connections sente-conn-id)]
-      (when (= :validated (:status conn-info))
-        (log/log! {:level :info
-                   :id ::clone-repo-requested
-                   :msg "Clone repo requested"
-                   :data {:url (:url data)}})
-        ;; Run clone in future to avoid blocking
-        (future
-         (let [send-progress-fn (fn [progress]
-                                  (send-to-browser! sente-conn-id
-                                                    [:code-browser/clone-progress progress]))
-               result (code-browser/handle-clone-repo data send-progress-fn)]
-            ;; Send final result
-           (send-to-browser! sente-conn-id [:code-browser/clone-result result])))))
+    (when (validated? sente-conn-id)
+      (log/log! {:level :info
+                 :id ::clone-repo-requested
+                 :msg "Clone repo requested"
+                 :data {:url (:url data)}})
+      ;; Run clone in future to avoid blocking
+      (future
+       (let [send-progress-fn (fn [progress]
+                                (send-to-browser! sente-conn-id
+                                                  [:code-browser/clone-progress progress]))
+             result (code-browser/handle-clone-repo data send-progress-fn)]
+          ;; Send final result
+         (send-to-browser! sente-conn-id [:code-browser/clone-result result]))))
 
     ;; Try atom-sync dispatch first
     (if-let [[response-event-id response-data] (atom-sync/dispatch-event event-id data)]
       ;; Atom-sync event handled - send response
-            (let [conn-info (get @!browser-connections sente-conn-id)]
-              (when (= :validated (:status conn-info))
-                (send-to-browser! sente-conn-id [response-event-id response-data])))
+            (when (validated? sente-conn-id)
+              (send-to-browser! sente-conn-id [response-event-id response-data]))
 
       ;; Try code-browser dispatch
             (if-let [[response-event-id response-data] (code-browser/dispatch-event event-id data)]
         ;; Code browser event handled - send response
-                    (let [conn-info (get @!browser-connections sente-conn-id)]
-                      (log/log! {:level :info
-                                 :id ::code-browser-response
-                                 :msg "Sending code-browser response"
-                                 :data {:response-event response-event-id
-                                        :status (:status conn-info)
-                                        :sente-conn-id sente-conn-id}})
-                      (when (= :validated (:status conn-info))
-                        (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
-                          (log/log! {:level :info
-                                     :id ::code-browser-sent
-                                     :msg "Response sent"
-                                     :data {:sent? sent?}}))))
+                    (do
+                     (log/log! {:level :info
+                                :id ::code-browser-response
+                                :msg "Sending code-browser response"
+                                :data {:response-event response-event-id
+                                       :state (get-connection-state sente-conn-id)
+                                       :sente-conn-id sente-conn-id}})
+                     (when (validated? sente-conn-id)
+                       (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
+                         (log/log! {:level :info
+                                    :id ::code-browser-sent
+                                    :msg "Response sent"
+                                    :data {:sent? sent?}}))))
 
         ;; Try code-browser-v2 dispatch
                     (if-let [[response-event-id response-data] (code-browser-v2/dispatch-event event-id data)]
           ;; Code browser v2 event handled - send response
-                            (let [conn-info (get @!browser-connections sente-conn-id)]
-                              (log/log! {:level :info
-                                         :id ::code-browser-v2-response
-                                         :msg "Sending code-browser-v2 response"
-                                         :data {:response-event response-event-id
-                                                :status (:status conn-info)
-                                                :sente-conn-id sente-conn-id}})
-                              (when (= :validated (:status conn-info))
-                                (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
-                                  (log/log! {:level :info
-                                             :id ::code-browser-v2-sent
-                                             :msg "Response sent"
-                                             :data {:sent? sent?}}))))
+                            (do
+                             (log/log! {:level :info
+                                        :id ::code-browser-v2-response
+                                        :msg "Sending code-browser-v2 response"
+                                        :data {:response-event response-event-id
+                                               :state (get-connection-state sente-conn-id)
+                                               :sente-conn-id sente-conn-id}})
+                             (when (validated? sente-conn-id)
+                               (let [sent? (send-to-browser! sente-conn-id [response-event-id response-data])]
+                                 (log/log! {:level :info
+                                            :id ::code-browser-v2-sent
+                                            :msg "Response sent"
+                                            :data {:sent? sent?}}))))
 
           ;; Unknown event - log it
                             (log/log! {:level :debug
@@ -435,13 +540,15 @@
                      :data {:sente-conn-id sente-conn-id :error (.getMessage e)}}))))
 
 (defn- check-stale-connections!
-  "Check for and disconnect stale browsers (no heartbeat response)."
+  "Check for and disconnect stale browsers (no heartbeat response).
+   Fires :heartbeat-timeout FSM event before cleanup."
   []
   (let [now (System/currentTimeMillis)
         stale-conns (->> @!browser-connections
-                         (filter (fn [[_ {:keys [last-heartbeat]}]]
-                                   (and last-heartbeat
-                                        (> (- now last-heartbeat) heartbeat-timeout-ms))))
+                         (filter (fn [[_ conn]]
+                                   (let [hb (:last-heartbeat conn)]
+                                     (and hb
+                                          (> (- now hb) heartbeat-timeout-ms)))))
                          (map first))]
     (when (seq stale-conns)
       (log/log! {:level :info
@@ -449,6 +556,9 @@
                  :msg "Disconnecting stale browsers"
                  :data {:count (count stale-conns)}})
       (doseq [conn-id stale-conns]
+        ;; Fire heartbeat-timeout event (only valid from :validated state)
+             (when (validated? conn-id)
+               (conn-transition! conn-id {:type :heartbeat-timeout}))
              (handle-browser-disconnect! conn-id)))))
 
 (defn- heartbeat-cycle!
