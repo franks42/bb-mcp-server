@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.22.1 — Statechart static analyzer ("statechart-kondo") with convention checks
-**Last Updated:** 2026-02-08
+**Status:** v1.24.0 — Statecharts driving both sides of sente-lite WebSocket channel
+**Last Updated:** 2026-02-09
 
 ---
 
@@ -13,6 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.24.0 | `bd16e44` | Statecharts on both sides of sente-lite WebSocket (server + browser) |
+| v1.23.0 | `e1fba2a` | Browser connection statechart (6 states, 9 transitions) + telemetry |
 | v1.22.1 | `e3cbd0b` | Convention checks (`:id`, `:context`, error recovery, return path) + docs |
 | v1.22.0 | `3d7822b` | Statechart static analyzer: 5 structural checks, CLI, .cljc for BB + Scittle |
 | v1.21.0 | `87a7156` | clj-statecharts integration for local nREPL server lifecycle |
@@ -276,6 +278,8 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 26 | clj-statecharts integration for local nREPL server lifecycle (v1.21.0) |
 | 27 | Statechart static analyzer: 5 structural checks, CLI (v1.22.0) |
 | 28 | Convention checks + state management best practices in CLOJURE_EXPERT_CONTEXT.md (v1.22.1) |
+| 29 | Browser connection statechart: 6 states, 9 transitions, CDN-served bundle (v1.23.0) |
+| 30 | Server per-connection statechart: 4 states, 5 transitions, both sides of WebSocket (v1.24.0) |
 
 ---
 
