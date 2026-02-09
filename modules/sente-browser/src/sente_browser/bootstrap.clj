@@ -470,6 +470,9 @@
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc\" type=\"application/x-scittle\"></script>
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc\" type=\"application/x-scittle\"></script>
 
+  <!-- 5b. clj-statecharts (connection lifecycle state machine) -->
+  <script src=\"https://cdn.jsdelivr.net/gh/franks42/clj-statecharts-bb-scittle@v0.1.7-scittle/dist/statecharts-bundle.cljc\" type=\"application/x-scittle\"></script>
+
   <!-- 6. CodeMirror 6 via ES modules -->
   <!-- Import codemirror (EditorView, basicSetup) + @codemirror/state (EditorState) separately -->
   <!-- The codemirror meta-package does NOT export EditorState - must import from @codemirror/state -->

@@ -9,7 +9,8 @@
    The state machine enforces valid transitions — attempting an invalid
    transition (e.g. stop when already stopped) throws an exception."
     (:require [babashka.nrepl.server :as nrepl-server]
-              [statecharts.core :as fsm]))
+              [statecharts.core :as fsm]
+              [taoensso.trove :as log]))
 
 ;; =============================================================================
 ;; Context Assignment Actions (named vars for navigability)
@@ -42,8 +43,37 @@
 ;; State Machine Definition
 ;; =============================================================================
 
+(def nrepl-server-machine-config
+     "Configuration map for the nREPL server state machine.
+   Inspectable at runtime — use this var to see states/transitions."
+     {:id      :nrepl-server
+      :initial :stopped
+      :context {:server-map nil
+                :host       "localhost"
+                :port       nil
+                :connection nil
+                :started-at nil
+                :stopped-at nil
+                :config     {}
+                :error      nil}
+      :states
+      {:stopped  {:on {:start {:target  :starting
+                               :actions [(fsm/assign assign-config)]}}}
+       :starting {:on {:started {:target  :running
+                                 :actions [(fsm/assign assign-server-info)]}
+                       :failed  {:target  :error
+                                 :actions [(fsm/assign assign-error)]}}}
+       :running  {:on {:stop :stopping}}
+       :stopping {:on {:stopped {:target  :stopped
+                                 :actions [(fsm/assign assign-stopped)]}
+                       :failed  {:target  :error
+                                 :actions [(fsm/assign assign-error)]}}}
+       :error    {:on {:start {:target  :starting
+                               :actions [(fsm/assign assign-config)]}
+                       :reset :stopped}}}})
+
 (def nrepl-server-machine
-     "State machine for local nREPL server lifecycle.
+     "Compiled state machine for local nREPL server lifecycle.
 
    States: stopped -> starting -> running -> stopping -> stopped
                          |                      |
@@ -56,32 +86,7 @@
    - :stop    - Begin server shutdown (from :running)
    - :stopped - Server successfully stopped (from :stopping)
    - :reset   - Reset to stopped state (from :error)"
-     (fsm/machine
-      {:id      :nrepl-server
-       :initial :stopped
-       :context {:server-map nil
-                 :host       "localhost"
-                 :port       nil
-                 :connection nil
-                 :started-at nil
-                 :stopped-at nil
-                 :config     {}
-                 :error      nil}
-       :states
-       {:stopped  {:on {:start {:target  :starting
-                                :actions [(fsm/assign assign-config)]}}}
-        :starting {:on {:started {:target  :running
-                                  :actions [(fsm/assign assign-server-info)]}
-                        :failed  {:target  :error
-                                  :actions [(fsm/assign assign-error)]}}}
-        :running  {:on {:stop :stopping}}
-        :stopping {:on {:stopped {:target  :stopped
-                                  :actions [(fsm/assign assign-stopped)]}
-                        :failed  {:target  :error
-                                  :actions [(fsm/assign assign-error)]}}}
-        :error    {:on {:start {:target  :starting
-                                :actions [(fsm/assign assign-config)]}
-                        :reset :stopped}}}}))
+     (fsm/machine nrepl-server-machine-config))
 
 ;; =============================================================================
 ;; State Atom
@@ -119,9 +124,17 @@
 
 (defn- transition!
   "Apply a state machine transition atomically.
+   Logs before/after state for full observability.
    Returns the new state. Throws on invalid transition."
   [event]
-  (swap! !state #(fsm/transition nrepl-server-machine % event)))
+  (let [from-state (:_state @!state)]
+    (swap! !state #(fsm/transition nrepl-server-machine % event))
+    (let [to-state (:_state @!state)]
+      (log/log! {:level :info :id ::transition
+                 :msg (str "Transition: " (name from-state) " -> " (name to-state))
+                 :data {:from from-state
+                        :to to-state
+                        :event (:type event)}}))))
 
 ;; =============================================================================
 ;; State Query Functions
@@ -171,6 +184,9 @@
    - :port (optional) - Port to bind to, 0 for auto-assign
    - :host (optional) - Host to bind to, defaults to localhost"
   [config]
+  (log/log! {:level :info :id ::start-server
+             :msg "Starting nREPL server"
+             :data {:config (dissoc config :server-map)}})
   ;; 1. Transition: :stopped -> :starting (throws if invalid)
   (transition! {:type :start :config config})
   (try
@@ -187,6 +203,9 @@
                    :port       port
                    :connection connection
                    :started-at started-at})
+     (log/log! {:level :info :id ::server-started
+                :msg "nREPL server started"
+                :data {:host host :port port :connection connection}})
       ;; Return connection info
      {:status     :running
       :host       host
@@ -194,6 +213,9 @@
       :connection connection
       :started-at started-at})
    (catch Exception e
+          (log/log! {:level :error :id ::start-failed
+                     :msg "nREPL server start failed"
+                     :data {:error (.getMessage e)}})
       ;; 3b. Transition: :starting -> :error
           (transition! {:type :failed :error (.getMessage e)})
           (throw e))))
@@ -203,6 +225,9 @@
   []
   (let [server-map     (get-server-map)
         connection-info (get-connection-info)]
+    (log/log! {:level :info :id ::stop-server
+               :msg "Stopping nREPL server"
+               :data {:connection (:connection connection-info)}})
     ;; 1. Transition: :running -> :stopping (throws if invalid)
     (transition! {:type :stop})
     (try
@@ -211,11 +236,18 @@
      (let [stopped-at (System/currentTimeMillis)]
         ;; 3. Transition: :stopping -> :stopped
        (transition! {:type :stopped :stopped-at stopped-at})
+       (log/log! {:level :info :id ::server-stopped
+                  :msg "nREPL server stopped"
+                  :data {:connection (:connection connection-info)
+                         :stopped-at stopped-at}})
         ;; Return info about stopped server
        (assoc connection-info
               :status     :stopped
               :stopped-at stopped-at))
      (catch Exception e
+            (log/log! {:level :error :id ::stop-failed
+                       :msg "nREPL server stop failed"
+                       :data {:error (.getMessage e)}})
         ;; 3b. Transition: :stopping -> :error
             (transition! {:type :failed :error (.getMessage e)})
             (throw e)))))

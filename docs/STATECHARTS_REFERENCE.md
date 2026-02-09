@@ -246,33 +246,140 @@ Implemented in `mcp_nrepl/state/local_nrepl_server.clj`. Key patterns:
 - **Pure transition tests** — 70 tests with `{:exec false}`, no I/O, no mocking
 - **Effect separation** — `start-server!`/`stop-server!` do transitions + effects in sequence: transition → try effect → transition (success or failure)
 - **Static validation** — `bb statechart:validate` confirms 5 states, 8 edges, 0 issues
+- **Config/machine split** — `nrepl-server-machine-config` (inspectable data) + `nrepl-server-machine` (compiled)
+- **Telemetry on every transition** — `transition!` logs from/to/event for full observability
+
+### Browser Connection — Second Integration (v1.22.1)
+
+Implemented in `sente-browser/src/browser/bootstrap_client.cljs`. Same patterns as server-side, plus:
+
+- **Entry actions for side effects** — each state has `action-log-*` and `action-set-status-*` entry actions (Scittle executes these during transition)
+- **Thin callback dispatchers** — WebSocket callbacks just call `(transition! {:type :ws-open :uid uid})`, no inline logic
+- **CDN-served statecharts** — `statecharts-bundle.cljc` loaded via `<script>` tag in `bootstrap.clj`
+
+---
+
+## Coding Conventions
+
+### 1. Separate Machine Config from Compiled Machine
+
+Always define the config map as its own var, then pass it to `fsm/machine`. This makes the raw configuration inspectable at runtime — you can eval the config var to see states, transitions, and context without the `fsm/machine` wrapper obscuring it.
 
 ```clojure
-;; Named assign action (preferred convention)
+;; GOOD — config is inspectable at runtime
+(def my-machine-config
+  "Configuration map — inspectable at runtime."
+  {:id :my-machine
+   :initial :idle
+   :context {:error nil}
+   :states {...}})
+
+(def my-machine
+  "Compiled state machine."
+  (fsm/machine my-machine-config))
+
+;; BAD — config is hidden inside the compiled machine
+(def my-machine
+  (fsm/machine
+    {:id :my-machine ...}))  ;; can't inspect this map at runtime
+```
+
+### 2. Telemetry on Every Transition
+
+The `transition!` helper must log the from-state, to-state, and event on every successful transition. This is required for both server and browser statecharts.
+
+```clojure
+;; Server-side (Babashka)
+(defn- transition! [event]
+  (let [from-state (:_state @!state)]
+    (swap! !state #(fsm/transition my-machine % event))
+    (let [to-state (:_state @!state)]
+      (log/log! {:level :info :id ::transition
+                 :msg (str "Transition: " (name from-state) " -> " (name to-state))
+                 :data {:from from-state :to to-state :event (:type event)}}))))
+
+;; Browser-side (Scittle) — same pattern, add try/catch for :default
+(defn- transition! [event]
+  (try
+    (let [from-state (:_state @!state)]
+      (swap! !state #(fsm/transition my-machine % event))
+      (let [to-state (:_state @!state)]
+        (log/log! {:level :info :id ::transition
+                   :msg (str "Transition: " (name from-state) " -> " (name to-state))
+                   :data {:from from-state :to to-state :event (:type event)}})))
+    (catch :default e
+      (log/log! {:level :error :id ::transition-error ...}))))
+```
+
+Also add telemetry around lifecycle functions (`start-server!`, `stop-server!`, `init!`) at entry and completion.
+
+### 3. Named Assign Functions
+
+Use named `defn` vars for assign actions, not inline anonymous fns. This improves navigability, debugging, and Code Browser symbol listing.
+
+```clojure
+;; GOOD — named, navigable, shows up in symbol list
 (defn assign-config [ctx event]
   (assoc ctx :config (:config event) :error nil))
 
-;; Machine definition with named vars
+{:actions [(fsm/assign assign-config)]}
+
+;; BAD — anonymous, invisible in tools
+{:actions [(fsm/assign (fn [ctx event] (assoc ctx :config (:config event))))]}
+```
+
+### 4. Effect Separation Pattern
+
+Lifecycle functions should: transition → try effect → transition (success or failure).
+
+```clojure
+(defn start-server! [config]
+  (log/log! {:level :info :id ::start-server :msg "Starting" :data {...}})
+  (transition! {:type :start :config config})  ;; stopped -> starting
+  (try
+    (let [result (do-actual-start! config)]
+      (transition! {:type :started ...})       ;; starting -> running
+      (log/log! {:level :info :id ::server-started :msg "Started" :data {...}})
+      result)
+    (catch Exception e
+      (log/log! {:level :error :id ::start-failed :msg "Failed" :data {...}})
+      (transition! {:type :failed :error (.getMessage e)})  ;; starting -> error
+      (throw e))))
+```
+
+---
+
+### Code Example (Current Convention)
+
+```clojure
+;; Named assign action
+(defn assign-config [ctx event]
+  (assoc ctx :config (:config event) :error nil))
+
+;; Separate config var (inspectable)
+(def nrepl-server-machine-config
+  {:id      :nrepl-server
+   :initial :stopped
+   :context {:server-map nil :host "localhost" :port nil ...}
+   :states
+   {:stopped  {:on {:start {:target  :starting
+                            :actions [(fsm/assign assign-config)]}}}
+    :starting {:on {:started {:target  :running
+                              :actions [(fsm/assign assign-server-info)]}
+                    :failed  {:target  :error
+                              :actions [(fsm/assign assign-error)]}}}
+    :running  {:on {:stop :stopping}}
+    :stopping {:on {:stopped {:target  :stopped
+                              :actions [(fsm/assign assign-stopped)]}
+                    :failed  {:target  :error
+                              :actions [(fsm/assign assign-error)]}}}
+    :error    {:on {:start {:target  :starting
+                            :actions [(fsm/assign assign-config)]}
+                    :reset :stopped}}}})
+
+;; Compiled machine
 (def nrepl-server-machine
-  (fsm/machine
-    {:id      :nrepl-server
-     :initial :stopped
-     :context {:server-map nil :host "localhost" :port nil ...}
-     :states
-     {:stopped  {:on {:start {:target  :starting
-                              :actions [(fsm/assign assign-config)]}}}
-      :starting {:on {:started {:target  :running
-                                :actions [(fsm/assign assign-server-info)]}
-                      :failed  {:target  :error
-                                :actions [(fsm/assign assign-error)]}}}
-      :running  {:on {:stop :stopping}}
-      :stopping {:on {:stopped {:target  :stopped
-                                :actions [(fsm/assign assign-stopped)]}
-                      :failed  {:target  :error
-                                :actions [(fsm/assign assign-error)]}}}
-      :error    {:on {:start {:target  :starting
-                              :actions [(fsm/assign assign-config)]}
-                      :reset :stopped}}}}))
+  (fsm/machine nrepl-server-machine-config))
 ```
 
 ---
@@ -412,7 +519,8 @@ The analyzer is `.cljc`, so it already works in Scittle. Integration path:
 - **Static analyzer:** `src/statecharts/validate.cljc` (.cljc, BB + Scittle)
 - **Analyzer tests:** `test/statecharts/validate_test.clj` (19 tests, 69 assertions)
 - **CLI script:** `scripts/statechart_validate.clj` (colored output, graph printing)
-- **First integration:** `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj`
+- **Server integration:** `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj`
+- **Browser integration:** `modules/sente-browser/src/browser/bootstrap_client.cljs`
 - **Fork source:** `../clj-statecharts-bb-scittle/src/statecharts/` (9 files, ~1,650 LOC)
 - **Core engine:** `impl.cljc` (854 lines — machine creation + transition algorithm)
 - **Scittle bundle:** `../clj-statecharts-bb-scittle/dist/statecharts-bundle.cljc`
@@ -423,3 +531,4 @@ The analyzer is `.cljc`, so it already works in Scittle. Integration path:
 
 *Added: 2026-02-08 — Reviewed as formalized state machine approach for bb-mcp-server lifecycles.*
 *Updated: 2026-02-08 — Added static analyzer ("statechart-kondo") with convention checks.*
+*Updated: 2026-02-09 — Added coding conventions (config/machine split, telemetry, named assigns, effect separation). Added browser integration.*
