@@ -3,6 +3,7 @@
    Tests validate all transitions without any I/O — no server is started."
     (:require [clojure.test :refer [deftest is testing]]
               [statecharts.core :as fsm]
+              [statecharts.validate :as validate]
               [mcp-nrepl.state.local-nrepl-server :as sut]))
 
 ;; =============================================================================
@@ -272,3 +273,15 @@
                     (is (nil? (:server-map result)))
                     (is (= 2000 (:stopped-at result)))
                     (is (nil? (:error result))))))
+
+;; =============================================================================
+;; Static Validation Test
+;; =============================================================================
+
+(deftest machine-validation-test
+         (testing "nrepl-server-machine passes static validation"
+                  (let [result (validate/validate sut/nrepl-server-machine)]
+                    (is (empty? (:errors result)))
+                    (is (empty? (:warnings result)))
+                    (is (= 5 (:states (:summary result))))
+                    (is (= 8 (:edges (:summary result)))))))

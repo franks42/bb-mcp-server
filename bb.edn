@@ -315,6 +315,18 @@
              :task (apply shell "bb" "scripts/cb_v2_dev.clj" *command-line-args*)}
 
   ;; ==========================================================================
+  ;; Statechart Tasks
+  ;; ==========================================================================
+
+  test:statecharts {:doc "Run statecharts validate tests"
+                    :depends [-bootstrap]
+                    :task (load-file "test/statecharts/run_tests.clj")}
+
+  statechart:validate {:doc "Validate statechart machine [ns/var]"
+                       :depends [-bootstrap]
+                       :task (apply shell "bb" "scripts/statechart_validate.clj" *command-line-args*)}
+
+  ;; ==========================================================================
   ;; Telemetry Tasks
   ;; ==========================================================================
 

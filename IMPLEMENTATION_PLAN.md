@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.20.0 — Live code refresh with file watching + automatic browser widget invalidation
+**Status:** v1.22.0 — Statechart static analyzer with CLI and tests
 **Last Updated:** 2026-02-08
 
 ---
@@ -13,6 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.22.0 | (pending) | Statechart static analyzer: 5 checks, CLI, .cljc for BB + Scittle |
+| v1.21.0 | `87a7156` | clj-statecharts integration for local nREPL server lifecycle |
 | v1.20.0 | `d75cb5a` | Live code refresh: file watching, incremental rescan, widget auto-update |
 | v1.19.1 | `e947e77` | Comprehensive telemetry, catalog .cljs/.cljc/.bb, clj-kondo lint fix |
 | v1.19.0 | `47d2fb7` | Browser telemetry ingestion, unified logs, `!` escaping fix |
@@ -46,6 +48,10 @@ bb nrepl-direct eval "<code>" -t X              # Server eval (double quotes for
 bb nrepl-direct eval "<code>" -t X/browser-1    # Browser eval
 bb nrepl-direct load-local-file <path> -t X     # Load file
 bb nrepl-direct list -t X                       # List connections
+
+# Statechart validation
+bb statechart:validate ns/var                   # Validate a machine definition
+bb test:statecharts                             # Run statechart validate tests
 
 # Telemetry
 bb logs -t cb-v2-test                           # Query logs from running server
@@ -266,6 +272,8 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 23 | Browser telemetry ingestion, `!` escaping fix (v1.19.0) |
 | 24 | Comprehensive telemetry coverage, catalog improvements, lint compliance (v1.19.1) |
 | 25 | Live code refresh: file watching, incremental rescan, browser auto-update (v1.20.0) |
+| 26 | clj-statecharts integration for local nREPL server lifecycle (v1.21.0) |
+| 27 | Statechart static analyzer: unreachable/dead-end/non-det/orphan checks, CLI (v1.22.0) |
 
 ---
 
