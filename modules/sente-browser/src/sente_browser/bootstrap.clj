@@ -236,6 +236,7 @@
     .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; }
     .spinner { width: 30px; height: 30px; border: 3px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .refreshing-indicator { position: absolute; top: 0; right: 8px; width: 16px; height: 16px; border: 2px solid transparent; border-top: 2px solid #1e88e5; border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 10; }
     .error-banner { background: #f8d7da; color: #721c24; padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: center; }
     /* Phase 1.5E.10: Tab styles */
     .tab-bar { display: flex; gap: 0.25rem; margin-left: auto; }

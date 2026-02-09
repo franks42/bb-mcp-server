@@ -6,7 +6,8 @@
    spawn a new widget for the resulting URI.
 
    Widget model:
-   - !widgets atom: {widget-id {:id :type :uri :data :loading? :error :filter}}
+   - !widgets atom: {widget-id {:id :type :uri :data :status :error :filter}}
+   - :status is one of :loading, :ready, :error, :refreshing
    - Each widget fetches data via :code-browser-v2/fetch event
    - Server responds with data, widget manager stores in :data
    - Clicking an item opens a new widget for the child URI
@@ -70,7 +71,7 @@
 ;; Widget Manager
 ;; =============================================================================
 
-(defonce ^{:doc "All open widgets. {widget-id {:id :type :uri :data :loading? :error :filter}}"}
+(defonce ^{:doc "All open widgets. {widget-id {:id :type :uri :data :status :error :filter}}"}
  !widgets (r/atom {}))
 
 (defonce ^{:doc "Counter for generating unique widget IDs"}
@@ -92,6 +93,48 @@
   "Generate a unique widget ID."
   []
   (keyword (str "w" (swap! !widget-counter inc))))
+
+;; =============================================================================
+;; Widget Mutation Helpers
+;; =============================================================================
+
+(defn- make-widget
+  "Pure constructor — returns a new widget map with :status :loading."
+  [widget-id widget-type uri]
+  {:id widget-id :type widget-type :uri uri
+   :data nil :status :loading :error nil :filter ""})
+
+(defn- set-widget-loading!
+  "Transition to :loading (first fetch) or :refreshing (has data)."
+  [widget-id]
+  (swap! !widgets update widget-id
+         (fn [w]
+           (if (:data w)
+             (assoc w :status :refreshing)
+             (assoc w :status :loading)))))
+
+(defn- set-widget-ready!
+  "Transition to :ready with new data, clear error."
+  [widget-id data]
+  (swap! !widgets update widget-id
+         assoc :data data :status :ready :error nil))
+
+(defn- set-widget-error!
+  "Transition to :error with message."
+  [widget-id error-msg]
+  (swap! !widgets update widget-id
+         assoc :status :error :error error-msg))
+
+(defn- update-widget-filter!
+  "Update filter text for a widget."
+  [widget-id text]
+  (swap! !widgets assoc-in [widget-id :filter] text))
+
+(defn- remove-widget!
+  "Remove widget from !widgets and clean up auxiliary atoms."
+  [widget-id]
+  (swap! !widgets dissoc widget-id)
+  (swap! !breadcrumb-expanded disj widget-id))
 
 (defn- type->view-name
   "Convert a widget type keyword to a view name string for URI query params."
@@ -192,7 +235,7 @@
                      :deps :deps
                      :callers :callers
                      nil))]
-    (swap! !widgets assoc-in [widget-id :loading?] true)
+    (set-widget-loading! widget-id)
     (log/log! {:level :info :id ::fetch-requested
                :msg "Fetch requested"
                :data {:widget-id widget-id :type widget-type :uri uri
@@ -242,13 +285,7 @@
           existing)
       ;; Create new widget
       (let [wid (next-widget-id)]
-        (swap! !widgets assoc wid {:id wid
-                                   :type effective-type
-                                   :uri full-uri
-                                   :data nil
-                                   :loading? true
-                                   :error nil
-                                   :filter ""})
+        (swap! !widgets assoc wid (make-widget wid effective-type full-uri))
         (reset! !focused-widget wid)
         ;; Update hash to reflect focused widget
         (when full-uri
@@ -276,8 +313,7 @@
   (when-let [wb (get @!winbox-instances widget-id)]
             (swap! !winbox-instances dissoc widget-id)
             (try (.close wb) (catch js/Error _e nil)))
-  (swap! !widgets dissoc widget-id)
-  (swap! !breadcrumb-expanded disj widget-id)
+  (remove-widget! widget-id)
   (when (= @!focused-widget widget-id)
     ;; Focus the last remaining widget, if any
     (let [remaining (keys @!widgets)]
@@ -309,10 +345,7 @@
         wid (keyword (str (name widget-id)))]
     (if success
       (do
-       (swap! !widgets update wid assoc
-              :data (:data data)
-              :loading? false
-              :error nil)
+       (set-widget-ready! wid (:data data))
        (log/log! {:level :info :id ::fetch-success
                   :msg "Fetch response received"
                   :data {:widget-id wid
@@ -329,9 +362,7 @@
                     (fit-to-content! wid wb)))
         100))
       (do
-       (swap! !widgets update wid assoc
-              :loading? false
-              :error (or error "Unknown error"))
+       (set-widget-error! wid (or error "Unknown error"))
        (log/log! {:level :error :id ::fetch-error
                   :msg "Fetch failed"
                   :data {:widget-id wid :error (or error "Unknown error")}})))))
@@ -459,8 +490,7 @@
    {:type "text"
     :placeholder placeholder
     :value (or (get-in @!widgets [widget-id :filter]) "")
-    :on-change #(swap! !widgets assoc-in [widget-id :filter]
-                       (-> % .-target .-value))}])
+    :on-change #(update-widget-filter! widget-id (-> % .-target .-value))}])
 
 ;; =============================================================================
 ;; Content Components (body only — no header, used inside WinBox)
@@ -674,15 +704,15 @@
   (let [widget (get @!widgets widget-id)]
     [:div.winbox-widget-body
      [uri-breadcrumb widget-id (:uri widget)]
-     (cond
-       (:loading? widget)
-       [:div.loading-overlay [:div.spinner]]
-
-       (:error widget)
-       [:div.error-banner [:span (:error widget)]]
-
-       :else
-       [render-widget-content widget-id widget])]))
+     (case (:status widget)
+       :loading    [:div.loading-overlay [:div.spinner]]
+       :refreshing [:<>
+                    [:div.refreshing-indicator]
+                    [render-widget-content widget-id widget]]
+       :error      [:div.error-banner [:span (:error widget)]]
+       :ready      [render-widget-content widget-id widget]
+       ;; fallback for nil or unknown status
+       [:div.loading-overlay [:div.spinner]])]))
 
 (defn- measure-content-size
   "Measure ideal content size for a WinBox widget body.
