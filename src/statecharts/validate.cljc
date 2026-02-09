@@ -41,19 +41,34 @@
 ;; Edge Extraction
 ;; =============================================================================
 
+(defn- normalize-transition
+  "Normalize a transition value to a vector of maps.
+   Handles clj-statecharts shorthand forms:
+   - :target-kw => [{:target :target-kw}]
+   - {:target :foo :actions [...]} => [{:target :foo :actions [...]}]
+   - {:actions [...]} => [{:actions [...]}]  (self-transition, no target)
+   - [{:target :a :guard g} {:target :b}] => as-is"
+  [v]
+  (cond
+    (keyword? v) [{:target v}]
+    (map? v)     [v]
+    (vector? v)  v
+    :else        []))
+
 (defn- extract-transitions-from-on
   "Extract transition edges from a state's :on map.
-   Returns seq of [source-state target-state event-keyword guard?]."
+   Returns seq of [source-state target-state event-keyword guard?].
+   Handles bare keyword targets and self-transitions."
   [state-kw on-map]
   (mapcat
-   (fn [[event-kw transitions]]
+   (fn [[event-kw transition-val]]
      (keep (fn [t]
              (when-let [target (:target t)]
                        {:source state-kw
                         :target target
                         :event  event-kw
                         :guard  (some? (:guard t))}))
-           transitions))
+           (normalize-transition transition-val)))
    on-map))
 
 (defn- collect-edges
