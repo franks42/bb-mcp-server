@@ -250,6 +250,137 @@ Use `clojure.spec.alpha` or Malli for validation:
 
 ---
 
+## State Management
+
+### The Problem with Ad-Hoc State
+
+Most Clojure(Script) apps manage complex lifecycles with atoms + keywords:
+
+```clojure
+;; ❌ Common but fragile
+(def !state (atom {:status :stopped}))
+
+(defn start! []
+  (when (= :stopped (:status @!state))  ;; guard buried in business logic
+    (swap! !state assoc :status :starting)
+    (try
+      (let [server (do-start!)]
+        (swap! !state assoc :status :running :server server))
+      (catch Exception e
+        (swap! !state assoc :status :error :error (.getMessage e))))))
+```
+
+This works until it doesn't:
+- **States and transitions aren't declared** — read the whole file to understand the lifecycle
+- **Invalid transitions are possible** — nothing prevents `stop!` when already `:stopped`
+- **Testing requires mocking** — business logic is tangled with side effects
+- **No tooling** — linters can't help because the state machine is implicit
+
+### Statecharts: Declare States as Data
+
+Use [clj-statecharts](https://github.com/lucywang000/clj-statecharts) to make the state machine explicit:
+
+```clojure
+(require '[statecharts.core :as fsm])
+
+;; ✅ Machine is pure data — declarative, testable, analyzable
+(def my-machine
+  (fsm/machine
+    {:id      :my-service          ;; Convention: always provide :id
+     :initial :stopped
+     :context {:port nil :error nil}  ;; Convention: always provide :context
+     :states
+     {:stopped  {:on {:start :starting}}
+      :starting {:on {:started :running
+                      :failed  :error}}
+      :running  {:on {:stop :stopping}}
+      :stopping {:on {:stopped :stopped
+                      :failed  :error}}
+      :error    {:on {:reset :stopped     ;; Convention: error states need recovery
+                      :retry :starting}}}}))
+```
+
+### Conventions (Enforced by statechart-kondo)
+
+The static analyzer at `src/statecharts/validate.cljc` checks these automatically:
+
+| Convention | Why | Fix |
+|------------|-----|-----|
+| **Always provide `:id`** | CLI validation, logging, browser viz all need a name | Add `:id :my-machine` |
+| **Always provide `:context`** | Extended state for debugging, inspection, `get-full-state` | Add `:context {}` (even if empty) |
+| **Error states need recovery** | A state with "error" in name and no outgoing transitions is a black hole | Add `:reset`, `:retry`, or `:start` transition |
+| **Return path to initial** | Lifecycle machines should be restartable — every state should eventually cycle back | Ensure at least one path back to initial |
+| **Named assign functions** | `(fsm/assign assign-config)` not `(fsm/assign (fn [ctx e] ...))` — for navigability | Extract inline fns to named defns |
+
+```bash
+# Validate a machine definition
+bb statechart:validate my-ns/my-machine
+
+# Run analyzer tests
+bb test:statecharts
+```
+
+### Pattern: Separate Transitions from Effects
+
+The key insight: statecharts declare WHAT transitions are valid, effect functions do the I/O:
+
+```clojure
+;; ✅ Named assign action — pure, testable, navigable
+(defn assign-config
+  "Store config and clear error on start."
+  [ctx event]
+  (assoc ctx :config (:config event) :error nil))
+
+;; ✅ Effect function — I/O happens here, not in the machine
+(defn start-server! [config]
+  (transition! {:type :start :config config})      ;; 1. Transition: stopped → starting
+  (try
+    (let [server (do-actual-start! config)]
+      (transition! {:type :started :server server}))  ;; 2. Transition: starting → running
+    (catch Exception e
+      (transition! {:type :failed :error (.getMessage e)})  ;; 2b. Transition: starting → error
+      (throw e))))
+```
+
+### Testing: Pure Transitions, No I/O
+
+The killer feature — `{:exec false}` makes transitions pure:
+
+```clojure
+(deftest lifecycle-test
+  (let [init (fsm/initialize my-machine {:exec false})]
+    (testing "starts in :stopped"
+      (is (= :stopped (:_state init))))
+
+    (testing "invalid transition throws"
+      (is (thrown? Exception
+            (fsm/transition my-machine init {:type :stop}))))
+
+    (testing "full cycle"
+      (let [s1 (fsm/transition my-machine init {:type :start} {:exec false})
+            s2 (fsm/transition my-machine s1 {:type :started} {:exec false})]
+        (is (= :starting (:_state s1)))
+        (is (= :running (:_state s2)))))))
+```
+
+No atoms, no servers, no mocking. Just data in, data out.
+
+### When NOT to Use Statecharts
+
+- **Simple CRUD** — if it's just `(swap! atom assoc k v)`, don't wrap it
+- **Linear sequences** — if there's only one path (A → B → C), a statechart adds ceremony without benefit
+- **Working code** — don't retrofit unless pain demands it
+- **Hot paths** — transition function has overhead (configuration computation, exit/entry sets)
+
+### Reference
+
+- **Analyzer:** `src/statecharts/validate.cljc` — structural + convention checks
+- **CLI:** `bb statechart:validate ns/var`
+- **Full guide:** `docs/STATECHARTS_REFERENCE.md`
+- **Nexus pattern (effects):** `docs/NEXUS_PATTERN_REFERENCE.md`
+
+---
+
 ## Code Style
 
 ### Use Threading Macros
@@ -340,6 +471,10 @@ clj-kondo --lint src
 cljfmt check src
 cljfmt fix src
 
+# Statechart validation
+bb statechart:validate ns/var     # Validate a machine definition
+bb test:statecharts               # Run analyzer tests
+
 # Testing
 bb test
 clojure -X:test
@@ -365,8 +500,9 @@ which clj-kondo cljfmt bb
 |------|---------|-------|
 | `clj-kondo` | Static analysis | Respect project config in `.clj-kondo/` |
 | `cljfmt` | Formatting | Use project `.cljfmt.edn` |
+| `statechart-kondo` | Statechart validation | `bb statechart:validate ns/var` — checks structure + conventions |
 | `parmezan` | Auto-fix parentheses | Use after 2 manual attempts |
-| `Telemere(-lite)` | Telemetry/logging | `:info` for normal ops, `:error` for failures |
+| `Trove` | Telemetry/logging | `:info` for normal ops, `:error` for failures |
 | `portal` / `tap>` | Interactive debugging | Use `tap>` to inspect data in REPL |
 
 ---
