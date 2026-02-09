@@ -124,12 +124,12 @@ Without `assign`, action return values are ignored (for side-effect-only actions
 ```clojure
 {:states
  {:connected {:initial :idle
-              :on {:disconnect :disconnected}  ;; handled by any child state
+              :on {:disconnect {:target :disconnected}}  ;; handled by any child state
               :states
-              {:idle    {:on {:request :loading}}
-               :loading {:on {:response :idle
-                              :error    :error}}
-               :error   {:on {:retry :loading}}}}
+              {:idle    {:on {:request {:target :loading}}}
+               :loading {:on {:response {:target :idle}
+                              :error    {:target :error}}}
+               :error   {:on {:retry {:target :loading}}}}}
   :disconnected {}}}
 ```
 
