@@ -449,12 +449,9 @@
                     (is (= 4 (:states (:summary result))))
                     (is (= 6 (:edges (:summary result))))))
 
-         (testing "browser-connection-machine-config flags shorthand transitions"
-                  (let [issues (sut/check-longform-transitions
-                                browser-server/browser-connection-machine-config)]
-                    ;; 4 shorthand: ws-close in 3 states + heartbeat-timeout
-                    (is (= 4 (count issues)))
-                    (is (every? #(= :shorthand-transition (:type %)) issues))))
+         (testing "browser-connection-machine-config has no shorthand transitions"
+                  (is (empty? (sut/check-longform-transitions
+                               browser-server/browser-connection-machine-config))))
 
          (testing "terminal state :disconnected suppresses no-return convention"
                   (let [issues (sut/check-initial-return-path

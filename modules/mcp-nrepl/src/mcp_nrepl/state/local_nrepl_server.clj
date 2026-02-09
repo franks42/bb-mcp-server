@@ -63,14 +63,14 @@
                                  :actions [(fsm/assign assign-server-info)]}
                        :failed  {:target  :error
                                  :actions [(fsm/assign assign-error)]}}}
-       :running  {:on {:stop :stopping}}
+       :running  {:on {:stop {:target :stopping}}}
        :stopping {:on {:stopped {:target  :stopped
                                  :actions [(fsm/assign assign-stopped)]}
                        :failed  {:target  :error
                                  :actions [(fsm/assign assign-error)]}}}
        :error    {:on {:start {:target  :starting
                                :actions [(fsm/assign assign-config)]}
-                       :reset :stopped}}}})
+                       :reset {:target :stopped}}}}})
 
 (def nrepl-server-machine
      "Compiled state machine for local nREPL server lifecycle.

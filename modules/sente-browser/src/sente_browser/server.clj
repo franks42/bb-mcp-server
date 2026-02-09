@@ -98,11 +98,11 @@
                                                    :actions [(fsm/assign assign-validated)]}
                                  :describe-failed {:target  :validation-failed
                                                    :actions [(fsm/assign assign-error)]}
-                                 :ws-close        :disconnected}}
+                                 :ws-close        {:target :disconnected}}}
        :validated          {:on {:heartbeat-pong    {:actions [(fsm/assign assign-heartbeat)]}
-                                 :heartbeat-timeout :disconnected
-                                 :ws-close          :disconnected}}
-       :validation-failed  {:on {:ws-close :disconnected}}
+                                 :heartbeat-timeout {:target :disconnected}
+                                 :ws-close          {:target :disconnected}}}
+       :validation-failed  {:on {:ws-close {:target :disconnected}}}
        :disconnected       {}}})
 
 (def browser-connection-machine
