@@ -12,7 +12,7 @@
 
  ;; Core paths only - module paths are discovered dynamically by bootstrap.clj
  ;; Call (bb-mcp-server.bootstrap/ensure-module-paths!) before requiring modules
- :paths ["src" "scripts" "test"]
+ :paths ["src" "scripts" "test" "../clj-statecharts-bb-scittle/src"]
 
  :tasks
  {;; ==========================================================================

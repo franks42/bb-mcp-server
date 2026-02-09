@@ -281,6 +281,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - [nREPL Direct Guide](docs/bb-nrepl-direct-user-guide.md)
 - [Exclamation Escaping](docs/exclamation-escaping.md)
 - [Nexus Pattern Reference](docs/NEXUS_PATTERN_REFERENCE.md)
+- [Statecharts Reference](docs/STATECHARTS_REFERENCE.md)
 
 ---
 

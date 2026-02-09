@@ -15,7 +15,11 @@
        mcp-nrepl.client.connection-test
        mcp-nrepl.client.messaging-test
        ;; Phase 0: Introspection tools tests
-       mcp-nrepl.tools.introspection-test])
+       mcp-nrepl.tools.introspection-test
+       ;; Statecharts transition tests
+       mcp-nrepl.state.local-nrepl-server-test
+       ;; Integration tests (starts real nREPL server)
+       mcp-nrepl.state.local-nrepl-server-integration-test])
 
 (println "=" (apply str (repeat 60 "=")))
 (println "Running nREPL Module Tests")
