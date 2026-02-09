@@ -63,17 +63,17 @@ Everything else worked as-is, including `deftype` with `^:volatile-mutable` (con
      :initial :stopped
      :context {:port nil :error nil}
      :states
-     {:stopped  {:on {:start :starting}}
+     {:stopped  {:on {:start {:target :starting}}}
       :starting {:on {:started {:target  :running
                                 :actions (assign (fn [ctx event]
                                                    (assoc ctx :port (:port event))))}
                       :failed  {:target  :error
                                 :actions (assign (fn [ctx event]
                                                    (assoc ctx :error (:msg event))))}}}
-      :running  {:on {:stop :stopping}}
-      :stopping {:on {:stopped :stopped
-                      :failed  :error}}
-      :error    {:on {:reset :stopped}}}}))
+      :running  {:on {:stop {:target :stopping}}}
+      :stopping {:on {:stopped {:target :stopped}
+                      :failed  {:target :error}}}
+      :error    {:on {:reset {:target :stopped}}}}}))
 ```
 
 ### State = Plain Map
@@ -232,11 +232,12 @@ Ranked by suitability as first implementation target:
 | Rank | Candidate | States | File | Status |
 |------|-----------|--------|------|--------|
 | **1** | **Local nREPL Server** | 5 (stopped/starting/running/stopping/error) | `mcp_nrepl/state/local_nrepl_server.clj` | **Done** (v1.21.0) — validated: 0 errors, 0 warnings, 0 conventions |
-| 2 | Datalevin Pod | 3 (unloaded/loaded/connected) | `datalevin_pod/core.clj` | Pending — very simple, 2 atoms, single file |
-| 3 | Module System | 4 (stopped/starting/running/stopping) | `module/system.clj` | Pending — clean state atom, widespread side effects |
-| 4 | Browser Connection | 3 (pending-validation/validated/disconnected) | `sente_browser/server.clj` | Pending — per-connection template |
-| 5 | Widget Lifecycle | 5 (created/loading/loaded/error/closed) | `code_browser_v2.cljs` | Pending — browser-side, boolean flags |
-| 6 | Claude Manager | 7 (spawned/init/idle/waiting/accumulating/completed/dead) | `claude_manager/*.clj` | Pending — most complex, most benefit |
+| **2** | **Browser Connection (client)** | 6 (idle/connecting/ws-open/connected/disconnected/reconnecting) | `browser/bootstrap_client.cljs` | **Done** (v1.23.0) — browser-side statechart with entry actions |
+| **3** | **Browser Connection (server)** | 4 (pending-validation/validated/validation-failed/disconnected) | `sente_browser/server.clj` | **Done** (v1.24.0) — per-connection instances, validated: 0 errors |
+| 4 | Datalevin Pod | 3 (unloaded/loaded/connected) | `datalevin_pod/core.clj` | Pending — very simple, 2 atoms, single file |
+| 5 | Module System | 4 (stopped/starting/running/stopping) | `module/system.clj` | Pending — clean state atom, widespread side effects |
+| 6 | Widget Lifecycle | 5 (created/loading/loaded/error/closed) | `code_browser_v2.cljs` | Pending — browser-side, boolean flags |
+| 7 | Claude Manager | 7 (spawned/init/idle/waiting/accumulating/completed/dead) | `claude_manager/*.clj` | Pending — most complex, most benefit |
 
 ### Local nREPL Server — First Integration (v1.21.0)
 
@@ -249,13 +250,23 @@ Implemented in `mcp_nrepl/state/local_nrepl_server.clj`. Key patterns:
 - **Config/machine split** — `nrepl-server-machine-config` (inspectable data) + `nrepl-server-machine` (compiled)
 - **Telemetry on every transition** — `transition!` logs from/to/event for full observability
 
-### Browser Connection — Second Integration (v1.22.1)
+### Browser Connection (client) — Second Integration (v1.23.0)
 
 Implemented in `sente-browser/src/browser/bootstrap_client.cljs`. Same patterns as server-side, plus:
 
 - **Entry actions for side effects** — each state has `action-log-*` and `action-set-status-*` entry actions (Scittle executes these during transition)
 - **Thin callback dispatchers** — WebSocket callbacks just call `(transition! {:type :ws-open :uid uid})`, no inline logic
 - **CDN-served statecharts** — `statecharts-bundle.cljc` loaded via `<script>` tag in `bootstrap.clj`
+
+### Browser Connection (server) — Third Integration (v1.24.0)
+
+Implemented in `sente-browser/src/sente_browser/server.clj`. Per-connection statechart — each browser WebSocket gets its own machine instance:
+
+- **Per-connection instances** — `!browser-connections` atom maps `sente-conn-id → FSM state map` (`:_state` replaces old `:status`)
+- **`conn-transition!` helper** — per-connection variant of `transition!`, operates on one entry in the map
+- **`validated?` query helper** — replaces 7 repeated `(= :validated (:status conn-info))` guards
+- **Terminal lifecycle** — instances are created at `:client/ready`, terminated at `:ws-close` or `:heartbeat-timeout`, then removed from the map
+- **Statechart for lifecycle, not routing** — event routing stays as `case` dispatch; the statechart only gates via `validated?`
 
 ---
 
@@ -328,7 +339,41 @@ Use named `defn` vars for assign actions, not inline anonymous fns. This improve
 {:actions [(fsm/assign (fn [ctx event] (assoc ctx :config (:config event))))]}
 ```
 
-### 4. Effect Separation Pattern
+### 4. Always Use Longform `{:target :state}`
+
+Never use bare keyword shorthand (`:event :target`). Always use the explicit map form `{:target :target}`. This is enforced by the static analyzer's `check-longform-transitions` convention check.
+
+```clojure
+;; GOOD — longform, consistent, works with all tooling
+{:on {:stop    {:target :stopping}
+      :reset   {:target :stopped}
+      :timeout {:target :disconnected}}}
+
+;; BAD — shorthand, inconsistent with transitions that have :actions
+{:on {:stop    :stopping
+      :reset   :stopped
+      :timeout :disconnected}}
+```
+
+Why: Shorthand is harder to scan when mixed with transitions that have `:actions`, and breaks naive tooling that expects map values in `:on`.
+
+### 5. Name Terminal States Clearly
+
+Per-instance lifecycle machines (like browser connections) intentionally terminate without cycling back to the initial state. Name terminal states using recognized patterns so the analyzer's `check-initial-return-path` correctly suppresses no-return warnings:
+
+Recognized terminal names: `disconnected`, `terminal`, `done`, `final`, `completed`, `finished`, `closed`, `destroyed`.
+
+```clojure
+;; GOOD — :disconnected is recognized as terminal
+{:validated    {:on {:ws-close {:target :disconnected}}}
+ :disconnected {}}
+
+;; BAD — :gone is not recognized, will trigger convention warning
+{:validated {:on {:ws-close {:target :gone}}}
+ :gone      {}}
+```
+
+### 6. Effect Separation Pattern
 
 Lifecycle functions should: transition → try effect → transition (success or failure).
 
@@ -368,14 +413,14 @@ Lifecycle functions should: transition → try effect → transition (success or
                               :actions [(fsm/assign assign-server-info)]}
                     :failed  {:target  :error
                               :actions [(fsm/assign assign-error)]}}}
-    :running  {:on {:stop :stopping}}
+    :running  {:on {:stop {:target :stopping}}}
     :stopping {:on {:stopped {:target  :stopped
                               :actions [(fsm/assign assign-stopped)]}
                     :failed  {:target  :error
                               :actions [(fsm/assign assign-error)]}}}
     :error    {:on {:start {:target  :starting
                             :actions [(fsm/assign assign-config)]}
-                    :reset :stopped}}}})
+                    :reset {:target :stopped}}}}})
 
 ;; Compiled machine
 (def nrepl-server-machine
@@ -395,7 +440,7 @@ Lifecycle functions should: transition → try effect → transition (success or
 bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
 
 # Run analyzer tests
-bb test:statecharts    # 19 tests, 69 assertions
+bb test:statecharts    # 24 tests, 99 assertions
 ```
 
 ### Structural Checks
@@ -419,7 +464,8 @@ These enforce our project's statechart conventions:
 | Missing `:id` | Machine has no `:id` keyword | Add `:id :my-machine` — needed for CLI, logging, browser viz |
 | Missing `:context` | Machine has no `:context` map | Add `:context {}` — needed for debugging and state inspection |
 | Error without recovery | State with "error" in name has no outgoing transitions | Add `:start`, `:reset`, or `:retry` transition from error state |
-| No return to initial | State has no path back to the initial state | Ensure every reachable state can eventually cycle back to initial |
+| No return to initial | State has no path back to the initial state (excludes terminal states) | Ensure every non-terminal reachable state can cycle back to initial |
+| Shorthand transition | Bare keyword target like `:event :target` instead of `{:target :target}` | Replace with longform `{:target :target}` for consistency |
 
 ### Conventions Explained
 
@@ -429,7 +475,9 @@ These enforce our project's statechart conventions:
 
 **Error states need recovery paths** — A state named `:error` or `:connection-error` with no outgoing transitions is a black hole. The system enters it and never leaves. Always provide at least one escape: `:reset` (back to initial), `:retry` (try again), or `:start` (fresh attempt).
 
-**Return path to initial** — If state `:c` can never cycle back to the initial state `:a` (even indirectly), the machine can only move forward. This is fine for finite workflows (`:pending` → `:approved` → `:archived`) but a red flag for lifecycle machines that should be restartable.
+**Return path to initial** — If state `:c` can never cycle back to the initial state `:a` (even indirectly), the machine can only move forward. This is fine for finite workflows (`:pending` → `:approved` → `:archived`) but a red flag for lifecycle machines that should be restartable. States matching terminal patterns (`:disconnected`, `:done`, `:final`, etc.) are excluded from this check since per-instance lifecycles intentionally terminate.
+
+**Longform transitions** — clj-statecharts allows `:event :target` as shorthand for `:event {:target :target}`. While valid, mixing shorthand with longform (transitions that also have `:actions`) creates visual inconsistency and breaks tools that expect uniform map values. Always use the explicit `{:target :state}` form.
 
 ### Programmatic API
 
@@ -451,8 +499,9 @@ These enforce our project's statechart conventions:
 (v/check-has-id my-machine)
 (v/check-has-context my-machine)
 (v/check-error-recovery my-machine)
-(v/check-initial-return-path my-machine)
-(v/check-conventions my-machine)  ;; all conventions
+(v/check-initial-return-path my-machine)    ;; excludes terminal states
+(v/check-longform-transitions my-machine)   ;; flags bare keyword shorthand
+(v/check-conventions my-machine)            ;; all conventions
 
 ;; Graph extraction (for visualization)
 (v/machine->graph my-machine)
@@ -517,10 +566,11 @@ The analyzer is `.cljc`, so it already works in Scittle. Integration path:
 ## Reference
 
 - **Static analyzer:** `src/statecharts/validate.cljc` (.cljc, BB + Scittle)
-- **Analyzer tests:** `test/statecharts/validate_test.clj` (19 tests, 69 assertions)
+- **Analyzer tests:** `test/statecharts/validate_test.clj` (24 tests, 99 assertions)
 - **CLI script:** `scripts/statechart_validate.clj` (colored output, graph printing)
-- **Server integration:** `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj`
-- **Browser integration:** `modules/sente-browser/src/browser/bootstrap_client.cljs`
+- **nREPL server integration:** `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj`
+- **Browser connection (server):** `modules/sente-browser/src/sente_browser/server.clj`
+- **Browser connection (client):** `modules/sente-browser/src/browser/bootstrap_client.cljs`
 - **Fork source:** `../clj-statecharts-bb-scittle/src/statecharts/` (9 files, ~1,650 LOC)
 - **Core engine:** `impl.cljc` (854 lines — machine creation + transition algorithm)
 - **Scittle bundle:** `../clj-statecharts-bb-scittle/dist/statecharts-bundle.cljc`
@@ -531,4 +581,4 @@ The analyzer is `.cljc`, so it already works in Scittle. Integration path:
 
 *Added: 2026-02-08 — Reviewed as formalized state machine approach for bb-mcp-server lifecycles.*
 *Updated: 2026-02-08 — Added static analyzer ("statechart-kondo") with convention checks.*
-*Updated: 2026-02-09 — Added coding conventions (config/machine split, telemetry, named assigns, effect separation). Added browser integration.*
+*Updated: 2026-02-09 — Added coding conventions (config/machine split, telemetry, named assigns, longform transitions, terminal states, effect separation). Added server + browser connection integrations (v1.23.0, v1.24.0). Updated convention checks table and test counts.*
