@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.22.0 — Statechart static analyzer with CLI and tests
+**Status:** v1.22.1 — Statechart static analyzer ("statechart-kondo") with convention checks
 **Last Updated:** 2026-02-08
 
 ---
@@ -13,7 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
-| v1.22.0 | (pending) | Statechart static analyzer: 5 checks, CLI, .cljc for BB + Scittle |
+| v1.22.1 | `e3cbd0b` | Convention checks (`:id`, `:context`, error recovery, return path) + docs |
+| v1.22.0 | `3d7822b` | Statechart static analyzer: 5 structural checks, CLI, .cljc for BB + Scittle |
 | v1.21.0 | `87a7156` | clj-statecharts integration for local nREPL server lifecycle |
 | v1.20.0 | `d75cb5a` | Live code refresh: file watching, incremental rescan, widget auto-update |
 | v1.19.1 | `e947e77` | Comprehensive telemetry, catalog .cljs/.cljc/.bb, clj-kondo lint fix |
@@ -273,7 +274,8 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 24 | Comprehensive telemetry coverage, catalog improvements, lint compliance (v1.19.1) |
 | 25 | Live code refresh: file watching, incremental rescan, browser auto-update (v1.20.0) |
 | 26 | clj-statecharts integration for local nREPL server lifecycle (v1.21.0) |
-| 27 | Statechart static analyzer: unreachable/dead-end/non-det/orphan checks, CLI (v1.22.0) |
+| 27 | Statechart static analyzer: 5 structural checks, CLI (v1.22.0) |
+| 28 | Convention checks + state management best practices in CLOJURE_EXPERT_CONTEXT.md (v1.22.1) |
 
 ---
 

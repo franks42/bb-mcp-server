@@ -5,8 +5,8 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-08
-**Version:** v1.22.0
-**Focus:** Statechart static analyzer — reusable .cljc validator for machine definitions
+**Version:** v1.22.1 (post `70a759f`)
+**Focus:** Statechart static analyzer ("statechart-kondo") — structural + convention checks
 
 ---
 
@@ -14,12 +14,14 @@
 
 ### Committed & Pushed
 
-1. **Statechart static analyzer** (v1.22.0):
-   - `src/statecharts/validate.cljc` — 5 checks: unreachable, dead-end, non-deterministic, orphan, self-only
-   - `.cljc` for BB + Scittle browser reuse
+1. **Statechart static analyzer "statechart-kondo"** (v1.22.0–v1.22.1):
+   - `src/statecharts/validate.cljc` — 5 structural checks + 4 convention checks
+   - Structural: unreachable, dead-end, non-deterministic, orphan, self-only
+   - Conventions: missing `:id`, missing `:context`, error without recovery, no return to initial
    - `bb statechart:validate ns/var` CLI with colored graph output
-   - `bb test:statecharts` — 14 tests, 52 assertions
-   - Validated nrepl-server-machine: 5 states, 8 edges, 0 errors, 0 warnings
+   - `bb test:statecharts` — 19 tests, 69 assertions
+   - State management best practices added to `docs/CLOJURE_EXPERT_CONTEXT.md`
+   - Full reference at `docs/STATECHARTS_REFERENCE.md`
 
 2. **clj-statecharts integration** (v1.21.0, `87a7156`):
    - `local_nrepl_server.clj` uses `fsm/machine` for lifecycle state management
@@ -54,14 +56,16 @@ Browser: code_browser_v2.cljs receives invalidation
 
 - `src/statecharts/validate.cljc` — static analyzer (5 checks + graph extraction)
 - `scripts/statechart_validate.clj` — CLI with colored output
-- `test/statecharts/validate_test.clj` — 14 tests with synthetic + real machines
+- `test/statecharts/validate_test.clj` — 19 tests with synthetic + real machines
+- `docs/CLOJURE_EXPERT_CONTEXT.md` — state management best practices section
 - `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj` — statechart-managed lifecycle
 
 ### Key Decisions
 
 - **`.cljc` for analyzer** — works in BB (tests, CLI) and Scittle (future browser viz).
-- **Pure data output** — `validate` returns `{:errors :warnings :info :graph :summary}`, no I/O.
-- **Five severity-categorized checks** — errors (unreachable), warnings (dead-end, non-det, orphan), info (self-only).
+- **Pure data output** — `validate` returns `{:errors :warnings :info :conventions :graph :summary}`, no I/O.
+- **Nine checks in two categories** — 5 structural (graph analysis) + 4 convention (project standards).
+- **Anonymous action detection infeasible** — BB/SCI all fns have identical `str` repr; documented as convention only.
 
 ### What's NOT done yet (future PRs)
 
@@ -76,7 +80,7 @@ Browser: code_browser_v2.cljs receives invalidation
 
 ```bash
 # Run tests
-bb test:statecharts              # 14 tests, 52 assertions (validate analyzer)
+bb test:statecharts              # 19 tests, 69 assertions (validate analyzer)
 bb test:nrepl                    # 70 tests, 275 assertions (includes machine validation)
 bb test:module code-browser-v2   # 34 tests, 494 assertions
 bb test:module telemetry-db      # 16 tests, 35 assertions
@@ -96,11 +100,11 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
-(pending) feat: Add statechart static analyzer with CLI and tests
+70a759f docs: Add state management best practices to Clojure expert context
+e3cbd0b feat: Add convention checks to statechart analyzer
+3d7822b feat: Add statechart static analyzer with CLI and tests
 87a7156 feat: Integrate clj-statecharts with local nREPL server lifecycle
 e61d4ee docs: Add Nexus functional action-dispatch pattern reference
-1020248 docs: Live code refresh milestone v1.20.0
-d75cb5a fix: Break cyclic dependency between sente-browser.server and code-browser.core
 ```
 
 ---
