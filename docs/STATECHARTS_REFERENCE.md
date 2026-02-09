@@ -229,62 +229,172 @@ Then in browser code:
 
 Ranked by suitability as first implementation target:
 
-| Rank | Candidate | States | File | Why |
-|------|-----------|--------|------|-----|
-| **1** | **Local nREPL Server** | 5 (stopped/starting/running/stopping/error) | `mcp_nrepl/state/local_nrepl_server.clj` | Already has explicit named states, single atom, single file, clean guards |
-| 2 | Datalevin Pod | 3 (unloaded/loaded/connected) | `datalevin_pod/core.clj` | Very simple, 2 atoms, single file |
-| 3 | Module System | 4 (stopped/starting/running/stopping) | `module/system.clj` | Clean state atom, but widespread side effects |
-| 4 | Browser Connection | 3 (pending-validation/validated/disconnected) | `sente_browser/server.clj` | Per-connection template |
-| 5 | Widget Lifecycle | 5 (created/loading/loaded/error/closed) | `code_browser_v2.cljs` | Browser-side, boolean flags instead of status keyword |
-| 6 | Claude Manager | 7 (spawned/init/idle/waiting/accumulating/completed/dead) | `claude_manager/*.clj` | Most complex, 3 files, most benefit from formalization |
+| Rank | Candidate | States | File | Status |
+|------|-----------|--------|------|--------|
+| **1** | **Local nREPL Server** | 5 (stopped/starting/running/stopping/error) | `mcp_nrepl/state/local_nrepl_server.clj` | **Done** (v1.21.0) — validated: 0 errors, 0 warnings, 0 conventions |
+| 2 | Datalevin Pod | 3 (unloaded/loaded/connected) | `datalevin_pod/core.clj` | Pending — very simple, 2 atoms, single file |
+| 3 | Module System | 4 (stopped/starting/running/stopping) | `module/system.clj` | Pending — clean state atom, widespread side effects |
+| 4 | Browser Connection | 3 (pending-validation/validated/disconnected) | `sente_browser/server.clj` | Pending — per-connection template |
+| 5 | Widget Lifecycle | 5 (created/loading/loaded/error/closed) | `code_browser_v2.cljs` | Pending — browser-side, boolean flags |
+| 6 | Claude Manager | 7 (spawned/init/idle/waiting/accumulating/completed/dead) | `claude_manager/*.clj` | Pending — most complex, most benefit |
 
-### Why Local nREPL Server is the Best First Target
+### Local nREPL Server — First Integration (v1.21.0)
 
-The existing code already has:
-- Explicit status values: `:stopped`, `:starting`, `:running`, `:stopping`, `:error`
-- Guard checks: `(when (running?) (throw ...))`, `(when-not (running?) (throw ...))`
-- Clean transition functions: `start-server!`, `stop-server!`, `restart-server!`
-- A `reset-state!` function for testing
-- A single atom in a single file
+Implemented in `mcp_nrepl/state/local_nrepl_server.clj`. Key patterns:
 
-The statechart would be a near 1:1 mapping. Here's what it would look like:
+- **Named assign functions** — `assign-config`, `assign-server-info`, `assign-error`, `assign-stopped` — instead of inline anonymous fns, for navigability and debugging
+- **Pure transition tests** — 70 tests with `{:exec false}`, no I/O, no mocking
+- **Effect separation** — `start-server!`/`stop-server!` do transitions + effects in sequence: transition → try effect → transition (success or failure)
+- **Static validation** — `bb statechart:validate` confirms 5 states, 8 edges, 0 issues
 
 ```clojure
+;; Named assign action (preferred convention)
+(defn assign-config [ctx event]
+  (assoc ctx :config (:config event) :error nil))
+
+;; Machine definition with named vars
 (def nrepl-server-machine
   (fsm/machine
     {:id      :nrepl-server
      :initial :stopped
-     :context {:server-map nil :host "localhost" :port nil
-               :connection nil :started-at nil :stopped-at nil
-               :config {} :error nil}
+     :context {:server-map nil :host "localhost" :port nil ...}
      :states
      {:stopped  {:on {:start {:target  :starting
-                              :actions (assign (fn [ctx event]
-                                                (assoc ctx :config (:config event)
-                                                       :error nil)))}}}
+                              :actions [(fsm/assign assign-config)]}}}
       :starting {:on {:started {:target  :running
-                                :actions (assign (fn [ctx event]
-                                                  (merge ctx (select-keys event
-                                                    [:server-map :host :port
-                                                     :connection :started-at]))))}
+                                :actions [(fsm/assign assign-server-info)]}
                       :failed  {:target  :error
-                                :actions (assign (fn [ctx event]
-                                                  (assoc ctx :error (:error event))))}}}
+                                :actions [(fsm/assign assign-error)]}}}
       :running  {:on {:stop :stopping}}
       :stopping {:on {:stopped {:target  :stopped
-                                :actions (assign (fn [ctx event]
-                                                  (assoc ctx :server-map nil
-                                                         :stopped-at (:stopped-at event)
-                                                         :error nil)))}
+                                :actions [(fsm/assign assign-stopped)]}
                       :failed  {:target  :error
-                                :actions (assign (fn [ctx event]
-                                                  (assoc ctx :error (:error event))))}}}
+                                :actions [(fsm/assign assign-error)]}}}
       :error    {:on {:start {:target  :starting
-                              :actions (assign (fn [ctx event]
-                                                (assoc ctx :config (:config event)
-                                                       :error nil)))}
+                              :actions [(fsm/assign assign-config)]}
                       :reset :stopped}}}}))
 ```
+
+---
+
+## Static Analyzer ("statechart-kondo")
+
+`src/statecharts/validate.cljc` — a reusable static analyzer for normalized machines. Pure functions, `.cljc` for BB + Scittle.
+
+### Usage
+
+```bash
+# CLI validation with graph output
+bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
+
+# Run analyzer tests
+bb test:statecharts    # 19 tests, 69 assertions
+```
+
+### Structural Checks
+
+These catch graph-level bugs that `fsm/machine` doesn't validate:
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| Unreachable states | **Error** | States that cannot be reached from the initial state via any transition path |
+| Dead-end states | Warning | States with no outgoing transitions (`:on`, `:always`, `:after`) — may be intentional final states |
+| Non-deterministic events | Warning | Same event has multiple transitions without guards (first-match wins, but likely a bug) |
+| Orphan states | Warning | States with no incoming transitions except the initial state |
+| Self-transition-only | Info | States whose only transitions point back to themselves |
+
+### Convention Checks
+
+These enforce our project's statechart conventions:
+
+| Check | Description | Fix |
+|-------|-------------|-----|
+| Missing `:id` | Machine has no `:id` keyword | Add `:id :my-machine` — needed for CLI, logging, browser viz |
+| Missing `:context` | Machine has no `:context` map | Add `:context {}` — needed for debugging and state inspection |
+| Error without recovery | State with "error" in name has no outgoing transitions | Add `:start`, `:reset`, or `:retry` transition from error state |
+| No return to initial | State has no path back to the initial state | Ensure every reachable state can eventually cycle back to initial |
+
+### Conventions Explained
+
+**Every machine should have `:id`** — The CLI tool (`bb statechart:validate`) prints it in output. The browser viz will use it for titles. Logging references it. Without it, the machine is anonymous.
+
+**Every machine should have `:context`** — Even if empty `{}`. The context map is the extended state — port numbers, error messages, timestamps. Tools like `get-full-state` dump it for debugging. Without `:context`, you lose inspectability.
+
+**Error states need recovery paths** — A state named `:error` or `:connection-error` with no outgoing transitions is a black hole. The system enters it and never leaves. Always provide at least one escape: `:reset` (back to initial), `:retry` (try again), or `:start` (fresh attempt).
+
+**Return path to initial** — If state `:c` can never cycle back to the initial state `:a` (even indirectly), the machine can only move forward. This is fine for finite workflows (`:pending` → `:approved` → `:archived`) but a red flag for lifecycle machines that should be restartable.
+
+### Programmatic API
+
+```clojure
+(require '[statecharts.validate :as v])
+
+;; Full validation (structural + conventions)
+(v/validate my-machine)
+;; => {:errors [...] :warnings [...] :info [...] :conventions [...] :graph {...} :summary {...}}
+
+;; Individual checks
+(v/find-unreachable my-machine)   ;; => seq of issue maps
+(v/find-dead-ends my-machine)
+(v/find-non-deterministic my-machine)
+(v/find-orphans my-machine)
+(v/find-self-only my-machine)
+
+;; Convention checks
+(v/check-has-id my-machine)
+(v/check-has-context my-machine)
+(v/check-error-recovery my-machine)
+(v/check-initial-return-path my-machine)
+(v/check-conventions my-machine)  ;; all conventions
+
+;; Graph extraction (for visualization)
+(v/machine->graph my-machine)
+;; => {:states #{:stopped :starting ...} :edges [...] :initial :stopped :id :nrepl-server}
+```
+
+### Integration with Tests
+
+Every file that defines a statechart should include a validation test:
+
+```clojure
+(require '[statecharts.validate :as validate])
+
+(deftest machine-validation-test
+  (testing "my-machine passes static validation"
+    (let [result (validate/validate my-machine)]
+      (is (empty? (:errors result)))
+      (is (empty? (:warnings result)))
+      (is (empty? (:conventions result))))))
+```
+
+### CLI Output Example
+
+```
+Validating: mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
+Machine: :nrepl-server (5 states, 8 edges)
+
+Graph:
+  :error       --:reset      --> :stopped
+  :error       --:start      --> :starting
+  :running     --:stop       --> :stopping
+  :starting    --:failed     --> :error
+  :starting    --:started    --> :running
+  :stopped     --:start      --> :starting
+  :stopping    --:failed     --> :error
+  :stopping    --:stopped    --> :stopped
+
+Validation: PASS (0 errors, 0 warnings, 0 conventions)
+```
+
+### Browser Integration (Future)
+
+The analyzer is `.cljc`, so it already works in Scittle. Integration path:
+
+1. Serve `validate.cljc` via existing `/cljc/` route in bootstrap.clj
+2. Add `:statechart-validation` widget type to Code Browser v2
+3. When browsing a symbol that contains `fsm/machine`, offer a "Validate" button
+4. Run `validate` in-browser on the machine data, display results in widget
+5. Use `machine->mermaid` from `viz.cljc` to render a state diagram (Mermaid.js)
 
 ---
 
@@ -299,15 +409,17 @@ The statechart would be a near 1:1 mapping. Here's what it would look like:
 
 ## Reference
 
+- **Static analyzer:** `src/statecharts/validate.cljc` (.cljc, BB + Scittle)
+- **Analyzer tests:** `test/statecharts/validate_test.clj` (19 tests, 69 assertions)
+- **CLI script:** `scripts/statechart_validate.clj` (colored output, graph printing)
+- **First integration:** `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj`
 - **Fork source:** `../clj-statecharts-bb-scittle/src/statecharts/` (9 files, ~1,650 LOC)
 - **Core engine:** `impl.cljc` (854 lines — machine creation + transition algorithm)
 - **Scittle bundle:** `../clj-statecharts-bb-scittle/dist/statecharts-bundle.cljc`
-- **SCI test script:** `../clj-statecharts-bb-scittle/scripts/test-sci.bb`
-- **Browser tests:** `../clj-statecharts-bb-scittle/test-scittle/scittle-tests.cljs`
 - **Upstream docs:** `../clj-statecharts-bb-scittle/docs/content/docs/`
-- **Scittle compat notes:** `../clj-statecharts-bb-scittle/docs/scittle-compatibility.md`
 - **XState visualizer:** https://stately.ai/viz (structural similarity, not direct export)
 
 ---
 
 *Added: 2026-02-08 — Reviewed as formalized state machine approach for bb-mcp-server lifecycles.*
+*Updated: 2026-02-08 — Added static analyzer ("statechart-kondo") with convention checks.*

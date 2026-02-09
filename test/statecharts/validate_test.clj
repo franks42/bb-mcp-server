@@ -15,6 +15,7 @@
      (fsm/machine
       {:id      :clean
        :initial :idle
+       :context {}
        :states
        {:idle    {:on {:start :running}}
         :running {:on {:stop :idle}}}}))
@@ -68,6 +69,43 @@
        :states
        {:start {:on {:go :loop}}
         :loop  {:on {:tick :loop}}}}))
+
+(def no-id-machine
+     "Machine without :id."
+     (fsm/machine
+      {:initial :idle
+       :context {}
+       :states
+       {:idle {:on {:go :idle}}}}))
+
+(def no-context-machine
+     "Machine without :context."
+     (fsm/machine
+      {:id      :no-ctx
+       :initial :idle
+       :states
+       {:idle {:on {:go :idle}}}}))
+
+(def error-no-recovery-machine
+     "Machine with error state that has no outgoing transitions."
+     (fsm/machine
+      {:id      :stuck-error
+       :initial :idle
+       :context {}
+       :states
+       {:idle  {:on {:fail :error}}
+        :error {}}}))
+
+(def no-return-machine
+     "Machine where a state cannot return to initial."
+     (fsm/machine
+      {:id      :no-return
+       :initial :a
+       :context {}
+       :states
+       {:a {:on {:go :b}}
+        :b {:on {:next :c}}
+        :c {:on {:loop :c}}}}))
 
 ;; =============================================================================
 ;; State Extraction Tests
@@ -231,3 +269,54 @@
                   (let [result (sut/validate non-deterministic-machine)]
                     (is (pos? (count (:warnings result))))
                     (is (some #(= :non-deterministic (:type %)) (:warnings result))))))
+
+;; =============================================================================
+;; Convention Check Tests
+;; =============================================================================
+
+(deftest check-has-id-test
+         (testing "no issue when :id present"
+                  (is (empty? (sut/check-has-id clean-machine))))
+
+         (testing "flags missing :id"
+                  (let [issues (sut/check-has-id no-id-machine)]
+                    (is (= 1 (count issues)))
+                    (is (= :missing-id (:type (first issues))))
+                    (is (= :convention (:severity (first issues)))))))
+
+(deftest check-has-context-test
+         (testing "no issue when :context present"
+                  (is (empty? (sut/check-has-context clean-machine))))
+
+         (testing "flags missing :context"
+                  (let [issues (sut/check-has-context no-context-machine)]
+                    (is (= 1 (count issues)))
+                    (is (= :missing-context (:type (first issues)))))))
+
+(deftest check-error-recovery-test
+         (testing "no issue when error state has recovery"
+                  (is (empty? (sut/check-error-recovery nrepl-server/nrepl-server-machine))))
+
+         (testing "flags error state without recovery"
+                  (let [issues (sut/check-error-recovery error-no-recovery-machine)]
+                    (is (= 1 (count issues)))
+                    (is (= :error (:state (first issues))))
+                    (is (= :error-no-recovery (:type (first issues)))))))
+
+(deftest check-initial-return-path-test
+         (testing "no issue when all states can return to initial"
+                  (is (empty? (sut/check-initial-return-path clean-machine))))
+
+         (testing "flags states with no return to initial"
+                  (let [issues (sut/check-initial-return-path no-return-machine)]
+                    (is (pos? (count issues)))
+                    (is (some #(= :no-return-to-initial (:type %)) issues))))
+
+         (testing "nrepl-server-machine has full return paths"
+                  (is (empty? (sut/check-initial-return-path nrepl-server/nrepl-server-machine)))))
+
+(deftest validate-conventions-in-nrepl-machine-test
+         (testing "nrepl-server-machine passes all convention checks"
+                  (let [result (sut/validate nrepl-server/nrepl-server-machine)]
+                    (is (empty? (:conventions result)))
+                    (is (= 0 (:conventions (:summary result)))))))

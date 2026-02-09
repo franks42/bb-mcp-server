@@ -18,6 +18,7 @@
 (def ^:private yellow "\u001b[33m")
 (def ^:private green "\u001b[32m")
 (def ^:private blue "\u001b[34m")
+(def ^:private magenta "\u001b[35m")
 (def ^:private bold "\u001b[1m")
 (def ^:private reset "\u001b[0m")
 
@@ -59,7 +60,7 @@
 (defn- print-result
   "Print the full validation result."
   [var-name result]
-  (let [{:keys [errors warnings info summary graph]} result
+  (let [{:keys [errors warnings info conventions summary graph]} result
         pass? (zero? (:errors summary))]
     (println (str (colorize bold "Validating: ") var-name))
     (println (str "Machine: " (:id graph)
@@ -70,6 +71,7 @@
 
     (print-issues "Errors" red errors)
     (print-issues "Warnings" yellow warnings)
+    (print-issues "Conventions" magenta conventions)
     (print-issues "Info" blue info)
 
     (println)
@@ -77,7 +79,8 @@
       (println (colorize green
                          (str "Validation: PASS ("
                               (:errors summary) " errors, "
-                              (:warnings summary) " warnings)")))
+                              (:warnings summary) " warnings, "
+                              (:conventions summary) " conventions)")))
       (println (colorize red
                          (str "Validation: FAIL ("
                               (:errors summary) " error"

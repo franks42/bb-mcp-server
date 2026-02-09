@@ -2,7 +2,8 @@
     "Static analyzer for clj-statecharts machine definitions.
    Works on normalized machines (output of fsm/machine).
    Pure functions, no side effects. .cljc for BB + Scittle."
-    (:require [clojure.set :as set]))
+    (:require [clojure.set :as set]
+              [clojure.string :as str]))
 
 ;; =============================================================================
 ;; State Extraction
@@ -180,6 +181,78 @@
                  :message  (str "State " source " only has self-transitions")})))))
 
 ;; =============================================================================
+;; Convention Checks
+;; =============================================================================
+
+(defn check-has-id
+  "Check that machine has an :id for identification in logs and CLI."
+  [machine]
+  (when-not (:id machine)
+    [{:type     :missing-id
+      :severity :convention
+      :message  "Machine has no :id — add :id for CLI validation, logging, and browser viz"}]))
+
+(defn check-has-context
+  "Check that machine has an explicit :context for inspectability."
+  [machine]
+  (when-not (:context machine)
+    [{:type     :missing-context
+      :severity :convention
+      :message  "Machine has no :context — add :context for debugging and state inspection"}]))
+
+(defn check-error-recovery
+  "Check that states with 'error' in name have outgoing transitions."
+  [machine]
+  (let [edges      (extract-edges machine)
+        sources    (into #{} (map :source) edges)
+        all-states (extract-states machine)
+        error-states (filter #(str/includes? (name %) "error") all-states)]
+    (for [s (sort error-states)
+          :when (not (contains? sources s))]
+         {:type     :error-no-recovery
+          :severity :convention
+          :state    s
+          :message  (str "Error state " s " has no outgoing transitions — add recovery path (e.g. :reset, :retry)")})))
+
+(defn check-initial-return-path
+  "Check that there is a path back to the initial state from every reachable state."
+  [machine]
+  (let [initial  (:initial machine)
+        edges    (extract-edges machine)
+        ;; Build reverse adjacency: who can reach whom
+        rev-adj  (reduce (fn [m {:keys [source target]}]
+                           (update m target (fnil conj #{}) source))
+                         {}
+                         edges)
+        ;; BFS backwards from initial to find who can reach it
+        can-reach-initial
+        (loop [visited #{initial}
+               queue   [initial]]
+              (if (empty? queue)
+                visited
+                (let [current   (first queue)
+                      neighbors (get rev-adj current #{})
+                      unvisited (set/difference neighbors visited)]
+                  (recur (into visited unvisited)
+                         (into (subvec queue 1) unvisited)))))
+        reachable   (reachable-states machine)
+        no-return   (set/difference reachable can-reach-initial)]
+    (for [s (sort no-return)]
+         {:type     :no-return-to-initial
+          :severity :convention
+          :state    s
+          :message  (str "State " s " has no path back to initial state " initial)})))
+
+(defn check-conventions
+  "Run all convention checks on a normalized machine.
+   Returns a vector of convention issue maps."
+  [machine]
+  (vec (concat (check-has-id machine)
+               (check-has-context machine)
+               (check-error-recovery machine)
+               (check-initial-return-path machine))))
+
+;; =============================================================================
 ;; Graph Extraction (for visualization)
 ;; =============================================================================
 
@@ -198,20 +271,23 @@
 
 (defn validate
   "Run all static analysis checks on a normalized machine.
-   Returns {:errors [...] :warnings [...] :info [...] :summary {...} :graph {...}}."
+   Returns {:errors [...] :warnings [...] :info [...] :conventions [...] :summary {...} :graph {...}}."
   [machine]
-  (let [errors   (vec (find-unreachable machine))
-        warnings (vec (concat (find-dead-ends machine)
-                              (find-non-deterministic machine)
-                              (find-orphans machine)))
-        info     (vec (find-self-only machine))
-        graph    (machine->graph machine)]
-    {:errors   errors
-     :warnings warnings
-     :info     info
-     :graph    graph
-     :summary  {:states    (count (:states graph))
-                :edges     (count (:edges graph))
-                :errors    (count errors)
-                :warnings  (count warnings)
-                :info      (count info)}}))
+  (let [errors      (vec (find-unreachable machine))
+        warnings    (vec (concat (find-dead-ends machine)
+                                 (find-non-deterministic machine)
+                                 (find-orphans machine)))
+        info        (vec (find-self-only machine))
+        conventions (check-conventions machine)
+        graph       (machine->graph machine)]
+    {:errors      errors
+     :warnings    warnings
+     :info        info
+     :conventions conventions
+     :graph       graph
+     :summary     {:states      (count (:states graph))
+                   :edges       (count (:edges graph))
+                   :errors      (count errors)
+                   :warnings    (count warnings)
+                   :info        (count info)
+                   :conventions (count conventions)}}))
