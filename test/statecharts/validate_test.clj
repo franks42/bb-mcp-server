@@ -4,7 +4,8 @@
     (:require [clojure.test :refer [deftest is testing]]
               [statecharts.core :as fsm]
               [statecharts.validate :as sut]
-              [mcp-nrepl.state.local-nrepl-server :as nrepl-server]))
+              [mcp-nrepl.state.local-nrepl-server :as nrepl-server]
+              [sente-browser.server :as browser-server]))
 
 ;; =============================================================================
 ;; Synthetic Test Machines
@@ -320,3 +321,144 @@
                   (let [result (sut/validate nrepl-server/nrepl-server-machine)]
                     (is (empty? (:conventions result)))
                     (is (= 0 (:conventions (:summary result)))))))
+
+;; =============================================================================
+;; Shorthand Transition Normalization Tests
+;; =============================================================================
+
+(def shorthand-machine
+     "Machine using bare keyword shorthand transitions."
+     (fsm/machine
+      {:id      :shorthand
+       :initial :a
+       :context {}
+       :states
+       {:a {:on {:go :b
+                 :skip :c}}
+        :b {:on {:back {:target :a}}}
+        :c {:on {:back :a}}}}))
+
+(def self-transition-machine
+     "Machine with a self-transition (no :target, only :actions)."
+     (fsm/machine
+      {:id      :self-trans
+       :initial :idle
+       :context {:count 0}
+       :states
+       {:idle {:on {:tick {:actions [(fsm/assign (fn [ctx _] (update ctx :count inc)))]}
+                    :stop :done}}
+        :done {}}}))
+
+(deftest extract-edges-shorthand-test
+         (testing "extracts edges from shorthand keyword transitions"
+                  (let [edges (sut/extract-edges shorthand-machine)]
+                    (is (= 4 (count edges)))
+                    (is (some #(and (= :a (:source %)) (= :b (:target %)) (= :go (:event %))) edges))
+                    (is (some #(and (= :a (:source %)) (= :c (:target %)) (= :skip (:event %))) edges))
+                    (is (some #(and (= :b (:source %)) (= :a (:target %)) (= :back (:event %))) edges))
+                    (is (some #(and (= :c (:source %)) (= :a (:target %)) (= :back (:event %))) edges))))
+
+         (testing "self-transition (no target) produces no edges"
+                  (let [edges (sut/extract-edges self-transition-machine)]
+                    ;; Only :stop -> :done edge, no edge for :tick (self-transition)
+                    (is (= 1 (count edges)))
+                    (is (= :idle (:source (first edges))))
+                    (is (= :done (:target (first edges))))
+                    (is (= :stop (:event (first edges)))))))
+
+(deftest validate-shorthand-machine-test
+         (testing "shorthand machine validates correctly after normalization"
+                  (let [result (sut/validate shorthand-machine)]
+                    (is (empty? (:errors result)))
+                    (is (= 3 (:states (:summary result))))
+                    (is (= 4 (:edges (:summary result)))))))
+
+;; =============================================================================
+;; Longform Transition Convention Tests
+;; =============================================================================
+
+(def shorthand-config
+     "Raw config with shorthand transitions for convention check."
+     {:id      :shorthand-raw
+      :initial :a
+      :context {}
+      :states
+      {:a {:on {:go :b
+                :full {:target :c}}}
+       :b {:on {:back :a}}
+       :c {:on {:back {:target :a}}}}})
+
+(deftest check-longform-transitions-test
+         (testing "flags shorthand transitions in raw config"
+                  (let [issues (sut/check-longform-transitions shorthand-config)]
+                    (is (= 2 (count issues)))
+                    (is (every? #(= :shorthand-transition (:type %)) issues))
+                    (is (every? #(= :convention (:severity %)) issues))
+                    (is (some #(and (= :a (:state %)) (= :go (:event %)) (= :b (:target %))) issues))
+                    (is (some #(and (= :b (:state %)) (= :back (:event %)) (= :a (:target %))) issues))))
+
+         (testing "no flags when all transitions use longform"
+                  (let [config {:id :all-long :initial :a :context {}
+                                :states {:a {:on {:go {:target :b}}}
+                                         :b {:on {:back {:target :a}}}}}]
+                    (is (empty? (sut/check-longform-transitions config)))))
+
+         (testing "compiled machine has no shorthand (already normalized)"
+                  (is (empty? (sut/check-longform-transitions
+                               (fsm/machine shorthand-config))))))
+
+;; =============================================================================
+;; Terminal Lifecycle Convention Tests
+;; =============================================================================
+
+(def terminal-lifecycle-config
+     "Per-instance lifecycle with intentional terminal state."
+     {:id      :lifecycle
+      :initial :pending
+      :context {}
+      :states
+      {:pending {:on {:ok {:target :active}
+                      :fail {:target :disconnected}}}
+       :active  {:on {:close {:target :disconnected}}}
+       :disconnected {}}})
+
+(deftest check-terminal-lifecycle-test
+         (testing "terminal state suppresses no-return-to-initial"
+                  (let [machine (fsm/machine terminal-lifecycle-config)
+                        issues  (sut/check-initial-return-path machine)]
+                    ;; :disconnected is terminal — should be excluded
+                    ;; :active has no return path but is not terminal
+                    (is (= 1 (count issues)))
+                    (is (= :active (:state (first issues))))))
+
+         (testing "non-terminal dead-end still flagged"
+                  (let [issues (sut/check-initial-return-path no-return-machine)]
+                    ;; :b and :c have no return, neither is terminal
+                    (is (= 2 (count issues)))
+                    (is (some #(= :b (:state %)) issues))
+                    (is (some #(= :c (:state %)) issues)))))
+
+;; =============================================================================
+;; Browser Connection Machine Validation Tests
+;; =============================================================================
+
+(deftest validate-browser-connection-machine-test
+         (testing "browser-connection-machine has no errors"
+                  (let [result (sut/validate browser-server/browser-connection-machine)]
+                    (is (empty? (:errors result)))
+                    (is (= 4 (:states (:summary result))))
+                    (is (= 6 (:edges (:summary result))))))
+
+         (testing "browser-connection-machine-config flags shorthand transitions"
+                  (let [issues (sut/check-longform-transitions
+                                browser-server/browser-connection-machine-config)]
+                    ;; 4 shorthand: ws-close in 3 states + heartbeat-timeout
+                    (is (= 4 (count issues)))
+                    (is (every? #(= :shorthand-transition (:type %)) issues))))
+
+         (testing "terminal state :disconnected suppresses no-return convention"
+                  (let [issues (sut/check-initial-return-path
+                                browser-server/browser-connection-machine)]
+                    ;; :disconnected excluded, :validated and :validation-failed remain
+                    (is (= 2 (count issues)))
+                    (is (not (some #(= :disconnected (:state %)) issues))))))

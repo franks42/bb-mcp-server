@@ -229,8 +229,20 @@
           :state    s
           :message  (str "Error state " s " has no outgoing transitions — add recovery path (e.g. :reset, :retry)")})))
 
+(def ^:private terminal-state-patterns
+     "Name patterns that indicate intentional terminal states in per-instance lifecycles."
+     #{"disconnected" "terminal" "done" "final" "completed" "finished" "closed" "destroyed"})
+
+(defn- terminal-state?
+  "Check if a state name matches a known terminal lifecycle pattern."
+  [state-kw]
+  (let [n (name state-kw)]
+    (some #(str/includes? n %) terminal-state-patterns)))
+
 (defn check-initial-return-path
-  "Check that there is a path back to the initial state from every reachable state."
+  "Check that there is a path back to the initial state from every reachable state.
+   Excludes states matching terminal lifecycle patterns (e.g. :disconnected, :done)
+   since per-instance lifecycles intentionally terminate without recycling."
   [machine]
   (let [initial  (:initial machine)
         edges    (extract-edges machine)
@@ -252,11 +264,34 @@
                          (into (subvec queue 1) unvisited)))))
         reachable   (reachable-states machine)
         no-return   (set/difference reachable can-reach-initial)]
-    (for [s (sort no-return)]
+    (for [s (sort no-return)
+          :when (not (terminal-state? s))]
          {:type     :no-return-to-initial
           :severity :convention
           :state    s
           :message  (str "State " s " has no path back to initial state " initial)})))
+
+(defn check-longform-transitions
+  "Check that all transitions use longform {:target :state} instead of shorthand :state.
+   Shorthand is valid clj-statecharts syntax but harder to read and breaks naive tooling.
+   Works on raw config maps; compiled machines are already normalized."
+  [machine]
+  (let [states (:states machine)]
+    (vec
+     (for [[state-kw state-def] states
+           :when (map? state-def)
+           :let [on-map (:on state-def)]
+           :when (map? on-map)
+           [event-kw transition-val] on-map
+           :when (keyword? transition-val)]
+          {:type     :shorthand-transition
+           :severity :convention
+           :state    state-kw
+           :event    event-kw
+           :target   transition-val
+           :message  (str "Event " event-kw " in state " state-kw
+                          " uses shorthand " transition-val
+                          " — use {:target " transition-val "} for consistency")}))))
 
 (defn check-conventions
   "Run all convention checks on a normalized machine.
@@ -265,7 +300,8 @@
   (vec (concat (check-has-id machine)
                (check-has-context machine)
                (check-error-recovery machine)
-               (check-initial-return-path machine))))
+               (check-initial-return-path machine)
+               (check-longform-transitions machine))))
 
 ;; =============================================================================
 ;; Graph Extraction (for visualization)
