@@ -13,12 +13,12 @@
 (defn- transition
   "Apply a pure transition with actions executed (for context updates)."
   [state event]
-  (fsm/transition sut/nrepl-server-machine state event))
+  (fsm/transition sut/nrepl-server-statechart-compiled state event))
 
 (defn- init-state
   "Create a fresh initial state."
   []
-  (fsm/initialize sut/nrepl-server-machine {:exec false}))
+  (fsm/initialize sut/nrepl-server-statechart-compiled {:exec false}))
 
 ;; =============================================================================
 ;; Initial State Tests
@@ -279,8 +279,8 @@
 ;; =============================================================================
 
 (deftest machine-validation-test
-         (testing "nrepl-server-machine passes static validation"
-                  (let [result (validate/validate sut/nrepl-server-machine)]
+         (testing "nrepl-server-statechart-compiled passes static validation"
+                  (let [result (validate/validate sut/nrepl-server-statechart-compiled)]
                     (is (empty? (:errors result)))
                     (is (empty? (:warnings result)))
                     (is (= 5 (:states (:summary result))))

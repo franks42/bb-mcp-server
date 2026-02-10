@@ -16,12 +16,12 @@
 (defn- transition
   "Apply a pure transition with actions executed (for context updates)."
   [state event]
-  (fsm/transition sut/widget-lifecycle-machine state event))
+  (fsm/transition sut/widget-lifecycle-statechart-compiled state event))
 
 (defn- init-state
   "Create a fresh initial state."
   []
-  (fsm/initialize sut/widget-lifecycle-machine {:exec false}))
+  (fsm/initialize sut/widget-lifecycle-statechart-compiled {:exec false}))
 
 ;; =============================================================================
 ;; 1. Initial State Tests
@@ -379,37 +379,37 @@
 ;; =============================================================================
 
 (deftest machine-validation-test
-         (testing "widget-lifecycle-machine passes static validation with no errors"
-                  (let [result (validate/validate sut/widget-lifecycle-machine)]
+         (testing "widget-lifecycle-statechart-compiled passes static validation with no errors"
+                  (let [result (validate/validate sut/widget-lifecycle-statechart-compiled)]
                     (is (empty? (:errors result)))))
 
          (testing ":closed is terminal (dead-end warning expected)"
-                  (let [result (validate/validate sut/widget-lifecycle-machine)]
+                  (let [result (validate/validate sut/widget-lifecycle-statechart-compiled)]
                     (is (= 1 (count (:warnings result))))
                     (is (= :closed (:state (first (:warnings result)))))
                     (is (= :dead-end (:type (first (:warnings result)))))))
 
          (testing "all states reachable from initial"
-                  (let [reachable (validate/reachable-states sut/widget-lifecycle-machine)
-                        all-states (validate/extract-states sut/widget-lifecycle-machine)]
+                  (let [reachable (validate/reachable-states sut/widget-lifecycle-statechart-compiled)
+                        all-states (validate/extract-states sut/widget-lifecycle-statechart-compiled)]
                     (is (= all-states reachable))))
 
          (testing "no non-deterministic transitions"
-                  (is (empty? (validate/find-non-deterministic sut/widget-lifecycle-machine)))))
+                  (is (empty? (validate/find-non-deterministic sut/widget-lifecycle-statechart-compiled)))))
 
 (deftest convention-checks-test
          (testing "machine config has no shorthand transitions"
                   (is (empty? (validate/check-longform-transitions
-                               sut/widget-lifecycle-machine-config))))
+                               sut/widget-lifecycle-statechart))))
 
          (testing "machine has :id"
-                  (is (empty? (validate/check-has-id sut/widget-lifecycle-machine))))
+                  (is (empty? (validate/check-has-id sut/widget-lifecycle-statechart-compiled))))
 
          (testing "machine has :context"
-                  (is (empty? (validate/check-has-context sut/widget-lifecycle-machine))))
+                  (is (empty? (validate/check-has-context sut/widget-lifecycle-statechart-compiled))))
 
          (testing ":closed terminal state suppresses no-return-to-initial convention"
-                  (let [issues (validate/check-initial-return-path sut/widget-lifecycle-machine)]
+                  (let [issues (validate/check-initial-return-path sut/widget-lifecycle-statechart-compiled)]
       ;; :closed is terminal — should be excluded from no-return issues
                     (is (not (some #(= :closed (:state %)) issues))))))
 
@@ -419,11 +419,11 @@
 
 (deftest graph-extraction-test
          (testing "machine->graph returns expected state count"
-                  (let [graph (validate/machine->graph sut/widget-lifecycle-machine)]
+                  (let [graph (validate/machine->graph sut/widget-lifecycle-statechart-compiled)]
                     (is (= 5 (count (:states graph))))))
 
          (testing "edge count matches expected transitions"
-                  (let [graph (validate/machine->graph sut/widget-lifecycle-machine)]
+                  (let [graph (validate/machine->graph sut/widget-lifecycle-statechart-compiled)]
       ;; :loading -> :ready, :loading -> :error, :loading -> :closed (3)
       ;; :ready -> :refreshing, :ready -> :closed (2)
       ;; :refreshing -> :ready, :refreshing -> :error, :refreshing -> :closed (3)

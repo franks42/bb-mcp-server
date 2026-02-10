@@ -89,19 +89,23 @@ Side-effect actions triggered on state entry or exit. Use sparingly.
 | `on-enter-running` | Log or notify on state entry | Telemetry event |
 | `on-exit-running` | Cleanup on state exit | Release resources |
 
-### State Machine Var: `*-machine`
+### State Machine Var: `*-statechart` / `*-statechart-compiled`
 
-The machine definition is a top-level `def` with a descriptive docstring including the state diagram.
+The statechart config is a top-level `def` with a descriptive docstring including the state diagram. The compiled version is derived from it.
 
 ```clojure
-(def nrepl-server-machine
-  "State machine for local nREPL server lifecycle.
+(def nrepl-server-statechart
+  "Statechart config for local nREPL server lifecycle.
 
    States: stopped -> starting -> running -> stopping -> stopped
                          |                      |
                        error                  error
    ..."
-  (fsm/machine {...}))
+  (types/map->Statechart {...}))
+
+(def nrepl-server-statechart-compiled
+  "Compiled statechart for local nREPL server lifecycle."
+  (fsm/machine nrepl-server-statechart))
 ```
 
 ### State Atom: `!state`
@@ -110,8 +114,8 @@ The mutable state atom. Prefixed with `!` per Clojure convention for mutable ref
 
 ```clojure
 (def !state
-  "State atom initialized from the nrepl-server-machine."
-  (atom (fsm/initialize nrepl-server-machine {:exec false})))
+  "State atom initialized from the nrepl-server-statechart-compiled."
+  (atom (fsm/initialize nrepl-server-statechart-compiled {:exec false})))
 ```
 
 ---
@@ -123,9 +127,9 @@ The mutable state atom. Prefixed with `!` per Clojure convention for mutable ref
 Each file contains exactly one state machine. The file name matches the domain concept.
 
 ```
-local_nrepl_server.clj    -> nrepl-server-machine
-widget_lifecycle.cljs      -> widget-machine
-datalevin_pod.clj          -> pod-machine
+local_nrepl_server.clj    -> nrepl-server-statechart / nrepl-server-statechart-compiled
+widget_lifecycle.cljc      -> widget-lifecycle-statechart / widget-lifecycle-statechart-compiled
+datalevin_pod.clj          -> pod-statechart / pod-statechart-compiled
 ```
 
 ### Section Order

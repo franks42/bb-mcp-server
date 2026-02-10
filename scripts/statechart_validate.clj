@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Statechart static validation CLI
 ;; Usage: bb statechart:validate <ns/var>
-;;   e.g. bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
+;;   e.g. bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled
 
 (require '[clojure.string :as str])
 
@@ -103,7 +103,7 @@
   (println "Usage: bb statechart:validate <ns/var>")
   (println)
   (println "Examples:")
-  (println "  bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine")
+  (println "  bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled")
   (System/exit 1))
 
 (let [args *command-line-args*]

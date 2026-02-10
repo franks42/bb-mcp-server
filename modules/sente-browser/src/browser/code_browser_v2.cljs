@@ -108,13 +108,13 @@
   (swap! !widgets update widget-id
          (fn [w]
            (when w
-             (fsm/transition wl/widget-lifecycle-machine w event)))))
+             (fsm/transition wl/widget-lifecycle-statechart-compiled w event)))))
 
 (defn- init-widget
   "Create a new widget in :loading state via statechart initialization.
    Merges widget-specific config into the statechart's initial context."
   [widget-id widget-type uri]
-  (-> (fsm/initialize wl/widget-lifecycle-machine)
+  (-> (fsm/initialize wl/widget-lifecycle-statechart-compiled)
       (assoc :id widget-id :type widget-type :uri uri :filter "")))
 
 (defn- update-widget-filter!

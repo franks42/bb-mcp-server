@@ -247,7 +247,7 @@ Implemented in `mcp_nrepl/state/local_nrepl_server.clj`. Key patterns:
 - **Pure transition tests** — 70 tests with `{:exec false}`, no I/O, no mocking
 - **Effect separation** — `start-server!`/`stop-server!` do transitions + effects in sequence: transition → try effect → transition (success or failure)
 - **Static validation** — `bb statechart:validate` confirms 5 states, 8 edges, 0 issues
-- **Config/machine split** — `nrepl-server-machine-config` (inspectable data) + `nrepl-server-machine` (compiled)
+- **Config/compiled split** — `nrepl-server-statechart` (inspectable data) + `nrepl-server-statechart-compiled` (compiled)
 - **Telemetry on every transition** — `transition!` logs from/to/event for full observability
 
 ### Browser Connection (client) — Second Integration (v1.23.0)
@@ -401,30 +401,31 @@ Lifecycle functions should: transition → try effect → transition (success or
 (defn assign-config [ctx event]
   (assoc ctx :config (:config event) :error nil))
 
-;; Separate config var (inspectable)
-(def nrepl-server-machine-config
-  {:id      :nrepl-server
-   :initial :stopped
-   :context {:server-map nil :host "localhost" :port nil ...}
-   :states
-   {:stopped  {:on {:start {:target  :starting
-                            :actions [(fsm/assign assign-config)]}}}
-    :starting {:on {:started {:target  :running
-                              :actions [(fsm/assign assign-server-info)]}
-                    :failed  {:target  :error
-                              :actions [(fsm/assign assign-error)]}}}
-    :running  {:on {:stop {:target :stopping}}}
-    :stopping {:on {:stopped {:target  :stopped
-                              :actions [(fsm/assign assign-stopped)]}
-                    :failed  {:target  :error
-                              :actions [(fsm/assign assign-error)]}}}
-    :error    {:on {:start {:target  :starting
-                            :actions [(fsm/assign assign-config)]}
-                    :reset {:target :stopped}}}}})
+;; Separate config var (inspectable, typed via Statechart defrecord)
+(def nrepl-server-statechart
+  (types/map->Statechart
+   {:id      :nrepl-server
+    :initial :stopped
+    :context {:server-map nil :host "localhost" :port nil ...}
+    :states
+    {:stopped  {:on {:start {:target  :starting
+                             :actions [(fsm/assign assign-config)]}}}
+     :starting {:on {:started {:target  :running
+                               :actions [(fsm/assign assign-server-info)]}
+                     :failed  {:target  :error
+                               :actions [(fsm/assign assign-error)]}}}
+     :running  {:on {:stop {:target :stopping}}}
+     :stopping {:on {:stopped {:target  :stopped
+                               :actions [(fsm/assign assign-stopped)]}
+                     :failed  {:target  :error
+                               :actions [(fsm/assign assign-error)]}}}
+     :error    {:on {:start {:target  :starting
+                             :actions [(fsm/assign assign-config)]}
+                     :reset {:target :stopped}}}}}))
 
-;; Compiled machine
-(def nrepl-server-machine
-  (fsm/machine nrepl-server-machine-config))
+;; Compiled machine (preserves Statechart type via assoc)
+(def nrepl-server-statechart-compiled
+  (fsm/machine nrepl-server-statechart))
 ```
 
 ---
@@ -437,7 +438,7 @@ Lifecycle functions should: transition → try effect → transition (success or
 
 ```bash
 # CLI validation with graph output
-bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
+bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled
 
 # Run analyzer tests
 bb test:statecharts    # 24 tests, 99 assertions
@@ -526,7 +527,7 @@ Every file that defines a statechart should include a validation test:
 ### CLI Output Example
 
 ```
-Validating: mcp-nrepl.state.local-nrepl-server/nrepl-server-machine
+Validating: mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled
 Machine: :nrepl-server (5 states, 8 edges)
 
 Graph:

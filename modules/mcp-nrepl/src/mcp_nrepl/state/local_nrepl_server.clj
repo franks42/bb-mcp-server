@@ -44,7 +44,7 @@
 ;; State Machine Definition
 ;; =============================================================================
 
-(def nrepl-server-machine-config
+(def nrepl-server-statechart
      "Configuration map for the nREPL server state machine.
    Inspectable at runtime — use this var to see states/transitions."
      (types/map->Statechart
@@ -74,7 +74,7 @@
                                 :actions [(fsm/assign assign-config)]}
                         :reset {:target :stopped}}}}}))
 
-(def nrepl-server-machine
+(def nrepl-server-statechart-compiled
      "Compiled state machine for local nREPL server lifecycle.
 
    States: stopped -> starting -> running -> stopping -> stopped
@@ -88,16 +88,16 @@
    - :stop    - Begin server shutdown (from :running)
    - :stopped - Server successfully stopped (from :stopping)
    - :reset   - Reset to stopped state (from :error)"
-     (fsm/machine nrepl-server-machine-config))
+     (fsm/machine nrepl-server-statechart))
 
 ;; =============================================================================
 ;; State Atom
 ;; =============================================================================
 
 (def !state
-     "State atom initialized from the nrepl-server-machine.
+     "State atom initialized from the nrepl-server-statechart-compiled.
    Contains :_state (current state keyword) plus context fields."
-     (atom (fsm/initialize nrepl-server-machine {:exec false})))
+     (atom (fsm/initialize nrepl-server-statechart-compiled {:exec false})))
 
 ;; =============================================================================
 ;; Port Extraction Utilities
@@ -130,7 +130,7 @@
    Returns the new state. Throws on invalid transition."
   [event]
   (let [from-state (:_state @!state)]
-    (swap! !state #(fsm/transition nrepl-server-machine % event))
+    (swap! !state #(fsm/transition nrepl-server-statechart-compiled % event))
     (let [to-state (:_state @!state)]
       (log/log! {:level :info :id ::transition
                  :msg (str "Transition: " (name from-state) " -> " (name to-state))
@@ -273,4 +273,4 @@
 (defn reset-state!
   "Reset state to initial values (for testing)."
   []
-  (reset! !state (fsm/initialize nrepl-server-machine {:exec false})))
+  (reset! !state (fsm/initialize nrepl-server-statechart-compiled {:exec false})))

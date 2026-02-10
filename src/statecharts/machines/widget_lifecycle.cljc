@@ -57,7 +57,7 @@
 ;; Machine Configuration (inspectable raw map)
 ;; =============================================================================
 
-(def widget-lifecycle-machine-config
+(def widget-lifecycle-statechart
      "Configuration map for the widget lifecycle state machine.
    Inspectable at runtime — use this var to see states/transitions."
      (types/map->Statechart
@@ -92,7 +92,7 @@
 ;; Compiled Machine
 ;; =============================================================================
 
-(def widget-lifecycle-machine
+(def widget-lifecycle-statechart-compiled
      "Compiled state machine for widget lifecycle.
 
    States: loading -> ready <-> refreshing
@@ -105,4 +105,4 @@
    - :invalidate    - Project data changed, re-fetch needed (from :ready)
    - :retry         - Retry after error (from :error)
    - :close         - Widget closed (from any active state)"
-     (fsm/machine widget-lifecycle-machine-config))
+     (fsm/machine widget-lifecycle-statechart))

@@ -134,7 +134,7 @@ bb test:module code-browser-v2   # 47 tests, 542 assertions
 bb test:module telemetry-db      # 16 tests, 35 assertions
 
 # Statechart validation
-bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-machine-config
+bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled
 
 # Start dev environment
 bb dev:cb-v2

@@ -61,14 +61,14 @@ The statechart becomes the **only writer** to the atom. Raw `swap!` calls that c
 ### After (single write gate)
 
 ```clojure
-(def widget-machine
-  (fsm/machine widget-lifecycle-machine-config))
+(def widget-lifecycle-statechart-compiled
+  (fsm/machine widget-lifecycle-statechart))
 
 (defn transition-widget! [widget-id event]
   (swap! !widgets update widget-id
          (fn [w]
            (when w
-             (fsm/transition widget-machine w event)))))
+             (fsm/transition widget-lifecycle-statechart-compiled w event)))))
 
 ;; One function replaces 5. Invalid transitions throw.
 ;; All context updates happen in assign actions (pure fns).
@@ -98,12 +98,12 @@ When multiple independent instances share a single atom (e.g., N widgets in one 
 
 ```clojure
 ;; One compiled machine, shared by all instances
-(def widget-machine
-  (fsm/machine widget-lifecycle-machine-config))
+(def widget-lifecycle-statechart-compiled
+  (fsm/machine widget-lifecycle-statechart))
 
 ;; Per-instance initialization
 (defn init-widget [widget-id widget-type uri]
-  (-> (fsm/initialize widget-machine {:exec false})
+  (-> (fsm/initialize widget-lifecycle-statechart-compiled {:exec false})
       (assoc :widget-id widget-id
              :widget-type widget-type
              :uri uri)))
@@ -113,7 +113,7 @@ When multiple independent instances share a single atom (e.g., N widgets in one 
   (swap! !widgets update widget-id
          (fn [w]
            (when w
-             (fsm/transition widget-machine w event)))))
+             (fsm/transition widget-lifecycle-statechart-compiled w event)))))
 
 ;; Open: add initialized instance to atom
 (defn open-widget! [widget-id widget-type uri]

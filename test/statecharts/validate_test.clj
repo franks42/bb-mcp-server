@@ -1,6 +1,6 @@
 (ns statecharts.validate-test
     "Tests for statechart static analyzer.
-   Uses both the real nrepl-server-machine and synthetic test machines."
+   Uses both the real nrepl-server-statechart-compiled and synthetic test machines."
     (:require [clojure.test :refer [deftest is testing]]
               [statecharts.core :as fsm]
               [statecharts.validate :as sut]
@@ -119,9 +119,9 @@
          (testing "extracts all states including unreachable"
                   (is (= #{:a :b :orphan} (sut/extract-states unreachable-machine))))
 
-         (testing "extracts states from nrepl-server-machine"
+         (testing "extracts states from nrepl-server-statechart-compiled"
                   (is (= #{:stopped :starting :running :stopping :error}
-                         (sut/extract-states nrepl-server/nrepl-server-machine)))))
+                         (sut/extract-states nrepl-server/nrepl-server-statechart-compiled)))))
 
 ;; =============================================================================
 ;; Edge Extraction Tests
@@ -134,8 +134,8 @@
                     (is (some #(and (= :idle (:source %)) (= :running (:target %)) (= :start (:event %))) edges))
                     (is (some #(and (= :running (:source %)) (= :idle (:target %)) (= :stop (:event %))) edges))))
 
-         (testing "extracts all edges from nrepl-server-machine"
-                  (let [edges (sut/extract-edges nrepl-server/nrepl-server-machine)]
+         (testing "extracts all edges from nrepl-server-statechart-compiled"
+                  (let [edges (sut/extract-edges nrepl-server/nrepl-server-statechart-compiled)]
       ;; stopped->starting, starting->running, starting->error,
       ;; running->stopping, stopping->stopped, stopping->error,
       ;; error->starting, error->stopped
@@ -152,9 +152,9 @@
          (testing "orphan state is unreachable"
                   (is (= #{:a :b} (sut/reachable-states unreachable-machine))))
 
-         (testing "all states reachable in nrepl-server-machine"
+         (testing "all states reachable in nrepl-server-statechart-compiled"
                   (is (= #{:stopped :starting :running :stopping :error}
-                         (sut/reachable-states nrepl-server/nrepl-server-machine)))))
+                         (sut/reachable-states nrepl-server/nrepl-server-statechart-compiled)))))
 
 ;; =============================================================================
 ;; Validation Check Tests
@@ -170,8 +170,8 @@
                     (is (= :orphan (:state (first issues))))
                     (is (= :error (:severity (first issues))))))
 
-         (testing "no unreachable states in nrepl-server-machine"
-                  (is (empty? (sut/find-unreachable nrepl-server/nrepl-server-machine)))))
+         (testing "no unreachable states in nrepl-server-statechart-compiled"
+                  (is (empty? (sut/find-unreachable nrepl-server/nrepl-server-statechart-compiled)))))
 
 (deftest find-dead-ends-test
          (testing "no dead ends in clean machine"
@@ -183,8 +183,8 @@
                     (is (= :final (:state (first issues))))
                     (is (= :warning (:severity (first issues))))))
 
-         (testing "no dead ends in nrepl-server-machine"
-                  (is (empty? (sut/find-dead-ends nrepl-server/nrepl-server-machine)))))
+         (testing "no dead ends in nrepl-server-statechart-compiled"
+                  (is (empty? (sut/find-dead-ends nrepl-server/nrepl-server-statechart-compiled)))))
 
 (deftest find-non-deterministic-test
          (testing "no non-determinism in clean machine"
@@ -200,15 +200,15 @@
          (testing "guarded transitions are not flagged"
                   (is (empty? (sut/find-non-deterministic guarded-machine))))
 
-         (testing "no non-determinism in nrepl-server-machine"
-                  (is (empty? (sut/find-non-deterministic nrepl-server/nrepl-server-machine)))))
+         (testing "no non-determinism in nrepl-server-statechart-compiled"
+                  (is (empty? (sut/find-non-deterministic nrepl-server/nrepl-server-statechart-compiled)))))
 
 (deftest find-orphans-test
          (testing "no orphans in clean machine"
                   (is (empty? (sut/find-orphans clean-machine))))
 
-         (testing "no orphans in nrepl-server-machine"
-                  (is (empty? (sut/find-orphans nrepl-server/nrepl-server-machine)))))
+         (testing "no orphans in nrepl-server-statechart-compiled"
+                  (is (empty? (sut/find-orphans nrepl-server/nrepl-server-statechart-compiled)))))
 
 (deftest find-self-only-test
          (testing "no self-only states in clean machine"
@@ -225,8 +225,8 @@
 ;; =============================================================================
 
 (deftest machine->graph-test
-         (testing "extracts graph from nrepl-server-machine"
-                  (let [graph (sut/machine->graph nrepl-server/nrepl-server-machine)]
+         (testing "extracts graph from nrepl-server-statechart-compiled"
+                  (let [graph (sut/machine->graph nrepl-server/nrepl-server-statechart-compiled)]
                     (is (= :stopped (:initial graph)))
                     (is (= :nrepl-server (:id graph)))
                     (is (= 5 (count (:states graph))))
@@ -245,9 +245,9 @@
                     (is (= 0 (:errors (:summary result))))
                     (is (= 0 (:warnings (:summary result)))))))
 
-(deftest validate-nrepl-server-machine-test
-         (testing "nrepl-server-machine passes validation"
-                  (let [result (sut/validate nrepl-server/nrepl-server-machine)]
+(deftest validate-nrepl-server-statechart-compiled-test
+         (testing "nrepl-server-statechart-compiled passes validation"
+                  (let [result (sut/validate nrepl-server/nrepl-server-statechart-compiled)]
                     (is (empty? (:errors result)))
                     (is (empty? (:warnings result)))
                     (is (= 5 (:states (:summary result))))
@@ -296,7 +296,7 @@
 
 (deftest check-error-recovery-test
          (testing "no issue when error state has recovery"
-                  (is (empty? (sut/check-error-recovery nrepl-server/nrepl-server-machine))))
+                  (is (empty? (sut/check-error-recovery nrepl-server/nrepl-server-statechart-compiled))))
 
          (testing "flags error state without recovery"
                   (let [issues (sut/check-error-recovery error-no-recovery-machine)]
@@ -313,12 +313,12 @@
                     (is (pos? (count issues)))
                     (is (some #(= :no-return-to-initial (:type %)) issues))))
 
-         (testing "nrepl-server-machine has full return paths"
-                  (is (empty? (sut/check-initial-return-path nrepl-server/nrepl-server-machine)))))
+         (testing "nrepl-server-statechart-compiled has full return paths"
+                  (is (empty? (sut/check-initial-return-path nrepl-server/nrepl-server-statechart-compiled)))))
 
 (deftest validate-conventions-in-nrepl-machine-test
-         (testing "nrepl-server-machine passes all convention checks"
-                  (let [result (sut/validate nrepl-server/nrepl-server-machine)]
+         (testing "nrepl-server-statechart-compiled passes all convention checks"
+                  (let [result (sut/validate nrepl-server/nrepl-server-statechart-compiled)]
                     (is (empty? (:conventions result)))
                     (is (= 0 (:conventions (:summary result)))))))
 
