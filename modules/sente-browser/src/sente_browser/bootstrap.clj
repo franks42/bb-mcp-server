@@ -422,6 +422,12 @@
         const uriCode = await uriResp.text();
         scittle.core.eval_string(uriCode);
 
+        status.textContent = 'Loading statechart types...';
+        const stResp = await fetch('/cljc/statecharts/types.cljc');
+        if (!stResp.ok) throw new Error('Failed to load types.cljc');
+        const stCode = await stResp.text();
+        scittle.core.eval_string(stCode);
+
         status.textContent = 'Loading widget lifecycle...';
         const wlResp = await fetch('/cljc/statecharts/machines/widget_lifecycle.cljc');
         if (!wlResp.ok) throw new Error('Failed to load widget_lifecycle.cljc');
