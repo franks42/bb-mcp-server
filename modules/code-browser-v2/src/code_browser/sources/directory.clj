@@ -84,14 +84,18 @@
 (defn- debounced-callback
   "Wrap callback with trailing-edge debounce.
    Returns [trigger-fn! scheduled-atom].
-   Calling trigger-fn! resets the timer. Callback fires after delay-ms of quiet."
+   Calling trigger-fn! resets the timer. Callback fires after delay-ms of quiet.
+   Thread-safe: uses locking to prevent concurrent trigger! calls from
+   racing on cancel+reset, which would allow multiple futures to escape."
   [callback delay-ms]
-  (let [!scheduled (atom nil)]
+  (let [!scheduled (atom nil)
+        lock (Object.)]
     [(fn trigger! [event]
-       (when-let [prev @!scheduled] (future-cancel prev))
-       (reset! !scheduled
-               (future (Thread/sleep delay-ms)
-                       (callback event))))
+       (locking lock
+                (when-let [prev @!scheduled] (future-cancel prev))
+                (reset! !scheduled
+                        (future (Thread/sleep delay-ms)
+                                (callback event)))))
      !scheduled]))
 
 ;;; ---------------------------------------------------------------------------

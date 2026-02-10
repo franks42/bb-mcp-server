@@ -37,6 +37,12 @@
                 :auto-scan? true
                 :watch-handles []}))
 
+(defonce ^{:doc "Per-file locks to serialize concurrent rescans of the same file.
+   Prevents race conditions where parallel retract/transact operations
+   on the same file path interleave and produce empty results."}
+ !rescan-locks
+         (atom {}))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Initialization Helpers
 ;;; ---------------------------------------------------------------------------
@@ -243,56 +249,68 @@
 (defn rescan-file!
   "Re-scan a single file and update the database and browser view.
    Much faster than full project rescan (~50ms vs ~2s).
-   For deleted files, only retracts entities without scanning."
+   For deleted files, only retracts entities without scanning.
+   Serialized per file path to prevent concurrent retract/transact races."
   [project-name source file-path event-type]
-  (let [start-ms (System/currentTimeMillis)
-        abs-path (str file-path)
-        rel-path (str (fs/relativize (:root-path source) file-path))]
-    (log/log! {:level :info
-               :id ::rescan-file
-               :msg "Re-scanning file after change"
-               :data {:file rel-path
-                      :event-type event-type
-                      :project project-name}})
-    (when-let [db (handlers/get-db)]
-      ;; Find existing namespace names for this file (before retraction)
-      ;; Try both abs and rel paths since full scan stores absolute paths
-              (let [old-ns-names (into
-                                  (find-ns-names-for-file db abs-path project-name)
-                                  (find-ns-names-for-file db rel-path project-name))]
-                (if (= event-type :deleted)
-          ;; Deleted file: retract only, no scan
-                  (do
-                   (retract-file-entities! db abs-path old-ns-names project-name)
-                   (retract-file-entities! db rel-path old-ns-names project-name)
-                   (log/log! {:level :info
-                              :id ::rescan-file-deleted
-                              :msg "Retracted entities for deleted file"
-                              :data {:file rel-path
-                                     :project project-name}}))
-          ;; Changed/created file: scan, retract old, transact new
-                  (when-let [scan-result (dir-source/scan-file source file-path)]
-                            (let [all-ns-names (into old-ns-names
-                                                     (:affected-ns-names scan-result))]
-              ;; Retract old entities (both path forms)
-                              (retract-file-entities! db abs-path all-ns-names project-name)
-                              (retract-file-entities! db rel-path all-ns-names project-name)
-              ;; Transact new entities
-                              (transact-file-entities! db scan-result))))
-        ;; Refresh browser and broadcast
-                (refresh-browser-view!)
-                (let [n (sente-server/broadcast-to-browsers!
-                         [:code-browser-v2/invalidate
-                          {:project project-name}])]
-                  (log/log! {:level :info
-                             :id ::rescan-file-complete
-                             :msg "File re-scan complete"
-                             :data {:file rel-path
-                                    :event-type event-type
-                                    :project project-name
-                                    :browsers-notified n
-                                    :elapsed-ms (- (System/currentTimeMillis)
-                                                   start-ms)}}))))))
+  (let [abs-path (str file-path)
+        lock (-> (swap! !rescan-locks update abs-path
+                        #(or % (Object.)))
+                 (get abs-path))]
+    (locking lock
+             (let [start-ms (System/currentTimeMillis)
+                   rel-path (str (fs/relativize (:root-path source) file-path))]
+               (log/log! {:level :info
+                          :id ::rescan-file
+                          :msg "Re-scanning file after change"
+                          :data {:file rel-path
+                                 :event-type event-type
+                                 :project project-name}})
+               ;; Verify actual file state: atomic writes (e.g. editors, Claude
+               ;; Code Edit tool) emit :remove then :create events. If the debounce
+               ;; captures :remove as the last event but the file exists on disk,
+               ;; treat it as :changed instead of :deleted.
+               (let [actual-event-type (if (and (= event-type :deleted)
+                                                (fs/exists? abs-path))
+                                         (do
+                                          (log/log! {:level :info
+                                                     :id ::rescan-file-corrected
+                                                     :msg "File reported deleted but exists on disk, treating as changed"
+                                                     :data {:file rel-path
+                                                            :project project-name}})
+                                          :changed)
+                                         event-type)]
+                 (when-let [db (handlers/get-db)]
+                           (let [old-ns-names (into
+                                               (find-ns-names-for-file db abs-path project-name)
+                                               (find-ns-names-for-file db rel-path project-name))]
+                             (if (= actual-event-type :deleted)
+                               (do
+                                (retract-file-entities! db abs-path old-ns-names project-name)
+                                (retract-file-entities! db rel-path old-ns-names project-name)
+                                (log/log! {:level :info
+                                           :id ::rescan-file-deleted
+                                           :msg "Retracted entities for deleted file"
+                                           :data {:file rel-path
+                                                  :project project-name}}))
+                               (when-let [scan-result (dir-source/scan-file source file-path)]
+                                         (let [all-ns-names (into old-ns-names
+                                                                  (:affected-ns-names scan-result))]
+                                           (retract-file-entities! db abs-path all-ns-names project-name)
+                                           (retract-file-entities! db rel-path all-ns-names project-name)
+                                           (transact-file-entities! db scan-result)))))
+                           (refresh-browser-view!)
+                           (let [n (sente-server/broadcast-to-browsers!
+                                    [:code-browser-v2/invalidate
+                                     {:project project-name}])]
+                             (log/log! {:level :info
+                                        :id ::rescan-file-complete
+                                        :msg "File re-scan complete"
+                                        :data {:file rel-path
+                                               :event-type actual-event-type
+                                               :project project-name
+                                               :browsers-notified n
+                                               :elapsed-ms (- (System/currentTimeMillis)
+                                                              start-ms)}}))))))))
 
 (defn rescan-project!
   "Re-scan a project source and update the database and browser view.

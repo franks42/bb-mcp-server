@@ -162,6 +162,7 @@ bb lint-fix <file>          # Lint, auto-fix parens if needed, re-lint
 11. **E2E tests** - Use `bb test:e2e` to run real protocol tests (requires running server with `--nickname e2e-test`)
 12. **Action-dispatch pattern** - For new event handlers, prefer pure functions returning action data over direct I/O. See `docs/NEXUS_PATTERN_REFERENCE.md` for the Nexus-inspired pattern guide
 13. **Statecharts for lifecycles** - For modules with explicit state/status atoms, consider formalizing with clj-statecharts (BB + Scittle compatible fork at `../clj-statecharts-bb-scittle`). See `docs/STATECHARTS_REFERENCE.md`
+14. **Browser testing: Playwright MCP tools ONLY** - For ALL browser/E2E testing, use the Playwright MCP tools (`mcp__playwright__browser_navigate`, `browser_snapshot`, `browser_click`, `browser_run_code`, `browser_evaluate`, etc.). NEVER install npx packages, create TypeScript test files, or use `npx playwright` CLI. The MCP tools provide interactive, real-time browser automation directly from your conversation.
 
 ---
 

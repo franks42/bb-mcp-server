@@ -5,8 +5,8 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-09
-**Version:** v1.24.0 (post `bd16e44`)
-**Focus:** Statecharts driving both sides of the sente-lite WebSocket channel
+**Version:** v1.25.0 (post `7f2c6df`)
+**Focus:** File watcher robustness fixes — race conditions, phantom deletions
 
 ---
 
@@ -14,7 +14,17 @@
 
 ### Committed & Pushed
 
-1. **Per-connection server statechart** (v1.24.0, `bd16e44`):
+1. **File watcher race condition fixes** (v1.25.0):
+   - Thread-safe debounce: `locking` around cancel+reset in `debounced-callback` (directory.clj)
+   - Per-file serialization: `!rescan-locks` atom prevents concurrent retract/transact (core.clj)
+   - Phantom deletion correction: `fs/exists?` check before treating `:remove` as deleted (core.clj)
+   - Root cause found via telemetry: 4 concurrent rescans for same file, interleaved retract/transact → 0 symbols
+   - "." project name fix: `fs/normalize` in `get-project-name` and `create-directory-source` (directory.clj)
+   - Project deduplication in `query-projects` (handlers.clj)
+   - URI decode from browser hash: `js/decodeURIComponent` for spaces in dir names (code_browser_v2.cljs)
+   - Tests: 47 tests, 542 assertions
+
+2. **Per-connection server statechart** (v1.24.0, `bd16e44`):
    - `sente_browser/server.clj` — 4 states, 5 transitions per browser WebSocket connection
      (pending-validation→validated→disconnected, with validation-failed branch)
    - Replaces implicit `:status` keyword FSM with formal `clj-statecharts` machine instances
@@ -98,10 +108,17 @@ Browser: code_browser_v2.cljs receives invalidation
 
 ### What's NOT done yet (future PRs)
 
-1. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
-2. **Browser log viewer** — UI widget for browsing telemetry in browser
-3. **Git status display** — show modified/staged files in code browser
-4. **JAR/GitHub source adapters** — browse dependencies
+1. **Statechart write gate** — Wire `widget_lifecycle.cljc` as write gate for `!widgets` r/atom (Step 2 of plan)
+2. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
+3. **Browser log viewer** — UI widget for browsing telemetry in browser
+4. **Git status display** — show modified/staged files in code browser
+5. **JAR/GitHub source adapters** — browse dependencies
+
+### Browser Testing Policy
+
+**ALWAYS use Playwright MCP tools** (`mcp__playwright__browser_*`) for browser/E2E testing.
+**NEVER** install npx packages, create TypeScript test files, or use `npx playwright` CLI.
+The MCP tools provide interactive, real-time browser automation directly from the conversation.
 
 ---
 
@@ -112,7 +129,7 @@ Browser: code_browser_v2.cljs receives invalidation
 bb test:module sente-browser     # 24 tests, 62 assertions (server statechart)
 bb test:statecharts              # 19 tests, 69 assertions (validate analyzer)
 bb test:nrepl                    # 70 tests, 275 assertions (includes machine validation)
-bb test:module code-browser-v2   # 34 tests, 494 assertions
+bb test:module code-browser-v2   # 47 tests, 542 assertions
 bb test:module telemetry-db      # 16 tests, 35 assertions
 
 # Statechart validation
@@ -130,11 +147,12 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
+7f2c6df fix: "." project name bug + spaces in dir names + project deduplication
+2db3240 fix: Make Datalevin queries version-agnostic for stale hash resilience
+95f9a1c docs: Add statechart-as-write-gate pattern for Reagent apps
+b92b8d8 feat: Add widget lifecycle statechart for documentation and validation
+8ca7d3a refactor: Extract explicit widget :status field + centralized mutation helpers
 bd16e44 feat: Add per-connection statechart to server-side browser management
-e1fba2a feat: Add statechart connection lifecycle to browser + telemetry instrumentation
-50b1bad refactor: Extract inline Scittle code from bootstrap.clj to .cljs files
-70a759f docs: Add state management best practices to Clojure expert context
-e3cbd0b feat: Add convention checks to statechart analyzer
 ```
 
 ---

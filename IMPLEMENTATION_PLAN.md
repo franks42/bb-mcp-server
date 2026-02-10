@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.24.0 — Statecharts driving both sides of sente-lite WebSocket channel
+**Status:** v1.25.0 — File watcher robustness (race conditions, phantom deletions)
 **Last Updated:** 2026-02-09
 
 ---
@@ -13,6 +13,7 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.25.0 | TBD | File watcher robustness: thread-safe debounce, per-file locks, phantom deletion fix |
 | v1.24.0 | `bd16e44` | Statecharts on both sides of sente-lite WebSocket (server + browser) |
 | v1.23.0 | `e1fba2a` | Browser connection statechart (6 states, 9 transitions) + telemetry |
 | v1.22.1 | `e3cbd0b` | Convention checks (`:id`, `:context`, error recovery, return path) + docs |
@@ -159,7 +160,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | R3.4 | File watching / cache invalidation / live refresh | ✅ Done |
 | R3.5 | Git status display | **Pending** |
 
-**Tests:** 34 tests, 494 assertions passing (`bb test:module code-browser-v2`)
+**Tests:** 47 tests, 542 assertions passing (`bb test:module code-browser-v2`)
 
 #### Browser UI Enhancements (v1.15–v1.16) ✅ COMPLETE
 
