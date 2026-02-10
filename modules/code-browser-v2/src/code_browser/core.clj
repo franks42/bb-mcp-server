@@ -255,10 +255,19 @@
   (let [abs-path (str file-path)
         lock (-> (swap! !rescan-locks update abs-path
                         #(or % (Object.)))
-                 (get abs-path))]
+                 (get abs-path))
+        wait-start (System/currentTimeMillis)]
     (locking lock
-             (let [start-ms (System/currentTimeMillis)
+             (let [lock-wait-ms (- (System/currentTimeMillis) wait-start)
+                   start-ms (System/currentTimeMillis)
                    rel-path (str (fs/relativize (:root-path source) file-path))]
+               (when (> lock-wait-ms 5)
+                 (log/log! {:level :info
+                            :id ::rescan-file-lock-wait
+                            :msg "Waited for per-file rescan lock"
+                            :data {:file rel-path
+                                   :project project-name
+                                   :wait-ms lock-wait-ms}}))
                (log/log! {:level :info
                           :id ::rescan-file
                           :msg "Re-scanning file after change"
@@ -282,35 +291,43 @@
                  (when-let [db (handlers/get-db)]
                            (let [old-ns-names (into
                                                (find-ns-names-for-file db abs-path project-name)
-                                               (find-ns-names-for-file db rel-path project-name))]
-                             (if (= actual-event-type :deleted)
-                               (do
-                                (retract-file-entities! db abs-path old-ns-names project-name)
-                                (retract-file-entities! db rel-path old-ns-names project-name)
-                                (log/log! {:level :info
-                                           :id ::rescan-file-deleted
-                                           :msg "Retracted entities for deleted file"
-                                           :data {:file rel-path
-                                                  :project project-name}}))
-                               (when-let [scan-result (dir-source/scan-file source file-path)]
-                                         (let [all-ns-names (into old-ns-names
-                                                                  (:affected-ns-names scan-result))]
-                                           (retract-file-entities! db abs-path all-ns-names project-name)
-                                           (retract-file-entities! db rel-path all-ns-names project-name)
-                                           (transact-file-entities! db scan-result)))))
-                           (refresh-browser-view!)
-                           (let [n (sente-server/broadcast-to-browsers!
-                                    [:code-browser-v2/invalidate
-                                     {:project project-name}])]
-                             (log/log! {:level :info
-                                        :id ::rescan-file-complete
-                                        :msg "File re-scan complete"
-                                        :data {:file rel-path
-                                               :event-type actual-event-type
-                                               :project project-name
-                                               :browsers-notified n
-                                               :elapsed-ms (- (System/currentTimeMillis)
-                                                              start-ms)}}))))))))
+                                               (find-ns-names-for-file db rel-path project-name))
+                                 entity-counts
+                                 (if (= actual-event-type :deleted)
+                                   (do
+                                    (retract-file-entities! db abs-path old-ns-names project-name)
+                                    (retract-file-entities! db rel-path old-ns-names project-name)
+                                    (log/log! {:level :info
+                                               :id ::rescan-file-deleted
+                                               :msg "Retracted entities for deleted file"
+                                               :data {:file rel-path
+                                                      :project project-name}})
+                                    {:retracted true})
+                                   (when-let [scan-result (dir-source/scan-file source file-path)]
+                                             (let [all-ns-names (into old-ns-names
+                                                                      (:affected-ns-names scan-result))]
+                                               (retract-file-entities! db abs-path all-ns-names project-name)
+                                               (retract-file-entities! db rel-path all-ns-names project-name)
+                                               (transact-file-entities! db scan-result)
+                                               {:namespaces (count (:namespaces scan-result))
+                                                :symbols (count (:symbols scan-result))
+                                                :aliases (count (:aliases scan-result))
+                                                :refers (count (:refers scan-result))})))]
+                             (refresh-browser-view!)
+                             (let [n (sente-server/broadcast-to-browsers!
+                                      [:code-browser-v2/invalidate
+                                       {:project project-name}])]
+                               (log/log! {:level :info
+                                          :id ::rescan-file-complete
+                                          :msg "File re-scan complete"
+                                          :data (merge
+                                                 {:file rel-path
+                                                  :event-type actual-event-type
+                                                  :project project-name
+                                                  :browsers-notified n
+                                                  :elapsed-ms (- (System/currentTimeMillis)
+                                                                 start-ms)}
+                                                 entity-counts)})))))))))
 
 (defn rescan-project!
   "Re-scan a project source and update the database and browser view.

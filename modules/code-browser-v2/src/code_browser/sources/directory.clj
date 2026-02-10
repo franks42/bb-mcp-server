@@ -86,16 +86,27 @@
    Returns [trigger-fn! scheduled-atom].
    Calling trigger-fn! resets the timer. Callback fires after delay-ms of quiet.
    Thread-safe: uses locking to prevent concurrent trigger! calls from
-   racing on cancel+reset, which would allow multiple futures to escape."
+   racing on cancel+reset, which would allow multiple futures to escape.
+   Tracks coalesced event count for telemetry."
   [callback delay-ms]
   (let [!scheduled (atom nil)
+        !coalesced (atom 0)
         lock (Object.)]
     [(fn trigger! [event]
        (locking lock
+                (swap! !coalesced inc)
                 (when-let [prev @!scheduled] (future-cancel prev))
                 (reset! !scheduled
                         (future (Thread/sleep delay-ms)
-                                (callback event)))))
+                                (let [coalesced (dec @!coalesced)]
+                                  (reset! !coalesced 0)
+                                  (log/log! {:level :debug
+                                             :id ::debounce-fired
+                                             :msg "Debounce timer fired"
+                                             :data {:path (:path event)
+                                                    :type (:type event)
+                                                    :coalesced coalesced}})
+                                  (callback event))))))
      !scheduled]))
 
 ;;; ---------------------------------------------------------------------------

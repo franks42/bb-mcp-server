@@ -126,8 +126,10 @@
   (let [before (:_state (get @!browser-connections sente-conn-id))]
     (swap! !browser-connections update sente-conn-id
            #(fsm/transition browser-connection-machine % event))
-    (let [after (:_state (get @!browser-connections sente-conn-id))]
-      (log/log! {:level :info :id ::conn-transition
+    (let [after (:_state (get @!browser-connections sente-conn-id))
+          self-transition? (= before after)]
+      (log/log! {:level (if self-transition? :debug :info)
+                 :id ::conn-transition
                  :msg (str "Connection " (name before) " -> " (name after))
                  :data {:sente-conn-id sente-conn-id
                         :from before :to after
