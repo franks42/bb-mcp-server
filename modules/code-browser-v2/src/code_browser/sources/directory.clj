@@ -42,9 +42,10 @@
           nil)))
 
 (defn- get-project-name
-  "Extract project name from directory path."
+  "Extract project name from directory path.
+   Normalizes to resolve . and .. segments before extracting."
   [dir]
-  (fs/file-name dir))
+  (str (fs/file-name (fs/normalize dir))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; File Watching Helpers
@@ -415,7 +416,7 @@
   ([root-path]
    (create-directory-source root-path {}))
   ([root-path {:keys [version project-name]}]
-   (let [abs-path (str (fs/absolutize root-path))
+   (let [abs-path (str (fs/normalize (fs/absolutize root-path)))
          proj-name (or project-name (get-project-name abs-path))
          ver (or version (get-git-sha abs-path) "local")
          uri-base (uri/build {:source :dir :project proj-name :version ver})

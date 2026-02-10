@@ -969,7 +969,8 @@
   []
   (.addEventListener js/window "hashchange"
                      (fn [_e]
-                       (let [hash (subs (.-hash js/window.location) 1)] ;; strip #
+                       (let [hash (js/decodeURIComponent
+                                   (subs (.-hash js/window.location) 1))] ;; strip #
                          (when (and (not (str/blank? hash))
                                     (uri/valid? hash))
                            (log/log! {:level :info :id ::hash-navigation
@@ -1008,7 +1009,7 @@
   []
   (setup-hash-routing!)
   (bootstrap/mount-root! [main-panel])
-  (let [hash (subs (.-hash js/window.location) 1)]
+  (let [hash (js/decodeURIComponent (subs (.-hash js/window.location) 1))]
     (if (and (not (str/blank? hash)) (uri/valid? hash))
       ;; Restore from hash
       (open-widget-chain-for-uri! hash)

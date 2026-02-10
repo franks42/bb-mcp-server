@@ -208,6 +208,27 @@
                     (is (= 1 (count (:data result))))
                     (is (= "test-proj" (:uri/project (first (:data result))))))))
 
+(deftest project-list-dedup-test
+         (testing ":project-list deduplicates projects with same :uri/project"
+                  (proto/transact! *test-db*
+                                   [{:uri/string "dir://test-proj@v1"
+                                     :uri/source :dir
+                                     :uri/project "test-proj"
+                                     :uri/version "v1"
+                                     :uri/version-type :static
+                                     :project/root-path "/tmp/test"}
+                                    {:uri/string "dir://test-proj@v2"
+                                     :uri/source :dir
+                                     :uri/project "test-proj"
+                                     :uri/version "v2"
+                                     :uri/version-type :static
+                                     :project/root-path "/tmp/test"}])
+                  (let [result (handlers/handle-fetch
+                                {:uri nil :property :project-list})]
+                    (is (:success result))
+                    (is (= 1 (count (:data result)))
+                        "Should deduplicate by :uri/project name"))))
+
 (deftest handle-fetch-no-db-test
          (testing "Returns error when no database configured"
                   (handlers/set-db! nil)

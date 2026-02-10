@@ -67,6 +67,32 @@
                   (is (not (uri/valid? "http://example.com")))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Special Character Tests
+;;; ---------------------------------------------------------------------------
+
+(deftest parse-project-with-spaces-test
+         (testing "Project names with spaces parse correctly"
+                  (let [result (uri/parse "dir://My Project@abc123")]
+                    (is (= "My Project" (:uri/project result)))
+                    (is (= "abc123" (:uri/version result)))))
+
+         (testing "Round-trip: build then parse preserves spaces"
+                  (let [uri (uri/build {:source :dir :project "My Project" :version "v1"
+                                        :namespace "my.ns" :symbol "my-fn"})
+                        parsed (uri/parse uri)]
+                    (is (= "My Project" (:uri/project parsed)))
+                    (is (= "my.ns" (:uri/namespace parsed)))
+                    (is (= "my-fn" (:uri/symbol parsed))))))
+
+(deftest parse-project-with-special-chars-test
+         (testing "Project names with hyphens and dots"
+                  (is (= "my-project.v2"
+                         (:uri/project (uri/parse "dir://my-project.v2@abc")))))
+         (testing "Project names with underscores"
+                  (is (= "my_project"
+                         (:uri/project (uri/parse "dir://my_project@abc"))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Build Tests
 ;;; ---------------------------------------------------------------------------
 

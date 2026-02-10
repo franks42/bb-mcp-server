@@ -48,7 +48,7 @@
 ;;; ---------------------------------------------------------------------------
 
 (defn- query-projects
-  "Query all projects from Datalevin."
+  "Query all projects from Datalevin, deduplicated by :uri/project name."
   [db]
   (when db
     (let [results (db-proto/q db
@@ -58,6 +58,11 @@
       (->> results
            (map first)
            (sort-by :uri/project)
+           (reduce (fn [acc p]
+                     (if (= (:uri/project (peek acc)) (:uri/project p))
+                       acc
+                       (conj acc p)))
+                   [])
            vec))))
 
 (defn- query-namespaces
