@@ -5,8 +5,8 @@
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
 **Last Updated:** 2026-02-09
-**Version:** v1.25.0 (post `7f2c6df`)
-**Focus:** File watcher robustness fixes — race conditions, phantom deletions
+**Version:** v1.25.0 (stable)
+**Focus:** File watcher robustness + telemetry observability
 
 ---
 
@@ -14,22 +14,23 @@
 
 ### Committed & Pushed
 
-1. **File watcher race condition fixes** (v1.25.0):
-   - Thread-safe debounce: `locking` around cancel+reset in `debounced-callback` (directory.clj)
-   - Per-file serialization: `!rescan-locks` atom prevents concurrent retract/transact (core.clj)
-   - Phantom deletion correction: `fs/exists?` check before treating `:remove` as deleted (core.clj)
-   - Root cause found via telemetry: 4 concurrent rescans for same file, interleaved retract/transact → 0 symbols
-   - "." project name fix: `fs/normalize` in `get-project-name` and `create-directory-source` (directory.clj)
-   - Project deduplication in `query-projects` (handlers.clj)
-   - URI decode from browser hash: `js/decodeURIComponent` for spaces in dir names (code_browser_v2.cljs)
-   - Tests: 47 tests, 542 assertions
+1. **File watcher robustness + telemetry** (v1.25.0, stable):
+   - **3 race condition fixes**: thread-safe debounce (`locking`), per-file serialization (`!rescan-locks`), phantom deletion correction (`fs/exists?` check)
+   - **Enhanced telemetry**: debounce coalescing counter, entity counts in rescan-complete, lock contention logging
+   - **Heartbeat noise elimination**: self-transitions silenced entirely; only absence (timeout) logged
+   - **"." project name fix**: `fs/normalize` in directory.clj
+   - **Project deduplication**: sorted-reduce in handlers.clj
+   - **URI decode**: `js/decodeURIComponent` for spaces in browser hash
+   - Root cause found via telemetry: 4 concurrent rescans interleaved → 0 symbols
+   - E2E verified: rapid edits, live file watching, heartbeat timeout detection
+   - Tests: 47 tests, 542 assertions (code-browser-v2), 24 tests, 62 assertions (sente-browser)
 
 2. **Per-connection server statechart** (v1.24.0, `bd16e44`):
    - `sente_browser/server.clj` — 4 states, 5 transitions per browser WebSocket connection
      (pending-validation→validated→disconnected, with validation-failed branch)
    - Replaces implicit `:status` keyword FSM with formal `clj-statecharts` machine instances
    - Per-connection instances in `!browser-connections` atom (`:_state` replaces `:status`)
-   - `conn-transition!` helper with telemetry on every state change
+   - `conn-transition!` helper with telemetry on state changes (self-transitions silenced in v1.25.0)
    - `validated?` and `get-connection-state` query helpers replace 7 repeated guards
    - Heartbeat pong self-transition updates `:last-heartbeat` via `fsm/assign`
    - Heartbeat timeout fires `:heartbeat-timeout` FSM event (not direct disconnect)
@@ -147,7 +148,10 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
-7f2c6df fix: "." project name bug + spaces in dir names + project deduplication
+a55d8e5 fix: Eliminate heartbeat noise from telemetry — log absence, not presence
+fa4febe feat: Enhanced file watcher telemetry for faster debugging
+9b184fc fix: File watcher race conditions causing "0 symbols" after rapid edits
+7f2c6df fix: Normalize "." project name and deduplicate project list
 2db3240 fix: Make Datalevin queries version-agnostic for stale hash resilience
 95f9a1c docs: Add statechart-as-write-gate pattern for Reagent apps
 b92b8d8 feat: Add widget lifecycle statechart for documentation and validation
