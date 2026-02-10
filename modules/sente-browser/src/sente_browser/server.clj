@@ -126,14 +126,17 @@
   (let [before (:_state (get @!browser-connections sente-conn-id))]
     (swap! !browser-connections update sente-conn-id
            #(fsm/transition browser-connection-machine % event))
-    (let [after (:_state (get @!browser-connections sente-conn-id))
-          self-transition? (= before after)]
-      (log/log! {:level (if self-transition? :debug :info)
-                 :id ::conn-transition
-                 :msg (str "Connection " (name before) " -> " (name after))
-                 :data {:sente-conn-id sente-conn-id
-                        :from before :to after
-                        :event (:type event)}}))))
+    (let [after (:_state (get @!browser-connections sente-conn-id))]
+      ;; Only log actual state changes, not self-transitions (e.g. heartbeat-pong).
+      ;; Heartbeat health is observed via its absence (::stale-connections-detected),
+      ;; not its presence — logging every successful pong is pure noise.
+      (when (not= before after)
+        (log/log! {:level :info
+                   :id ::conn-transition
+                   :msg (str "Connection " (name before) " -> " (name after))
+                   :data {:sente-conn-id sente-conn-id
+                          :from before :to after
+                          :event (:type event)}})))))
 
 ;; =============================================================================
 ;; Per-Connection State Machine - Query Helpers
