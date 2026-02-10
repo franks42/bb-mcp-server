@@ -6,8 +6,8 @@
    spawn a new widget for the resulting URI.
 
    Widget model:
-   - !widgets atom: {widget-id {:id :type :uri :data :status :error :filter}}
-   - :status is one of :loading, :ready, :error, :refreshing
+   - !widgets atom: {widget-id {:id :type :uri :data :_state :error :filter}}
+   - :_state is managed by statechart (loading, ready, refreshing, error, closed)
    - Each widget fetches data via :code-browser-v2/fetch event
    - Server responds with data, widget manager stores in :data
    - Clicking an item opens a new widget for the child URI
@@ -24,6 +24,8 @@
               [code-browser.bootstrap :as bootstrap]
               [code-browser.uri :as uri]
               [scittle-cm6 :as cm6]
+              [statecharts.core :as fsm]
+              [statecharts.machines.widget-lifecycle :as wl]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -95,38 +97,28 @@
   (keyword (str "w" (swap! !widget-counter inc))))
 
 ;; =============================================================================
-;; Widget Mutation Helpers
+;; Statechart Write Gate
 ;; =============================================================================
 
-(defn- make-widget
-  "Pure constructor — returns a new widget map with :status :loading."
-  [widget-id widget-type uri]
-  {:id widget-id :type widget-type :uri uri
-   :data nil :status :loading :error nil :filter ""})
-
-(defn- set-widget-loading!
-  "Transition to :loading (first fetch) or :refreshing (has data)."
-  [widget-id]
+(defn- transition-widget!
+  "Apply a statechart transition to a widget.
+   This is the ONLY function that changes widget lifecycle state.
+   Invalid transitions are silently ignored (widget may already be closed)."
+  [widget-id event]
   (swap! !widgets update widget-id
          (fn [w]
-           (if (:data w)
-             (assoc w :status :refreshing)
-             (assoc w :status :loading)))))
+           (when w
+             (fsm/transition wl/widget-lifecycle-machine w event)))))
 
-(defn- set-widget-ready!
-  "Transition to :ready with new data, clear error."
-  [widget-id data]
-  (swap! !widgets update widget-id
-         assoc :data data :status :ready :error nil))
-
-(defn- set-widget-error!
-  "Transition to :error with message."
-  [widget-id error-msg]
-  (swap! !widgets update widget-id
-         assoc :status :error :error error-msg))
+(defn- init-widget
+  "Create a new widget in :loading state via statechart initialization.
+   Merges widget-specific config into the statechart's initial context."
+  [widget-id widget-type uri]
+  (-> (fsm/initialize wl/widget-lifecycle-machine)
+      (assoc :id widget-id :type widget-type :uri uri :filter "")))
 
 (defn- update-widget-filter!
-  "Update filter text for a widget."
+  "Update filter text for a widget. Not a lifecycle concern — bypasses statechart."
   [widget-id text]
   (swap! !widgets assoc-in [widget-id :filter] text))
 
@@ -235,7 +227,6 @@
                      :deps :deps
                      :callers :callers
                      nil))]
-    (set-widget-loading! widget-id)
     (log/log! {:level :info :id ::fetch-requested
                :msg "Fetch requested"
                :data {:widget-id widget-id :type widget-type :uri uri
@@ -285,7 +276,7 @@
           existing)
       ;; Create new widget
       (let [wid (next-widget-id)]
-        (swap! !widgets assoc wid (make-widget wid effective-type full-uri))
+        (swap! !widgets assoc wid (init-widget wid effective-type full-uri))
         (reset! !focused-widget wid)
         ;; Update hash to reflect focused widget
         (when full-uri
@@ -310,6 +301,7 @@
                :data {:widget-id widget-id
                       :type (:type widget-info)
                       :uri (:uri widget-info)}}))
+  (transition-widget! widget-id {:type :close})
   (when-let [wb (get @!winbox-instances widget-id)]
             (swap! !winbox-instances dissoc widget-id)
             (try (.close wb) (catch js/Error _e nil)))
@@ -345,7 +337,7 @@
         wid (keyword (str (name widget-id)))]
     (if success
       (do
-       (set-widget-ready! wid (:data data))
+       (transition-widget! wid {:type :fetch-success :data (:data data)})
        (log/log! {:level :info :id ::fetch-success
                   :msg "Fetch response received"
                   :data {:widget-id wid
@@ -362,7 +354,8 @@
                     (fit-to-content! wid wb)))
         100))
       (do
-       (set-widget-error! wid (or error "Unknown error"))
+       (transition-widget! wid {:type :fetch-error
+                                :error (or error "Unknown error")})
        (log/log! {:level :error :id ::fetch-error
                   :msg "Fetch failed"
                   :data {:widget-id wid :error (or error "Unknown error")}})))))
@@ -384,6 +377,7 @@
                :data {:project project
                       :affected-count (count affected)}})
     (doseq [[wid _w] affected]
+           (transition-widget! wid {:type :invalidate})
            (refresh-widget! wid))))
 
 ;; Register event handler for fetch responses and invalidation
@@ -704,14 +698,14 @@
   (let [widget (get @!widgets widget-id)]
     [:div.winbox-widget-body
      [uri-breadcrumb widget-id (:uri widget)]
-     (case (:status widget)
+     (case (:_state widget)
        :loading    [:div.loading-overlay [:div.spinner]]
        :refreshing [:<>
                     [:div.refreshing-indicator]
                     [render-widget-content widget-id widget]]
        :error      [:div.error-banner [:span (:error widget)]]
        :ready      [render-widget-content widget-id widget]
-       ;; fallback for nil or unknown status
+       ;; fallback for nil, :closed, or unknown state
        [:div.loading-overlay [:div.spinner]])]))
 
 (defn- measure-content-size

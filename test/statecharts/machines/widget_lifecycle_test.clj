@@ -34,8 +34,8 @@
 
          (testing "initial context has expected defaults"
                   (let [state (init-state)]
-                    (is (nil? (:widget-id state)))
-                    (is (nil? (:widget-type state)))
+                    (is (nil? (:id state)))
+                    (is (nil? (:type state)))
                     (is (nil? (:uri state)))
                     (is (nil? (:data state)))
                     (is (nil? (:error state)))
@@ -437,13 +437,13 @@
 
 (deftest assign-widget-config-test
          (testing "stores widget configuration"
-                  (let [ctx {:widget-id nil :widget-type nil :uri nil :version-hash nil}
-                        result (sut/assign-widget-config ctx {:widget-id :w1
-                                                              :widget-type :ns-list
+                  (let [ctx {:id nil :type nil :uri nil :version-hash nil}
+                        result (sut/assign-widget-config ctx {:id :w1
+                                                              :type :ns-list
                                                               :uri "dir://.@abc/echo"
                                                               :version-hash "abc"})]
-                    (is (= :w1 (:widget-id result)))
-                    (is (= :ns-list (:widget-type result)))
+                    (is (= :w1 (:id result)))
+                    (is (= :ns-list (:type result)))
                     (is (= "dir://.@abc/echo" (:uri result)))
                     (is (= "abc" (:version-hash result))))))
 

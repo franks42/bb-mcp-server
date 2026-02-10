@@ -6,10 +6,11 @@
 
 (def test-namespaces
      "List of test namespaces to run."
-     '[statecharts.validate-test])
+     '[statecharts.validate-test
+       statecharts.machines.widget-lifecycle-test])
 
 (println "=" (apply str (repeat 60 "=")))
-(println "Running Statecharts Validate Tests")
+(println "Running Statecharts Tests")
 (println "=" (apply str (repeat 60 "=")))
 (println)
 

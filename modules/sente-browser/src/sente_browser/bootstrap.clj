@@ -422,6 +422,12 @@
         const uriCode = await uriResp.text();
         scittle.core.eval_string(uriCode);
 
+        status.textContent = 'Loading widget lifecycle...';
+        const wlResp = await fetch('/cljc/statecharts/machines/widget_lifecycle.cljc');
+        if (!wlResp.ok) throw new Error('Failed to load widget_lifecycle.cljc');
+        const wlCode = await wlResp.text();
+        scittle.core.eval_string(wlCode);
+
         status.textContent = 'Loading code-browser v2...';
         const cbResp = await fetch('/browser/code_browser_v2.cljs');
         if (!cbResp.ok) throw new Error('Failed to load code_browser_v2.cljs');
@@ -581,12 +587,16 @@
            :headers {"Content-Type" "text/plain"}
            :body (str "File not found: " filename)}))
 
-      ;; Serve .cljc files from code-browser-v2 module (for browser use)
+      ;; Serve .cljc files from code-browser-v2 module or src/ (for browser use)
       (and (str/starts-with? uri "/cljc/")
            (str/ends-with? uri ".cljc"))
       (let [filename (subs uri 6) ;; strip "/cljc/"
-            file (io/file "modules/code-browser-v2/src" filename)]
-        (if (.exists file)
+            file (let [f1 (io/file "modules/code-browser-v2/src" filename)]
+                   (if (.exists f1)
+                     f1
+                     (let [f2 (io/file "src" filename)]
+                       (when (.exists f2) f2))))]
+        (if file
           {:status 200
            :headers {"Content-Type" "application/x-clojure; charset=utf-8"
                      "Cache-Control" "no-cache"}

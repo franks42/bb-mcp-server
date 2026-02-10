@@ -18,11 +18,11 @@
 
 (defn assign-widget-config
   "Store widget configuration on open.
-   Sets widget-id, widget-type, uri, and initial version-hash."
+   Sets id, type, uri, and initial version-hash."
   [ctx event]
   (assoc ctx
-         :widget-id (:widget-id event)
-         :widget-type (:widget-type event)
+         :id (:id event)
+         :type (:type event)
          :uri (:uri event)
          :version-hash (:version-hash event)))
 
@@ -61,8 +61,8 @@
    Inspectable at runtime — use this var to see states/transitions."
      {:id      :widget-lifecycle
       :initial :loading
-      :context {:widget-id nil
-                :widget-type nil
+      :context {:id nil
+                :type nil
                 :uri nil
                 :data nil
                 :error nil
