@@ -1,6 +1,6 @@
 (ns statecharts.machines.widget-lifecycle
     "Documentation statechart for Code Browser v2 widget lifecycle.
-   NOT runtime-integrated — used for validation and testing only.
+   Runtime-integrated as write gate for widget lifecycle state transitions.
 
    States: loading -> ready <-> refreshing
                  |             |
