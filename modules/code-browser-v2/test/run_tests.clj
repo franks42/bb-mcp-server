@@ -9,6 +9,9 @@
 ;; Integration tests (require Datalevin pod)
 (require 'code-browser.db.datalevin-test)
 
+;; Handler tests (require Datalevin pod)
+(require 'code-browser.handlers-test)
+
 ;; Source adapter tests
 (require 'code-browser.sources.directory-test)
 
@@ -17,6 +20,7 @@
      (t/run-tests 'code-browser.uri-test
                   'code-browser.db.protocol-test
                   'code-browser.db.datalevin-test
+                  'code-browser.handlers-test
                   'code-browser.sources.directory-test))
 
 (when (or (pos? (:fail result)) (pos? (:error result)))

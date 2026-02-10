@@ -61,34 +61,33 @@
            vec))))
 
 (defn- query-namespaces
-  "Query namespaces for a project from Datalevin."
-  [db project-uri]
-  (when (and db project-uri)
+  "Query namespaces for a project from Datalevin.
+   Matches by project name directly, making the query version-agnostic."
+  [db project-name]
+  (when (and db project-name)
     (let [results (db-proto/q db
                               '[:find (pull ?e [*])
-                                :in $ ?proj-uri
-                                :where [?p :uri/string ?proj-uri]
-                                [?e :ns/name _]
-                                [?e :uri/project ?proj-name]
-                                [?p :uri/project ?proj-name]]
-                              [project-uri])]
+                                :in $ ?proj-name
+                                :where [?e :ns/name _]
+                                [?e :uri/project ?proj-name]]
+                              [project-name])]
       (->> results
            (map first)
            (sort-by :ns/name)
            vec))))
 
 (defn- query-symbols
-  "Query symbols for a namespace from Datalevin."
-  [db ns-uri]
-  (when (and db ns-uri)
+  "Query symbols for a namespace from Datalevin.
+   Matches by project name and namespace name directly, version-agnostic."
+  [db project-name ns-name]
+  (when (and db project-name ns-name)
     (let [results (db-proto/q db
                               '[:find (pull ?e [*])
-                                :in $ ?ns-uri
-                                :where [?n :uri/string ?ns-uri]
-                                [?n :ns/name ?ns-name]
-                                [?e :symbol/name _]
+                                :in $ ?proj-name ?ns-name
+                                :where [?e :symbol/name _]
+                                [?e :uri/project ?proj-name]
                                 [?e :uri/namespace ?ns-name]]
-                              [ns-uri])]
+                              [project-name ns-name])]
       (->> results
            (map first)
            (sort-by (juxt :symbol/type :symbol/name))
@@ -169,7 +168,8 @@
   (sync/set-loading! true)
   (try
    (if-let [db (get-db)]
-           (let [namespaces (query-namespaces db project-uri)]
+           (let [project-name (:uri/project (uri/parse project-uri))
+                 namespaces (query-namespaces db project-name)]
              (sync/select-project! project-uri namespaces)
              {:success true :count (count namespaces)})
            (do
@@ -194,10 +194,10 @@
   (sync/set-loading! true)
   (try
    (if-let [db (get-db)]
-     ;; Extract ns-name from the namespace entity
-           (let [ns-entity (db-proto/pull db '[:ns/name] [:uri/string ns-uri])
-                 ns-name (:ns/name ns-entity)
-                 symbols (query-symbols db ns-uri)
+           (let [parsed (uri/parse ns-uri)
+                 project-name (:uri/project parsed)
+                 ns-name (:uri/namespace parsed)
+                 symbols (query-symbols db project-name ns-name)
                  aliases (when ns-name (query-aliases db ns-name))
                  refers (when ns-name (query-refers db ns-name))]
              (sync/select-namespace! ns-uri symbols aliases refers)
@@ -242,12 +242,6 @@
 ;;; Stateless Fetch API
 ;;; ---------------------------------------------------------------------------
 
-(defn- resolve-ns-name
-  "Resolve namespace name from a namespace URI via database lookup."
-  [db ns-uri]
-  (when (and db ns-uri)
-    (:ns/name (db-proto/pull db '[:ns/name] [:uri/string ns-uri]))))
-
 (defn- derive-property
   "Derive the property keyword from a parsed URI's query params and level.
    Explicit :property param takes precedence, then URI ?view= query param,
@@ -287,54 +281,55 @@
    (if-let [db (get-db)]
            (let [parsed (when uri (uri/parse uri))
                  base (when uri (uri/base-uri uri))
-                 property (derive-property parsed property)]
+                 property (derive-property parsed property)
+                 project-name (:uri/project parsed)
+                 ns-name (:uri/namespace parsed)
+                 symbol-name (:uri/symbol parsed)]
              (case property
                :project-list
                {:success true :data (query-projects db)}
 
                :ns-list
-               (if (and parsed (nil? (:uri/namespace parsed)))
-                 {:success true :data (query-namespaces db base)}
+               (if (and parsed (nil? ns-name))
+                 {:success true :data (query-namespaces db project-name)}
                  {:success false :error "ns-list requires a project-level URI"})
 
                :symbol-list
-               (if (and parsed (:uri/namespace parsed) (nil? (:uri/symbol parsed)))
-                 {:success true :data (query-symbols db base)}
+               (if (and parsed ns-name (nil? symbol-name))
+                 {:success true :data (query-symbols db project-name ns-name)}
                  {:success false :error "symbol-list requires a namespace-level URI"})
 
                :aliases
-               (if-let [ns-name (and parsed (:uri/namespace parsed)
-                                     (resolve-ns-name db base))]
-                       {:success true :data (query-aliases db ns-name)}
-                       {:success false :error "aliases requires a namespace-level URI"})
+               (if (and parsed ns-name)
+                 {:success true :data (query-aliases db ns-name)}
+                 {:success false :error "aliases requires a namespace-level URI"})
 
                :refers
-               (if-let [ns-name (and parsed (:uri/namespace parsed)
-                                     (resolve-ns-name db base))]
-                       {:success true :data (query-refers db ns-name)}
-                       {:success false :error "refers requires a namespace-level URI"})
+               (if (and parsed ns-name)
+                 {:success true :data (query-refers db ns-name)}
+                 {:success false :error "refers requires a namespace-level URI"})
 
                :source
-               (if (and parsed (:uri/symbol parsed))
+               (if (and parsed symbol-name)
                  {:success true :data (fetch-source base)}
                  {:success false :error "source requires a symbol-level URI"})
 
                :doc
-               (if (and parsed (:uri/symbol parsed))
-                 (let [symbols (query-symbols db (uri/namespace-uri parsed))
+               (if (and parsed symbol-name)
+                 (let [symbols (query-symbols db project-name ns-name)
                        sym (->> symbols
-                                (filter #(= (:uri/string %) base))
+                                (filter #(= (:symbol/name %) symbol-name))
                                 first)]
                    {:success true :data sym})
                  {:success false :error "doc requires a symbol-level URI"})
 
                :deps
-               (if (and parsed (:uri/symbol parsed))
+               (if (and parsed symbol-name)
                  {:success true :data []}
                  {:success false :error "deps requires a symbol-level URI"})
 
                :callers
-               (if (and parsed (:uri/symbol parsed))
+               (if (and parsed symbol-name)
                  {:success true :data []}
                  {:success false :error "callers requires a symbol-level URI"})
 
