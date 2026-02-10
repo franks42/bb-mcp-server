@@ -10,6 +10,7 @@
    transition (e.g. stop when already stopped) throws an exception."
     (:require [babashka.nrepl.server :as nrepl-server]
               [statecharts.core :as fsm]
+              [statecharts.types :as types]
               [taoensso.trove :as log]))
 
 ;; =============================================================================
@@ -46,31 +47,32 @@
 (def nrepl-server-machine-config
      "Configuration map for the nREPL server state machine.
    Inspectable at runtime — use this var to see states/transitions."
-     {:id      :nrepl-server
-      :initial :stopped
-      :context {:server-map nil
-                :host       "localhost"
-                :port       nil
-                :connection nil
-                :started-at nil
-                :stopped-at nil
-                :config     {}
-                :error      nil}
-      :states
-      {:stopped  {:on {:start {:target  :starting
-                               :actions [(fsm/assign assign-config)]}}}
-       :starting {:on {:started {:target  :running
-                                 :actions [(fsm/assign assign-server-info)]}
-                       :failed  {:target  :error
-                                 :actions [(fsm/assign assign-error)]}}}
-       :running  {:on {:stop {:target :stopping}}}
-       :stopping {:on {:stopped {:target  :stopped
-                                 :actions [(fsm/assign assign-stopped)]}
-                       :failed  {:target  :error
-                                 :actions [(fsm/assign assign-error)]}}}
-       :error    {:on {:start {:target  :starting
-                               :actions [(fsm/assign assign-config)]}
-                       :reset {:target :stopped}}}}})
+     (types/map->Statechart
+      {:id      :nrepl-server
+       :initial :stopped
+       :context {:server-map nil
+                 :host       "localhost"
+                 :port       nil
+                 :connection nil
+                 :started-at nil
+                 :stopped-at nil
+                 :config     {}
+                 :error      nil}
+       :states
+       {:stopped  {:on {:start {:target  :starting
+                                :actions [(fsm/assign assign-config)]}}}
+        :starting {:on {:started {:target  :running
+                                  :actions [(fsm/assign assign-server-info)]}
+                        :failed  {:target  :error
+                                  :actions [(fsm/assign assign-error)]}}}
+        :running  {:on {:stop {:target :stopping}}}
+        :stopping {:on {:stopped {:target  :stopped
+                                  :actions [(fsm/assign assign-stopped)]}
+                        :failed  {:target  :error
+                                  :actions [(fsm/assign assign-error)]}}}
+        :error    {:on {:start {:target  :starting
+                                :actions [(fsm/assign assign-config)]}
+                        :reset {:target :stopped}}}}}))
 
 (def nrepl-server-machine
      "Compiled state machine for local nREPL server lifecycle.

@@ -10,7 +10,8 @@
 
    Key insight: :version-hash in context exposes the staleness bug
    where widgets re-fetch using stale version hashes after invalidation."
-    (:require [statecharts.core :as fsm]))
+    (:require [statecharts.core :as fsm]
+              [statecharts.types :as types]))
 
 ;; =============================================================================
 ;; Context Assignment Actions (named, public, docstrings)
@@ -59,32 +60,33 @@
 (def widget-lifecycle-machine-config
      "Configuration map for the widget lifecycle state machine.
    Inspectable at runtime — use this var to see states/transitions."
-     {:id      :widget-lifecycle
-      :initial :loading
-      :context {:id nil
-                :type nil
-                :uri nil
-                :data nil
-                :error nil
-                :version-hash nil}
-      :states
-      {:loading     {:on {:fetch-success {:target  :ready
-                                          :actions [(fsm/assign assign-data)]}
-                          :fetch-error   {:target  :error
-                                          :actions [(fsm/assign assign-error)]}
-                          :close         {:target :closed}}}
-       :ready       {:on {:invalidate {:target  :refreshing
-                                       :actions [(fsm/assign assign-invalidate)]}
-                          :close      {:target :closed}}}
-       :refreshing  {:on {:fetch-success {:target  :ready
-                                          :actions [(fsm/assign assign-data)]}
-                          :fetch-error   {:target  :error
-                                          :actions [(fsm/assign assign-error)]}
-                          :close         {:target :closed}}}
-       :error       {:on {:retry {:target  :loading
-                                  :actions [(fsm/assign assign-retry)]}
-                          :close {:target :closed}}}
-       :closed      {}}})
+     (types/map->Statechart
+      {:id      :widget-lifecycle
+       :initial :loading
+       :context {:id nil
+                 :type nil
+                 :uri nil
+                 :data nil
+                 :error nil
+                 :version-hash nil}
+       :states
+       {:loading     {:on {:fetch-success {:target  :ready
+                                           :actions [(fsm/assign assign-data)]}
+                           :fetch-error   {:target  :error
+                                           :actions [(fsm/assign assign-error)]}
+                           :close         {:target :closed}}}
+        :ready       {:on {:invalidate {:target  :refreshing
+                                        :actions [(fsm/assign assign-invalidate)]}
+                           :close      {:target :closed}}}
+        :refreshing  {:on {:fetch-success {:target  :ready
+                                           :actions [(fsm/assign assign-data)]}
+                           :fetch-error   {:target  :error
+                                           :actions [(fsm/assign assign-error)]}
+                           :close         {:target :closed}}}
+        :error       {:on {:retry {:target  :loading
+                                   :actions [(fsm/assign assign-retry)]}
+                           :close {:target :closed}}}
+        :closed      {}}}))
 
 ;; =============================================================================
 ;; Compiled Machine
