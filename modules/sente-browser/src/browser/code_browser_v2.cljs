@@ -748,11 +748,12 @@
             [(+ max-w scrollbar-w) h])
 
           cm-editor
-          ;; CM6: width from nowrap line measurement, height from scroller
-          ;; scrollHeight. CM6 virtualizes rendering (only visible lines in
-          ;; DOM) so line-by-line height summation only measures the viewport.
-          ;; The .cm-scroller.scrollHeight already reports full virtual content
-          ;; height correctly — no shrink trick needed.
+          ;; CM6: width from nowrap line measurement, height from two cases:
+          ;; 1. Content overflows: scrollHeight > clientHeight → use scrollHeight
+          ;;    (CM6 virtualizes rendering, scrollHeight reports full virtual height)
+          ;; 2. Content fits: scrollHeight == clientHeight → sum line heights
+          ;;    (cm-content has min-height:100% so offsetHeight == container height,
+          ;;     not actual content height; must sum lines + padding instead)
           (let [cm-scroller (.querySelector cm-editor ".cm-scroller")
                 cm-content (.querySelector cm-editor ".cm-content")
                 cm-gutters (.querySelector cm-editor ".cm-gutters")
@@ -768,7 +769,16 @@
                          (set! (.-whiteSpace (.-style ln)) "")
                          (set! (.-width (.-style ln)) "")
                          (set! (.-display (.-style ln)) ""))
-                scroller-h (.-scrollHeight cm-scroller)
+                scroller-h (let [sh (.-scrollHeight cm-scroller)
+                                 ch (.-clientHeight cm-scroller)]
+                             (if (> sh ch)
+                               sh
+                               (let [cs (js/getComputedStyle cm-content)
+                                     pad (+ (js/parseFloat (.-paddingTop cs))
+                                            (js/parseFloat (.-paddingBottom cs)))
+                                     line-h (reduce (fn [t ln] (+ t (.-offsetHeight ln)))
+                                                    0 lines)]
+                                 (+ line-h pad))))
                 source-info (.querySelector widget-body ".source-info")
                 si-h (if source-info (+ (.-offsetHeight source-info) 4) 0)]
             [(+ max-line-w gutter-w 20)
