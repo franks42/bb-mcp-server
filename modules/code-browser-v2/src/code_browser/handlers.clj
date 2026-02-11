@@ -43,6 +43,14 @@
   [project-uri]
   (swap! !module-state update :sources dissoc project-uri))
 
+(defonce ^{:doc "Callback to core/add-source! — avoids circular dep."}
+ !add-source-fn (atom nil))
+
+(defn register-add-source-fn!
+  "Register the add-source! callback from core (avoids circular dependency)."
+  [f]
+  (reset! !add-source-fn f))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Query Helpers
 ;;; ---------------------------------------------------------------------------
@@ -399,6 +407,13 @@
     :code-browser-v2/clear-error
     (do (sync/clear-error!)
         [:code-browser-v2/error-cleared {}])
+
+    :code-browser-v2/add-project
+    (let [add-fn @!add-source-fn]
+      (if add-fn
+        [:code-browser-v2/add-project-result (add-fn data)]
+        [:code-browser-v2/add-project-result
+         {:success false :error "Not initialized"}]))
 
     ;; Unknown event
     (do

@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.25.0 (stable) — File watcher robustness + telemetry observability
-**Last Updated:** 2026-02-09
+**Status:** v1.26.0 (stable) — Runtime project addition, `bb add-project` CLI, sente warning fixes
+**Last Updated:** 2026-02-11
 
 ---
 
@@ -13,6 +13,7 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.26.0 | — | Runtime project addition, `bb add-project` CLI, sente warning fixes |
 | v1.25.0 | `a55d8e5` | File watcher robustness, enhanced telemetry, heartbeat noise elimination |
 | v1.24.0 | `bd16e44` | Statecharts on both sides of sente-lite WebSocket (server + browser) |
 | v1.23.0 | `e1fba2a` | Browser connection statechart (6 states, 9 transitions) + telemetry |
@@ -56,6 +57,9 @@ bb nrepl-direct list -t X                       # List connections
 # Statechart validation
 bb statechart:validate ns/var                   # Validate a machine definition
 bb test:statecharts                             # Run statechart validate tests
+
+# Project management
+bb add-project /path/to/project [-t target]     # Add project dir to running Code Browser v2
 
 # Telemetry
 bb logs -t cb-v2-test                           # Query logs from running server
@@ -158,6 +162,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | R3.3 | Multi-file namespace support | ✅ Done |
 | R3.x | Fix v2 browser loading (`nrepl-eval-local-file`) | ✅ Done |
 | R3.4 | File watching / cache invalidation / live refresh | ✅ Done |
+| R3.6 | Runtime project addition (browser input + CLI `bb add-project`) | ✅ Done |
 | R3.5 | Git status display | **Pending** |
 
 **Tests:** 47 tests, 542 assertions passing (`bb test:module code-browser-v2`)
@@ -208,6 +213,10 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - ~~Ingest browser logs via sente `:telemetry/log` events~~ ✅ Done (v1.19.0)
 - Build log viewer widget in Code Browser v2 UI
 - ~~Unified query across server + browser telemetry~~ ✅ Done (`--source browser`)
+
+### Code Browser v2 UI Polish
+- [ ] Add remove/delete button per project in the project list widget
+- [ ] Fix zoom/fit-to-content inconsistency in project list widget
 
 ### Live Mode (nREPL Introspection)
 - Connect to running nREPL and introspect live system
@@ -281,6 +290,8 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 28 | Convention checks + state management best practices in CLOJURE_EXPERT_CONTEXT.md (v1.22.1) |
 | 29 | Browser connection statechart: 6 states, 9 transitions, CDN-served bundle (v1.23.0) |
 | 30 | Server per-connection statechart: 4 states, 5 transitions, both sides of WebSocket (v1.24.0) |
+| 31 | File watcher robustness: thread-safe debounce, per-file locks, atomic write handling (v1.25.0) |
+| 32 | Runtime project addition: browser input, `bb add-project` CLI, sente warning fixes (v1.26.0) |
 
 ---
 
@@ -300,4 +311,4 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 
 ---
 
-*Last Updated: 2026-02-08*
+*Last Updated: 2026-02-11*

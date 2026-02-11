@@ -85,6 +85,9 @@
 (defonce ^{:doc "Set of widget-ids with expanded breadcrumbs"}
  !breadcrumb-expanded (r/atom #{}))
 
+(defonce ^{:doc "Add-project input state: {:path \"\" :error nil :loading? false}"}
+ !add-project-state (r/atom {:path "" :error nil :loading? false}))
+
 (defonce ^{:doc "WinBox JS instances. {widget-id WinBox-instance}"}
  !winbox-instances (atom {}))
 
@@ -362,15 +365,17 @@
 
 (defn- handle-invalidate!
   "Handle a server-push invalidation event.
-   Refreshes all widgets whose URI belongs to the affected project."
+   Refreshes all widgets whose URI belongs to the affected project,
+   plus project-list widgets (since a new project changes the list)."
   [data]
   (let [{:keys [project]} data
         widgets @!widgets
         affected (filterv
                   (fn [[_wid w]]
-                    (when-let [u (:uri w)]
-                              (let [parsed (uri/parse (uri/base-uri u))]
-                                (= (:uri/project parsed) project))))
+                    (or (= (:type w) :project-list)
+                        (when-let [u (:uri w)]
+                                  (let [parsed (uri/parse (uri/base-uri u))]
+                                    (= (:uri/project parsed) project)))))
                   widgets)]
     (log/log! {:level :info :id ::invalidate-received
                :msg "Invalidation received from server"
@@ -380,7 +385,35 @@
            (transition-widget! wid {:type :invalidate})
            (refresh-widget! wid))))
 
-;; Register event handler for fetch responses and invalidation
+(defn- submit-add-project!
+  "Submit an add-project request to the server."
+  []
+  (let [{:keys [path]} @!add-project-state]
+    (when-not (str/blank? path)
+      (swap! !add-project-state assoc :loading? true :error nil)
+      (send-event! :code-browser-v2/add-project {:path (str/trim path)}))))
+
+(defn- handle-add-project-result!
+  "Handle the add-project response from the server."
+  [data]
+  (if (:success data)
+    (do
+     (swap! !add-project-state assoc :path "" :loading? false :error nil)
+     (log/log! {:level :info :id ::add-project-success
+                :msg "Project added successfully"
+                :data {:project-name (:project-name data)}})
+     ;; Refresh all project-list widgets (invalidate first so statechart accepts fetch-success)
+     (doseq [[wid w] @!widgets]
+            (when (= (:type w) :project-list)
+              (transition-widget! wid {:type :invalidate})
+              (refresh-widget! wid))))
+    (do
+     (swap! !add-project-state assoc :loading? false :error (:error data))
+     (log/log! {:level :warn :id ::add-project-error
+                :msg "Failed to add project"
+                :data {:error (:error data)}}))))
+
+;; Register event handler for fetch responses, invalidation, and add-project
 (bootstrap/register-event-handler!
  :code-browser-v2
  (fn [[event-id data]]
@@ -390,6 +423,9 @@
 
      :code-browser-v2/invalidate
      (handle-invalidate! data)
+
+     :code-browser-v2/add-project-result
+     (handle-add-project-result! data)
 
      ;; Ignore other events (handled by atom-sync)
      nil)))
@@ -490,6 +526,74 @@
 ;; Content Components (body only — no header, used inside WinBox)
 ;; =============================================================================
 
+(defn- extract-path-from-drop
+  "Extract a filesystem path from a drag-and-drop event.
+   Handles file:// URIs and plain text drops (e.g., from Terminal)."
+  [e]
+  (let [dt (.-dataTransfer e)
+        uri-list (.getData dt "text/uri-list")
+        text (.getData dt "text/plain")]
+    (cond
+      ;; file:// URI drops
+      (and (not (str/blank? uri-list))
+           (str/starts-with? (str/trim uri-list) "file://"))
+      (-> uri-list str/trim
+          (str/split #"\r?\n")
+          first
+          (str/replace #"^file://" "")
+          js/decodeURIComponent)
+      ;; Plain text fallback (text drag from Terminal, etc.)
+      (not (str/blank? text))
+      (str/trim text)
+      :else nil)))
+
+(defonce ^{:doc "Whether global drop handler is installed"}
+ !drop-handler-installed (atom false))
+
+(defn- install-global-drop-handler!
+  "Install document-level drag/drop handlers (capture phase).
+   Text drops anywhere on the page populate the add-project input."
+  []
+  (when-not @!drop-handler-installed
+    (.addEventListener js/document "dragover"
+                       (fn [e]
+                         (.preventDefault e)
+                         (set! (.-dropEffect (.-dataTransfer e)) "copy"))
+                       true)
+    (.addEventListener js/document "drop"
+                       (fn [e]
+                         (.preventDefault e)
+                         (.stopPropagation e)
+                         (when-let [p (extract-path-from-drop e)]
+                                   (swap! !add-project-state assoc
+                                          :path p :error nil)))
+                       true)
+    (reset! !drop-handler-installed true)
+    (log/log! {:level :info :id ::drop-handler-installed
+               :msg "Global drop handler installed"})))
+
+(defn- add-project-input
+  "Text input with + button for adding a project directory at runtime.
+   Supports typing, paste, and Finder drag-and-drop (anywhere on page)."
+  []
+  (install-global-drop-handler!)
+  (let [{:keys [path error loading?]} @!add-project-state]
+    [:div
+     [:div.add-project-input
+      [:input {:type "text"
+               :placeholder "Paste or type project path..."
+               :value path
+               :disabled loading?
+               :on-change #(swap! !add-project-state assoc
+                                  :path (-> % .-target .-value) :error nil)
+               :on-key-down #(when (= (.-key %) "Enter")
+                               (submit-add-project!))}]
+      [:button {:disabled (or loading? (str/blank? path))
+                :on-click submit-add-project!}
+       (if loading? "..." "+")]]
+     (when error
+       [:div.add-project-error error])]))
+
 (defn- project-list-content
   "Content body for project list widget (no header)."
   [widget-id widget]
@@ -513,6 +617,7 @@
                           (open-widget! {:uri (uri/with-query (:uri/string project)
                                                               {"view" "ns-list"})}))}
              [:span.project-name (or (:uri/project project) (:uri/string project))]]))]
+     [add-project-input]
      [:div.widget-footer
       [:span (str (count filtered) " projects")]]]))
 
@@ -1035,5 +1140,6 @@
   (reset! !focused-widget nil)
   (reset! !breadcrumb-expanded #{})
   (reset! !project-color-map {})
+  (reset! !add-project-state {:path "" :error nil :loading? false})
   (js/console.log "[code-browser-v2] Unmounted")
   (log/log! {:level :info :id ::unmounted :msg "Code Browser v2 unmounted"}))

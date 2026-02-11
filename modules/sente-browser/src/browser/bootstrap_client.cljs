@@ -262,7 +262,7 @@
                    (handler [event-id data]))
                   (do
                    (js/console.log (str "[dispatch] No handler for namespace: " ns-str))
-                   (log/log! {:level :warn :id ::no-handler
+                   (log/log! {:level :debug :id ::no-handler
                               :msg "No handler for event namespace"
                               :data {:event-id event-id :ns ns-str}})))
           (js/console.log "[dispatch] Event has no namespace")))

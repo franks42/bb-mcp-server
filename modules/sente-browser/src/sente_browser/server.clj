@@ -337,11 +337,13 @@
     (update-heartbeat! sente-conn-id)
 
     ;; Browser telemetry - fire-and-forget ingestion into telemetry-db
+    ;; Return nil so sente-lite doesn't try to send :ingested back as a response
     :telemetry/log
-    (when (validated? sente-conn-id)
-      (let [conn-info (get @!browser-connections sente-conn-id)]
-        (telemetry-db/ingest!
-         (assoc data :source (str "browser:" (:mcp-conn-id conn-info))))))
+    (do (when (validated? sente-conn-id)
+          (let [conn-info (get @!browser-connections sente-conn-id)]
+            (telemetry-db/ingest!
+             (assoc data :source (str "browser:" (:mcp-conn-id conn-info))))))
+        nil)
 
     ;; nREPL response - native map format (browser_adapter parses before sending)
     :nrepl/response

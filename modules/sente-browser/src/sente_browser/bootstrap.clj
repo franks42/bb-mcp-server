@@ -271,6 +271,8 @@
     .add-project-input input:focus { outline: none; border-color: #2196F3; }
     .add-project-input button { font-size: 13px; padding: 0.15rem 0.5rem; border: 1px solid #4CAF50; border-radius: 4px; background: #4CAF50; color: white; cursor: pointer; font-weight: bold; }
     .add-project-input button:hover { background: #388E3C; }
+    .add-project-input button:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
+    .add-project-error { color: #d32f2f; font-size: 11px; padding: 0.2rem 0.4rem; }
     .branch-info { display: flex; align-items: center; gap: 0.25rem; color: #666; }
     .branch-icon { font-size: 14px; }
     .branch-name { font-family: 'Fira Code', monospace; }
