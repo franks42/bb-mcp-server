@@ -60,7 +60,8 @@ bb test:modules                 # Run all module tests
 bb nrepl-direct list -t X                     # List connections
 bb nrepl-direct eval "<code>" -t X            # Eval on server (use double quotes!)
 bb nrepl-direct eval "<code>" -t X/browser-1  # Eval in browser
-bb nrepl-direct load-local-file <path> -t X/browser-1  # Load file
+bb nrepl-direct load-local-file <path> -t X/browser-1  # Load ClojureScript file
+bb nrepl-direct load-local-js-file <path> -t X/browser-1  # Import JS as ES module
 
 # MCP-based CLIs (fallback)
 bb mcp servers                  # List running MCP servers
@@ -90,7 +91,8 @@ AI tool environments (including Claude Code's Bash tool) escape `!` to `\!` insi
 # PREFERRED: Double quotes for eval (REQUIRED when code contains !)
 bb nrepl-direct eval "(+ 1 2 3)" -t myserver               # Server eval
 bb nrepl-direct eval "(mount!)" -t myserver/browser-1       # Browser eval
-bb nrepl-direct load-local-file scripts/init.clj -t myserver/browser-1  # Load file
+bb nrepl-direct load-local-file scripts/init.clj -t myserver/browser-1  # Load CLJS file
+bb nrepl-direct load-local-js-file lib/utils.js -t myserver/browser-1  # Import JS module
 bb nrepl-direct list -t myserver                            # List connections
 
 # ALSO WORKS: Script files for complex multi-line code

@@ -11,7 +11,8 @@
    No dependency on mcp-nrepl module or its state management."
     (:require [bencode.core :as bencode]
               [clojure.edn :as edn]
-              [com.github.franks42.uuidv7.core :as uuidv7])
+              [com.github.franks42.uuidv7.core :as uuidv7]
+              [taoensso.trove :as log])
     (:import [java.net Socket]
              [java.io PushbackInputStream]
              [java.util Base64]))
@@ -251,12 +252,71 @@
   [conn file-path & {:keys [session ns timeout-ms output-base64 connection]
                      :or {timeout-ms 30000}}]
   (let [content (slurp file-path)]
-    (eval-code conn content
-               :session session
-               :ns ns
-               :timeout-ms timeout-ms
-               :output-base64 output-base64
-               :connection connection)))
+    (log/log! {:level :info
+               :id ::load-local-file
+               :msg "Loading local file to eval"
+               :data {:file-path file-path
+                      :size (count content)
+                      :connection connection}})
+    (let [result (eval-code conn content
+                            :session session
+                            :ns ns
+                            :timeout-ms timeout-ms
+                            :output-base64 output-base64
+                            :connection connection)]
+      (log/log! {:level :info
+                 :id ::load-local-file-result
+                 :msg "Local file eval complete"
+                 :data {:file-path file-path
+                        :status (:status result)
+                        :connection connection}})
+      result)))
+
+(defn load-local-js-file
+  "Read JS file locally and import as ES module in browser via Blob URL.
+
+   Uses Scittle async/await + js/import to load as a proper ES module.
+   Requires browser connection (Scittle 0.8.31+ with async support).
+
+   The JS file should use ES module syntax (export/import).
+   Returns a Promise resolving to the module namespace object.
+
+   Options:
+     :session - session ID
+     :timeout-ms - timeout (default: 30000)
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [conn file-path & {:keys [session timeout-ms output-base64 connection]
+                     :or {timeout-ms 30000}}]
+  (let [js-content (slurp file-path)
+        escaped-js (pr-str js-content)
+        wrapper-code (str "(do "
+                          "(defn ^:async _bb-load-js-temp [] "
+                          "(let [blob (js/Blob. #js [" escaped-js "] "
+                          "#js {:type \"text/javascript\"}) "
+                          "url (js/URL.createObjectURL blob) "
+                          "m (await (js/import url))] "
+                          "(js/URL.revokeObjectURL url) "
+                          "m)) "
+                          "(_bb-load-js-temp))")]
+    (log/log! {:level :info
+               :id ::load-local-js-file
+               :msg "Loading local JS file as ES module"
+               :data {:file-path file-path
+                      :size (count js-content)
+                      :connection connection}})
+    (let [result (eval-code conn wrapper-code
+                            :session session
+                            :timeout-ms timeout-ms
+                            :output-base64 output-base64
+                            :connection connection)]
+      (log/log! {:level :info
+                 :id ::load-local-js-file-result
+                 :msg "JS module import complete"
+                 :data {:file-path file-path
+                        :status (:status result)
+                        :connection connection}})
+      result)))
 
 (defn interrupt
   "Interrupt evaluation in a session."
@@ -338,3 +398,21 @@
                                       :timeout-ms timeout-ms
                                       :output-base64 output-base64
                                       :connection connection))))
+
+(defn load-local-js-file!
+  "One-shot load-local-js-file: read JS locally, import as ES module in browser.
+
+   Options:
+     :host - hostname (default: localhost)
+     :port - port number (required)
+     :timeout-ms - timeout (default: 30000)
+     :output-base64 - if true, add base64-encoded output fields
+     :connection - browser connection nickname/id for nrepl-proxy routing"
+  [file-path & {:keys [host port timeout-ms output-base64 connection]
+                :or {host "localhost" timeout-ms 30000}}]
+  (with-connection {:host host :port port}
+                   (fn [conn]
+                     (load-local-js-file conn file-path
+                                         :timeout-ms timeout-ms
+                                         :output-base64 output-base64
+                                         :connection connection))))

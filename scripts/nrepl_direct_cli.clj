@@ -19,6 +19,7 @@
      eval <code>              Evaluate Clojure code
      load-file <path>         Load file from SERVER's filesystem (NOT for browser!)
      load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)
+     load-local-js-file <path> Import JS file as ES module in browser
      list                     List connected browsers
      describe                 Show nREPL server capabilities
      help                     Show this help
@@ -213,18 +214,18 @@
 
     :pipe
     (do
-      (when (:out result)
-        (print (:out result)))
-      (when (:err result)
+     (when (:out result)
+       (print (:out result)))
+     (when (:err result)
+       (binding [*out* *err*]
+                (print (:err result))))
+     (if (= "success" (:status result))
+       (when-let [value (:value result)]
+                 (format-value (try-parse-edn value) pprint))
+       (do
         (binding [*out* *err*]
-                 (print (:err result))))
-      (if (= "success" (:status result))
-        (when-let [value (:value result)]
-                  (format-value (try-parse-edn value) pprint))
-        (do
-         (binding [*out* *err*]
-                  (println "Error:" (or (:error result) "Unknown error")))
-         (System/exit 1))))
+                 (println "Error:" (or (:error result) "Unknown error")))
+        (System/exit 1))))
 
     :edn
     (let [has-exception? (or (:ex result) (:root-ex result))
@@ -232,27 +233,27 @@
       (if (and protocol-ok? (not has-exception?))
         ;; Success: output just the EDN value, optionally show stdout on stderr
         (do
-          (when (and stdout2stderr (:out result))
-            (binding [*out* *err*]
-                     (print (:out result))
-                     (flush)))
-          (when (and stdout2stderr (:err result))
-            (binding [*out* *err*]
-                     (print (:err result))
-                     (flush)))
+         (when (and stdout2stderr (:out result))
+           (binding [*out* *err*]
+                    (print (:out result))
+                    (flush)))
+         (when (and stdout2stderr (:err result))
+           (binding [*out* *err*]
+                    (print (:err result))
+                    (flush)))
           ;; Output the parsed value (or raw string if unparseable)
-          (let [value (or (:value-parsed result)
-                          (try-parse-edn (:value result))
-                          (:value result))]
-            (if pprint
-              (pp/pprint value)
-              (prn value))))
+         (let [value (or (:value-parsed result)
+                         (try-parse-edn (:value result))
+                         (:value result))]
+           (if pprint
+             (pp/pprint value)
+             (prn value))))
         ;; Error: output full result as EDN, exit 1
         (do
-          (if pprint
-            (pp/pprint result)
-            (prn result))
-          (System/exit 1))))
+         (if pprint
+           (pp/pprint result)
+           (prn result))
+         (System/exit 1))))
 
     ;; Default
     (do
@@ -354,6 +355,35 @@
                      (println "Error:" (ex-message e)))
             (System/exit 1)))))
 
+(defn cmd-load-local-js-file
+  "Read JS file locally and import as ES module in browser."
+  [opts]
+  (let [file-path (first (:positional opts))
+        port (resolve-port opts)]
+    (when-not file-path
+      (println "Usage: bb nrepl-direct load-local-js-file <path> -t server/browser")
+      (System/exit 1))
+    (when-not (.exists (java.io.File. file-path))
+      (binding [*out* *err*]
+               (println "Error: File not found:" file-path))
+      (System/exit 1))
+    (when-not (:connection opts)
+      (binding [*out* *err*]
+               (println "Error: load-local-js-file requires a browser target")
+               (println "  Example: bb nrepl-direct load-local-js-file app.js -t myserver/browser-1"))
+      (System/exit 1))
+    (try
+     (let [result (client/load-local-js-file! file-path
+                                              :host (:host opts)
+                                              :port port
+                                              :timeout-ms (:timeout opts)
+                                              :connection (:connection opts))]
+       (output-result opts result))
+     (catch Exception e
+            (binding [*out* *err*]
+                     (println "Error:" (ex-message e)))
+            (System/exit 1)))))
+
 (defn cmd-describe
   "Show nREPL server capabilities."
   [opts]
@@ -385,17 +415,17 @@
            (if (empty? browsers)
              (println "No browsers connected")
              (do
-               (println (format "%-15s %-12s %s" "NICKNAME" "STATUS" "CONNECTED"))
-               (println (str/join "" (repeat 50 "-")))
-               (doseq [b browsers]
-                 (println (format "%-15s %-12s %s"
-                                  (or (:nickname b) "-")
-                                  (name (or (:status b) :unknown))
-                                  (or (:connected-at b) "-")))))))
+              (println (format "%-15s %-12s %s" "NICKNAME" "STATUS" "CONNECTED"))
+              (println (str/join "" (repeat 50 "-")))
+              (doseq [b browsers]
+                     (println (format "%-15s %-12s %s"
+                                      (or (:nickname b) "-")
+                                      (name (or (:status b) :unknown))
+                                      (or (:connected-at b) "-")))))))
          (do
-           (binding [*out* *err*]
-                    (println "Error:" (or (:err result) (:error result) "Unknown error")))
-           (System/exit 1))))
+          (binding [*out* *err*]
+                   (println "Error:" (or (:err result) (:error result) "Unknown error")))
+          (System/exit 1))))
      (catch Exception e
             (binding [*out* *err*]
                      (println "Error:" (ex-message e)))
@@ -412,6 +442,7 @@
   (println "  eval <code>              Evaluate Clojure code")
   (println "  load-file <path>         Load file from SERVER's filesystem (NOT for browser!)")
   (println "  load-local-file <path>   Read file HERE, send CONTENT (USE THIS for browser!)")
+  (println "  load-local-js-file <path> Import JS file as ES module in browser")
   (println "  list                     List connected browsers (via nrepl-proxy)")
   (println "  describe                 Show nREPL server capabilities")
   (println "  help                     Show this help")
@@ -422,6 +453,9 @@
   (println)
   (println "  For browser/Scittle: ALWAYS use load-local-file")
   (println "  For bb nREPL server: Either works (load-local-file is safer)")
+  (println)
+  (println "  load-local-js-file: Reads JS HERE -> imports as ES module in browser")
+  (println "                      Uses Blob URL + js/import (Scittle 0.8.31+)")
   (println)
   (println "Target (recommended):")
   (println "  -t, --target TARGET      Server/browser target (shorthand)")
@@ -447,8 +481,11 @@
   (println "  # Eval in browser")
   (println "  bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver/browser-1")
   (println)
-  (println "  # Load file to browser")
+  (println "  # Load ClojureScript file to browser")
   (println "  bb nrepl-direct load-local-file src/app.cljs -t myserver/browser-1")
+  (println)
+  (println "  # Import JS file as ES module in browser")
+  (println "  bb nrepl-direct load-local-js-file lib/utils.js -t myserver/browser-1")
   (println)
   (println "  # Eval on server (no browser)")
   (println "  bb nrepl-direct eval \"(+ 1 2 3)\" -t myserver")
@@ -474,6 +511,7 @@
       "eval" (cmd-eval opts)
       "load-file" (cmd-load-file opts)
       "load-local-file" (cmd-load-local-file opts)
+      "load-local-js-file" (cmd-load-local-js-file opts)
       "list" (cmd-list opts)
       "describe" (cmd-describe opts)
       ("help" "-h" "--help" nil) (cmd-help opts)
