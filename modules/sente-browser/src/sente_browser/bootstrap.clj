@@ -397,69 +397,12 @@
   <div id=\"app\">
     <div id=\"status\" class=\"status connecting\">Loading Code Browser...</div>
     <div id=\"ui-loader\">
-      <button id=\"load-ui-btn\" class=\"load-ui-btn\" onclick=\"loadCodeBrowserUI()\" disabled>Load Code Browser</button>
+      <button id=\"load-ui-btn\" class=\"load-ui-btn\" onclick=\"scittle.core.eval_string('(ui-loader/load-code-browser-ui!)')\" disabled>Load Code Browser</button>
       <span id=\"loader-status\">Waiting for WebSocket connection...</span>
     </div>
     <div id=\"log\"></div>
     <div id=\"code-browser-root\"><!-- UI loaded via button or nREPL --></div>
   </div>
-  <script>
-    // Load Code Browser UI files and mount
-    async function loadCodeBrowserUI() {
-      const btn = document.getElementById('load-ui-btn');
-      const status = document.getElementById('loader-status');
-      btn.disabled = true;
-      try {
-        status.textContent = 'Loading scittle-cm6...';
-        const cm6Resp = await fetch('/browser/scittle_cm6.cljs');
-        if (!cm6Resp.ok) throw new Error('Failed to load scittle_cm6.cljs');
-        const cm6Code = await cm6Resp.text();
-        scittle.core.eval_string(cm6Code);
-
-        status.textContent = 'Loading URI module...';
-        const uriResp = await fetch('/cljc/code_browser/uri.cljc');
-        if (!uriResp.ok) throw new Error('Failed to load uri.cljc');
-        const uriCode = await uriResp.text();
-        scittle.core.eval_string(uriCode);
-
-        status.textContent = 'Loading statechart types...';
-        const stResp = await fetch('/cljc/statecharts/types.cljc');
-        if (!stResp.ok) throw new Error('Failed to load types.cljc');
-        const stCode = await stResp.text();
-        scittle.core.eval_string(stCode);
-
-        status.textContent = 'Loading widget lifecycle...';
-        const wlResp = await fetch('/cljc/statecharts/machines/widget_lifecycle.cljc');
-        if (!wlResp.ok) throw new Error('Failed to load widget_lifecycle.cljc');
-        const wlCode = await wlResp.text();
-        scittle.core.eval_string(wlCode);
-
-        status.textContent = 'Loading code-browser v2...';
-        const cbResp = await fetch('/browser/code_browser_v2.cljs');
-        if (!cbResp.ok) throw new Error('Failed to load code_browser_v2.cljs');
-        const cbCode = await cbResp.text();
-        scittle.core.eval_string(cbCode);
-
-        status.textContent = 'Mounting UI...';
-        scittle.core.eval_string('(code-browser-v2/mount!)');
-
-        // Hide loader once mounted
-        document.getElementById('ui-loader').style.display = 'none';
-        status.textContent = 'Code Browser v2 loaded!';
-      } catch (e) {
-        console.error('[load-ui] Error:', e);
-        status.textContent = 'Error: ' + e.message;
-        btn.disabled = false;
-      }
-    }
-    // Enable button once WebSocket is connected
-    function enableLoadButton() {
-      const btn = document.getElementById('load-ui-btn');
-      const status = document.getElementById('loader-status');
-      if (btn) { btn.disabled = false; status.textContent = 'Ready - click to load UI'; }
-    }
-  </script>
-
   <!-- 1. Scittle core -->
   <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js\"></script>
 
@@ -524,6 +467,9 @@
   <!-- 8. Config injection + code browser infrastructure -->
 "  (config-script ws-config) "
   <script src=\"/browser/bootstrap_client.cljs\" type=\"application/x-scittle\"></script>
+
+  <!-- 8b. UI Loader (replaces inline JS loadCodeBrowserUI) -->
+  <script src=\"/browser/ui_loader.cljs\" type=\"application/x-scittle\"></script>
 
   <!-- 9. Evaluate all Scittle scripts -->
   <script>scittle.core.eval_script_tags();</script>

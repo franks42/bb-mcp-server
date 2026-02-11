@@ -1,4 +1,6 @@
-{:linters {:unresolved-symbol {:level :error}
+{:linters {:unresolved-symbol {:level :error
+                                ;; Scittle ^:async/await special form
+                                :exclude [await]}
            :unresolved-var {:level :error}
            :unresolved-namespace {:level :error}
            :invalid-arity {:level :error
