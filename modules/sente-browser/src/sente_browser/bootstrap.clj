@@ -124,7 +124,7 @@
   <div id=\"log\"></div>
 
   <!-- 1. Scittle core -->
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js\"></script>
 
   <!-- 2. FakeWebSocket - MUST be before scittle.nrepl.js -->
 "  (fake-ws-script) "
@@ -133,7 +133,7 @@
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/uuidv7.cljc@v0.5.0/src/com/github/franks42/uuidv7/core.cljc\" type=\"application/x-scittle\"></script>
 
   <!-- 4. Scittle nREPL (finds our FakeWebSocket) -->
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.nrepl.js\"></script>
   <script>console.log('[bb-mcp] scittle.nrepl loaded, ws_nrepl.onmessage:', window.ws_nrepl?.onmessage ? 'SET' : 'NOT SET');</script>
 
   <!-- 5. Trove (logging) -->
@@ -461,7 +461,7 @@
   </script>
 
   <!-- 1. Scittle core -->
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js\"></script>
 
   <!-- 2. FakeWebSocket - MUST be before scittle.nrepl.js -->
 "  (fake-ws-script) "
@@ -474,9 +474,9 @@
   <script src=\"https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js\"></script>
 
   <!-- 4. Scittle plugins: nREPL, Reagent, Promesa -->
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js\"></script>
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.reagent.js\"></script>
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.promesa.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.nrepl.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.reagent.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.promesa.js\"></script>
 
   <!-- 5. Trove (logging) -->
   <script src=\"https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc\" type=\"application/x-scittle\"></script>
