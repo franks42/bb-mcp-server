@@ -748,7 +748,11 @@
             [(+ max-w scrollbar-w) h])
 
           cm-editor
-          ;; CM6: measure line widths with nowrap, scroller height with shrink
+          ;; CM6: width from nowrap line measurement, height from scroller
+          ;; scrollHeight. CM6 virtualizes rendering (only visible lines in
+          ;; DOM) so line-by-line height summation only measures the viewport.
+          ;; The .cm-scroller.scrollHeight already reports full virtual content
+          ;; height correctly — no shrink trick needed.
           (let [cm-scroller (.querySelector cm-editor ".cm-scroller")
                 cm-content (.querySelector cm-editor ".cm-content")
                 cm-gutters (.querySelector cm-editor ".cm-gutters")
@@ -764,10 +768,7 @@
                          (set! (.-whiteSpace (.-style ln)) "")
                          (set! (.-width (.-style ln)) "")
                          (set! (.-display (.-style ln)) ""))
-                saved-h (.-height (.-style cm-scroller))
-                _ (set! (.-height (.-style cm-scroller)) "1px")
                 scroller-h (.-scrollHeight cm-scroller)
-                _ (set! (.-height (.-style cm-scroller)) saved-h)
                 source-info (.querySelector widget-body ".source-info")
                 si-h (if source-info (+ (.-offsetHeight source-info) 4) 0)]
             [(+ max-line-w gutter-w 20)
