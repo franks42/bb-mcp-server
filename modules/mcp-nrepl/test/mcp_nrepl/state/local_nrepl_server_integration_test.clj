@@ -10,7 +10,7 @@
 ;; =============================================================================
 
 (defn reset-state-fixture
-  "Reset state atom before each test and ensure cleanup after."
+  "Reset service state before each test via :reinit transition and ensure cleanup after."
   [f]
   (sut/reset-state!)
   (try
@@ -146,11 +146,25 @@
 ;; =============================================================================
 
 (deftest reset-state-integration-test
-         (testing "reset-state! returns to initial :stopped state"
+         (testing "reset-state! returns to initial :stopped state via :reinit"
                   (sut/start-server! {:port 0})
                   (is (sut/running?))
     ;; Stop the actual server first, then reset state
                   (sut/stop-server!)
                   (sut/reset-state!)
                   (is (= :stopped (sut/get-status)))
-                  (is (nil? (:server-map (sut/get-full-state))))))
+                  (is (nil? (:server-map (sut/get-full-state)))))
+
+         (testing "reset-state! clears accumulated context"
+                  (sut/start-server! {:port 0})
+                  (let [port (:port (sut/get-connection-info))]
+                    (is (pos-int? port)))
+                  (sut/stop-server!)
+                  (sut/reset-state!)
+    ;; All context should be back to initial defaults
+                  (let [state (sut/get-full-state)]
+                    (is (nil? (:port state)))
+                    (is (nil? (:connection state)))
+                    (is (nil? (:started-at state)))
+                    (is (nil? (:stopped-at state)))
+                    (is (= {} (:config state))))))

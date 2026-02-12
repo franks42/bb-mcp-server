@@ -780,6 +780,10 @@
        ;; Predicate badges row
        (when (seq (:predicates data))
          [:div.predicate-badges
+          (when (:is-service? data)
+            [:span.pred-badge.pred-statechart "service"])
+          (when (:is-store? data)
+            [:span.pred-badge.pred-statechart "store"])
           (when (:is-statechart? data)
             [:span.pred-badge.pred-statechart "statechart"])
           (doall
@@ -788,7 +792,50 @@
               ^{:key i}
               [:span.pred-badge (clojure.string/replace pred-name "?" "")])
             (:predicates data)))])
-       ;; Statechart info section
+       ;; Service info section (clj-statecharts Service wrapper)
+       (when-let [svc (:service data)]
+                 [:div.statechart-info
+                  [:div.sc-row
+                   [:strong "FSM State: "]
+                   [:span.sc-state-tag (str (:current-state svc))]]
+                  (when-let [ctx (:context svc)]
+                            [:div.sc-row
+                             [:strong "Context: "]
+                             [:pre.meta-content (pr-str ctx)]])])
+       ;; Store info section (SingleStore/ManyStore)
+       (when-let [st (:store data)]
+                 [:div.statechart-info
+                  [:div.sc-row
+                   [:strong "Store Type: "]
+                   [:span (str (:store-type st))]]
+                  (when (= "single" (:store-type st))
+                    [:<>
+                     [:div.sc-row
+                      [:strong "FSM State: "]
+                      [:span.sc-state-tag (str (:current-state st))]]
+                     (when-let [ctx (:context st)]
+                               [:div.sc-row
+                                [:strong "Context: "]
+                                [:pre.meta-content (pr-str ctx)]])])
+                  (when (= "many" (:store-type st))
+                    [:<>
+                     [:div.sc-row
+                      [:strong "ID Key: "]
+                      [:span (str (:id-key st))]]
+                     [:div.sc-row
+                      [:strong "Instances: "]
+                      [:span (str (:instance-count st))]]
+                     (when-let [instances (:instances st)]
+                               [:div.sc-row
+                                [:strong "States: "]
+                                [:span.sc-states
+                                 (doall
+                                  (map-indexed
+                                   (fn [i [id state]]
+                                     ^{:key i}
+                                     [:span.sc-state-tag (str id " \u2192 " state)])
+                                   instances))]])])])
+       ;; Statechart info section (raw statechart definition)
        (when-let [sc (:statechart data)]
                  [:div.statechart-info
                   [:div.sc-row

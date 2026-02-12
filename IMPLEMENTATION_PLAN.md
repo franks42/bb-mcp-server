@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.26.0 (stable) — Runtime project addition, `bb add-project` CLI, sente warning fixes
-**Last Updated:** 2026-02-11
+**Status:** v1.30.0 (stable) — Statechart Service/ManyStore adoption, FSM runtime introspection
+**Last Updated:** 2026-02-12
 
 ---
 
@@ -13,6 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.30.0 | — | Statechart Service/ManyStore adoption, FSM runtime introspection |
+| v1.29.0 | `1307d59` | Live var value display with type-aware rendering + statechart detection |
 | v1.26.0 | — | Runtime project addition, `bb add-project` CLI, sente warning fixes |
 | v1.25.0 | `a55d8e5` | File watcher robustness, enhanced telemetry, heartbeat noise elimination |
 | v1.24.0 | `bd16e44` | Statecharts on both sides of sente-lite WebSocket (server + browser) |
@@ -223,7 +225,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - ~~Live var values~~ ✅ Phase L2 (var-value widget with type-aware rendering, statechart detection)
 - Loaded vs unloaded namespaces
 - tools.trace integration
-- [ ] **FSM runtime state introspection**: Detect atoms containing `:_state` key (clj-statecharts convention), show current FSM state alongside the statechart definition. **Key insight**: bare atoms (our current pattern with `swap!` + `fsm/transition`) lose the formal link between a `Statechart` machine and its runtime state atom. When multiple statecharts exist, there's no way to know which atom belongs to which machine. Adopting `SingleStore`/`ManyStore` from `statecharts.store` (which wrap atoms in an `IStore` protocol) would provide this association. Revisit when adding FSM state display to var-value widgets.
+- ~~FSM runtime state introspection~~ ✅ v1.30.0 — Service pattern (`local_nrepl_server.clj`), ManyStore pattern (`sente_browser/server.clj`), protocol-based detection in var-value widgets, browser rendering for Service/Store types
 
 ### Symbol-at-Point
 - Click any symbol in CM6 source viewer → navigate to definition

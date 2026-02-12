@@ -1,15 +1,21 @@
 (ns mcp-nrepl.state.local-nrepl-server
     "State management for embedded local babashka nREPL server lifecycle.
 
-   Uses clj-statecharts for validated state transitions:
+   Uses clj-statecharts Service wrapper for validated state transitions
+   and runtime introspection (machine↔state link):
    stopped -> starting -> running -> stopping -> stopped
                   |                      |
                 error                  error
 
    The state machine enforces valid transitions — attempting an invalid
-   transition (e.g. stop when already stopped) throws an exception."
+   transition (e.g. stop when already stopped) throws an exception.
+
+   Service adoption enables programmatic discovery of which statechart
+   machine governs the state, supporting live FSM introspection in the
+   code browser."
     (:require [babashka.nrepl.server :as nrepl-server]
               [statecharts.core :as fsm]
+              [statecharts.service :as service]
               [statecharts.types :as types]
               [taoensso.trove :as log]))
 
@@ -40,6 +46,24 @@
          :stopped-at (:stopped-at event)
          :error nil))
 
+(def ^:private initial-context
+     "Initial context values for the nREPL server state machine."
+     {:server-map nil
+      :host       "localhost"
+      :port       nil
+      :connection nil
+      :started-at nil
+      :stopped-at nil
+      :config     {}
+      :error      nil})
+
+(defn assign-reinit
+  "Reset all context fields to initial defaults (test-only transition).
+   This is a self-transition on :stopped that clears accumulated context.
+   Preserves :_state since fsm/assign replaces the full state map."
+  [ctx _event]
+  (assoc initial-context :_state (:_state ctx)))
+
 ;; =============================================================================
 ;; State Machine Definition
 ;; =============================================================================
@@ -50,17 +74,12 @@
      (types/map->Statechart
       {:id      :nrepl-server
        :initial :stopped
-       :context {:server-map nil
-                 :host       "localhost"
-                 :port       nil
-                 :connection nil
-                 :started-at nil
-                 :stopped-at nil
-                 :config     {}
-                 :error      nil}
+       :context initial-context
        :states
-       {:stopped  {:on {:start {:target  :starting
-                                :actions [(fsm/assign assign-config)]}}}
+       {:stopped  {:on {:start  {:target  :starting
+                                 :actions [(fsm/assign assign-config)]}
+                        :reinit {:target  :stopped
+                                 :actions [(fsm/assign assign-reinit)]}}}
         :starting {:on {:started {:target  :running
                                   :actions [(fsm/assign assign-server-info)]}
                         :failed  {:target  :error
@@ -87,17 +106,21 @@
    - :failed  - Server start/stop failed (from :starting or :stopping)
    - :stop    - Begin server shutdown (from :running)
    - :stopped - Server successfully stopped (from :stopping)
-   - :reset   - Reset to stopped state (from :error)"
+   - :reset   - Reset to stopped state (from :error)
+   - :reinit  - Reset context to defaults (test-only, from :stopped)"
      (fsm/machine nrepl-server-statechart))
 
 ;; =============================================================================
-;; State Atom
+;; Service (replaces bare state atom)
 ;; =============================================================================
 
-(def !state
-     "State atom initialized from the nrepl-server-statechart-compiled.
-   Contains :_state (current state keyword) plus context fields."
-     (atom (fsm/initialize nrepl-server-statechart-compiled {:exec false})))
+(defonce ^{:doc "Service wrapping the nREPL server state machine.
+   Provides machine↔state link for runtime introspection.
+   Use service/state to read, service/send to transition."}
+ !service
+         (let [svc (service/service nrepl-server-statechart-compiled)]
+           (service/start svc)
+           svc))
 
 ;; =============================================================================
 ;; Port Extraction Utilities
@@ -125,13 +148,13 @@
 ;; =============================================================================
 
 (defn- transition!
-  "Apply a state machine transition atomically.
+  "Apply a state machine transition via Service.
    Logs before/after state for full observability.
-   Returns the new state. Throws on invalid transition."
+   Throws on invalid transition."
   [event]
-  (let [from-state (:_state @!state)]
-    (swap! !state #(fsm/transition nrepl-server-statechart-compiled % event))
-    (let [to-state (:_state @!state)]
+  (let [from-state (:_state (service/state !service))]
+    (service/send !service event)
+    (let [to-state (:_state (service/state !service))]
       (log/log! {:level :info :id ::transition
                  :msg (str "Transition: " (name from-state) " -> " (name to-state))
                  :data {:from from-state
@@ -145,22 +168,22 @@
 (defn running?
   "Check if nREPL server is currently running."
   []
-  (= :running (:_state @!state)))
+  (= :running (:_state (service/state !service))))
 
 (defn get-status
   "Get current server status."
   []
-  (:_state @!state))
+  (:_state (service/state !service)))
 
 (defn get-server-map
   "Get stored server map (contains :socket and :future)."
   []
-  (:server-map @!state))
+  (:server-map (service/state !service)))
 
 (defn get-connection-info
   "Get current connection information as map."
   []
-  (let [state @!state]
+  (let [state (service/state !service)]
     {:host       (:host state)
      :port       (:port state)
      :connection (:connection state)
@@ -172,7 +195,7 @@
 (defn get-uptime-ms
   "Get server uptime in milliseconds, or nil if not running."
   []
-  (when-let [started-at (:started-at @!state)]
+  (when-let [started-at (:started-at (service/state !service))]
             (when (running?)
               (- (System/currentTimeMillis) started-at))))
 
@@ -268,9 +291,10 @@
 (defn get-full-state
   "Get complete state for debugging."
   []
-  @!state)
+  (service/state !service))
 
 (defn reset-state!
-  "Reset state to initial values (for testing)."
+  "Reset state to initial values via :reinit transition (for testing).
+   Must be called when service is in :stopped state."
   []
-  (reset! !state (fsm/initialize nrepl-server-statechart-compiled {:exec false})))
+  (service/send !service {:type :reinit}))

@@ -4,9 +4,9 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-11
-**Version:** v1.29.0 (stable)
-**Focus:** Live var value display (Phase L2) with type-aware rendering + statechart detection
+**Last Updated:** 2026-02-12
+**Version:** v1.30.0 (stable)
+**Focus:** Statechart Service/ManyStore adoption + FSM runtime introspection
 
 ---
 
@@ -14,7 +14,16 @@
 
 ### Committed & Pushed
 
-1. **Live var value display — Phase L2** (v1.29.0):
+1. **Statechart Service/ManyStore adoption + FSM runtime introspection** (v1.30.0):
+   - **Service pattern** for `local_nrepl_server.clj` — `!service` defonce wraps compiled statechart
+   - **ManyStore pattern** for `sente_browser/server.clj` — `!connection-store` tracks per-browser-connection FSM state
+   - **`:reinit` transition** on `:stopped` state for clean test resets (preserves `:_state`)
+   - **Service/Store detection** in `babashka.clj` — protocol-based detection (`IService`, `IStore`)
+   - **Browser rendering** for Service (FSM state + context) and ManyStore (store type, instances, states)
+   - **SCI deftype fix** — use `(resolve 'statecharts.service/state)` protocol fn instead of `.state` method
+   - 72 mcp-nrepl tests (303 assertions), all modules pass
+
+2. **Live var value display — Phase L2** (v1.29.0):
    - **"+ Value" button** in toolbar for nREPL-sourced symbols — fetches live runtime value
    - **Type-aware rendering**: maps, vectors, atoms, statecharts, nil, functions, etc.
    - **Atom auto-deref**: detects `IAtom`, double-derefs, shows "atom →" badge + inner type
@@ -55,15 +64,15 @@ Server: handlers.clj handle-fetch :var-value case
               ▼
     Target BB server: single eval string
     ├── resolve var, deref (double-deref if atom)
-    ├── classify type, detect statechart
+    ├── classify type, detect statechart/service/store
     ├── pprint with truncation
     ├── collect var & value metadata
     └── return EDN map
               │
               ▼
 Browser: var-value-content renderer
-    ├── Header badges (container, type, statechart, count, predicates)
-    ├── Statechart info box (when detected)
+    ├── Header badges (container, type, statechart/service/store, count, predicates)
+    ├── Statechart/Service/Store info box (when detected)
     ├── Pprinted value display
     └── Metadata sections
 ```
@@ -76,6 +85,8 @@ Browser: var-value-content renderer
 - `modules/code-browser-v2/src/code_browser/handlers.clj` — `:var-value` case in `handle-fetch`
 - `modules/sente-browser/src/browser/code_browser_v2.cljs` — `var-value-content` renderer, `"+ Value"` button
 - `modules/sente-browser/src/sente_browser/bootstrap.clj` — CSS for var-value widgets
+- `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj` — Service-wrapped nREPL server statechart
+- `modules/sente-browser/src/sente_browser/server.clj` — ManyStore for per-connection browser FSM states
 
 ### Key Decisions
 
@@ -84,11 +95,11 @@ Browser: var-value-content renderer
 - **Statechart detection is optional** — `try/catch` around `resolve` of `statecharts.types/statechart?`; gracefully returns false if not loaded
 - **"+ Value" button visibility** — only shown for nREPL-sourced symbols (`:uri/source :nrepl` check)
 - **Atom auto-deref** — detects `IAtom`, double-derefs, reports both container and inner type
-- **FSM state introspection tabled** — bare atoms lose machine↔state link; `SingleStore`/`ManyStore` from `statecharts.store` would provide formal association (future work in IMPLEMENTATION_PLAN.md)
+- **FSM state introspection done** — Service pattern (single-instance) and ManyStore pattern (multi-instance) adopted; var-value widgets detect and render live FSM state
 
 ### What's NOT done yet (future PRs)
 
-1. **FSM runtime state introspection** — detect `:_state` in atoms, show current FSM state + link to statechart definition
+1. ~~**FSM runtime state introspection**~~ ✅ Done in v1.30.0
 2. **Statechart write gate** — wire `widget_lifecycle.cljc` as write gate for `!widgets` r/atom
 3. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
 4. **Browser log viewer** — UI widget for browsing telemetry in browser
@@ -110,7 +121,7 @@ The MCP tools provide interactive, real-time browser automation directly from th
 bb test:module code-browser-v2   # 80 tests, 625 assertions
 bb test:module sente-browser     # 24 tests, 62 assertions
 bb test:statecharts              # 19 tests, 69 assertions
-bb test:nrepl                    # 70 tests, 275 assertions
+bb test:nrepl                    # 72 tests, 303 assertions
 bb test:module telemetry-db      # 16 tests, 35 assertions
 
 # Statechart validation
@@ -128,6 +139,8 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
+PENDING feat: Statechart Service/ManyStore adoption with FSM runtime introspection
+1307d59 docs: Update context.md with commit hash for v1.29.0
 b6b2f8c feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
 e2e4288 feat: Runtime project addition with bb add-project CLI and browser input
 c6e3894 feat: Multi-project browsing + fix CM6 zoom for short content
@@ -139,4 +152,4 @@ c49f014 feat: Add load-local-js-file command for importing JS as ES modules in b
 
 ---
 
-*Last Updated: 2026-02-11*
+*Last Updated: 2026-02-12*

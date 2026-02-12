@@ -113,6 +113,45 @@
                                       (catch Exception _ false)))
                      :states (when-let [s (:states val)]
                                (vec (keys s)))})
+          ;; Service detection (clj-statecharts Service deftype via IService protocol)
+          is-service? (boolean
+                       (try (require 'statecharts.service)
+                            (let [proto-var (resolve 'statecharts.service/IService)]
+                              (and proto-var (satisfies? @proto-var val)))
+                            (catch Exception _ false)))
+          svc-info (when is-service?
+                     (try
+                       (let [state-fn (resolve 'statecharts.service/state)
+                             svc-state (state-fn val)]
+                         {:current-state (:_state svc-state)
+                          :context (dissoc svc-state :_state :_actions)})
+                       (catch Exception _ nil)))
+          ;; Store detection (SingleStore/ManyStore via IStore protocol)
+          is-store? (boolean
+                     (try (require 'statecharts.store)
+                          (let [proto-var (resolve 'statecharts.store/IStore)]
+                            (and proto-var (satisfies? @proto-var val)))
+                          (catch Exception _ false)))
+          store-type (when is-store?
+                       (cond
+                         (contains? val :states*) \"many\"
+                         (contains? val :state*) \"single\"
+                         :else nil))
+          store-info (when is-store?
+                       (try
+                         (case store-type
+                           \"single\" {:store-type \"single\"
+                                     :current-state (:_state @(:state* val))
+                                     :context (dissoc @(:state* val) :_state :_actions)}
+                           \"many\" {:store-type \"many\"
+                                    :id-key (:id val)
+                                    :instance-count (count @(:states* val))
+                                    :instance-ids (vec (keys @(:states* val)))
+                                    :instances (into {}
+                                                 (map (fn [[k v]] [k (:_state v)])
+                                                      @(:states* val)))}
+                           nil)
+                         (catch Exception _ nil)))
           ;; Predicate probing — test all core predicates against the value
           preds (vec
                  (keep (fn [[pred-name pred-fn]]
@@ -153,6 +192,8 @@
                         [\"future?\" future?]]))
           ;; Primary type (for title/classification)
           vtype (cond
+                  is-service?        \"service\"
+                  is-store?          \"store\"
                   is-sc?             \"statechart\"
                   (nil? val)         \"nil\"
                   (fn? val)          \"function\"
@@ -205,6 +246,10 @@
        :predicates preds
        :is-statechart? is-sc?
        :statechart sc-info
+       :is-service? is-service?
+       :service svc-info
+       :is-store? is-store?
+       :store store-info
        :var-meta vmeta
        :value-meta val-meta
        :count cnt

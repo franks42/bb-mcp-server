@@ -141,6 +141,42 @@
                         next-state (transition state {:type :reset})]
                     (is (= :stopped (:_state next-state))))))
 
+(deftest reinit-from-stopped-test
+         (testing ":reinit from :stopped -> :stopped with context reset to defaults"
+                  (let [;; Run through a full lifecycle to accumulate context
+                        state (-> (init-state)
+                                  (transition {:type :start :config {:port 7888}})
+                                  (transition {:type :started
+                                               :server-map {:socket :mock}
+                                               :host "localhost"
+                                               :port 7888
+                                               :connection "localhost:7888"
+                                               :started-at 1000})
+                                  (transition {:type :stop})
+                                  (transition {:type :stopped :stopped-at 2000}))
+                        ;; Verify accumulated context before reinit
+                        _ (is (= :stopped (:_state state)))
+                        _ (is (= 2000 (:stopped-at state)))
+                        _ (is (= {:port 7888} (:config state)))
+                        ;; Apply reinit
+                        next-state (transition state {:type :reinit})]
+                    ;; State remains :stopped
+                    (is (= :stopped (:_state next-state)))
+                    ;; Context is reset to initial defaults
+                    (is (nil? (:server-map next-state)))
+                    (is (= "localhost" (:host next-state)))
+                    (is (nil? (:port next-state)))
+                    (is (nil? (:connection next-state)))
+                    (is (nil? (:started-at next-state)))
+                    (is (nil? (:stopped-at next-state)))
+                    (is (= {} (:config next-state)))
+                    (is (nil? (:error next-state)))))
+
+         (testing ":reinit from non-stopped state throws"
+                  (let [state (-> (init-state)
+                                  (transition {:type :start :config {}}))]
+                    (is (thrown? Exception (transition state {:type :reinit}))))))
+
 ;; =============================================================================
 ;; Invalid Transition Tests
 ;; =============================================================================
@@ -274,6 +310,28 @@
                     (is (= 2000 (:stopped-at result)))
                     (is (nil? (:error result))))))
 
+(deftest assign-reinit-test
+         (testing "assign-reinit returns initial context preserving :_state"
+                  (let [ctx {:_state :stopped
+                             :server-map {:socket :mock}
+                             :host "example.com"
+                             :port 9999
+                             :connection "example.com:9999"
+                             :started-at 1000
+                             :stopped-at 2000
+                             :config {:port 9999}
+                             :error "old error"}
+                        result (sut/assign-reinit ctx {})]
+                    (is (= :stopped (:_state result)))
+                    (is (nil? (:server-map result)))
+                    (is (= "localhost" (:host result)))
+                    (is (nil? (:port result)))
+                    (is (nil? (:connection result)))
+                    (is (nil? (:started-at result)))
+                    (is (nil? (:stopped-at result)))
+                    (is (= {} (:config result)))
+                    (is (nil? (:error result))))))
+
 ;; =============================================================================
 ;; Static Validation Test
 ;; =============================================================================
@@ -284,4 +342,4 @@
                     (is (empty? (:errors result)))
                     (is (empty? (:warnings result)))
                     (is (= 5 (:states (:summary result))))
-                    (is (= 8 (:edges (:summary result)))))))
+                    (is (= 9 (:edges (:summary result)))))))

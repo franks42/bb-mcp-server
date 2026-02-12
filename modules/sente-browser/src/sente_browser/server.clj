@@ -12,7 +12,10 @@
    Key difference from socket connections:
    - Browsers connect TO us (vs Claude connecting to nREPL servers)
    - Claude discovers browsers via `op=list`, then selects one to eval in
-   - Only validated browsers (responded to :describe) are listed"
+   - Only validated browsers (responded to :describe) are listed
+
+   Uses clj-statecharts ManyStore for per-connection FSM state management.
+   This maintains the machine↔state link for runtime introspection."
     (:require [clojure.string :as str]
               [sente-lite.server :as sente-server]
               [sente-browser.code-browser :as code-browser]
@@ -24,6 +27,7 @@
               [mcp-nrepl.state.results :as results]
               [mcp-nrepl.state.watchers :as watchers]
               [statecharts.core :as fsm]
+              [statecharts.store :as store]
               [com.github.franks42.uuidv7.core :as uuidv7]
               [taoensso.trove :as log]))
 
@@ -34,9 +38,12 @@
 ;; State
 ;; =============================================================================
 
-;; Map of sente-conn-id -> FSM state map with :_state keyword
-;; plus context: :mcp-conn-id, :last-heartbeat, :probe-id, :capabilities, :session-id, etc.
-(defonce ^:private !browser-connections (atom {}))
+;; ManyStore for per-connection FSM states, keyed by :sente-conn-id.
+;; Each entry is a full FSM state map with :_state keyword plus context fields.
+(defonce ^{:doc "ManyStore for per-connection browser FSM states.
+   Keyed by :sente-conn-id. Provides machine↔state link for introspection."}
+ !connection-store
+         (store/many-store {:id :sente-conn-id}))
 
 ;; Session registry: session-id -> mcp-conn-id
 ;; Persists across WebSocket reconnects so browser keeps same identity
@@ -51,6 +58,25 @@
 
 ;; Session registry cleanup (truly stale sessions that won't reconnect)
 (def ^:private session-stale-threshold-ms (* 60 60 1000))  ; 1 hour
+
+;; =============================================================================
+;; Store Access Helpers
+;; =============================================================================
+
+(defn- all-connections
+  "Get all connection states as {sente-conn-id state-map}."
+  []
+  @(:states* !connection-store))
+
+(defn- get-conn
+  "Get state map for a single connection by sente-conn-id."
+  [sente-conn-id]
+  (store/get-state !connection-store sente-conn-id))
+
+(defn- remove-conn!
+  "Remove a connection from the store."
+  [sente-conn-id]
+  (swap! (:states* !connection-store) dissoc sente-conn-id))
 
 ;; =============================================================================
 ;; Per-Connection State Machine - Assign Functions (pure context updates)
@@ -121,12 +147,13 @@
 
 (defn- conn-transition!
   "Apply state machine transition for a specific browser connection.
-   Logs before/after state for observability."
+   Uses ManyStore for atomic transition. Logs state changes only."
   [sente-conn-id event]
-  (let [before (:_state (get @!browser-connections sente-conn-id))]
-    (swap! !browser-connections update sente-conn-id
-           #(fsm/transition browser-connection-machine % event))
-    (let [after (:_state (get @!browser-connections sente-conn-id))]
+  (let [current-state (get-conn sente-conn-id)
+        before (:_state current-state)]
+    (store/transition !connection-store browser-connection-machine
+                      current-state event nil)
+    (let [after (:_state (get-conn sente-conn-id))]
       ;; Only log actual state changes, not self-transitions (e.g. heartbeat-pong).
       ;; Heartbeat health is observed via its absence (::stale-connections-detected),
       ;; not its presence — logging every successful pong is pure noise.
@@ -145,12 +172,12 @@
 (defn validated?
   "Check if a browser connection has completed handshake validation."
   [sente-conn-id]
-  (= :validated (:_state (get @!browser-connections sente-conn-id))))
+  (= :validated (:_state (get-conn sente-conn-id))))
 
 (defn get-connection-state
   "Get the current state keyword for a browser connection."
   [sente-conn-id]
-  (:_state (get @!browser-connections sente-conn-id)))
+  (:_state (get-conn sente-conn-id)))
 
 ;; =============================================================================
 ;; Browser Connection Management
@@ -170,18 +197,19 @@
 (defn- handle-client-ready!
   "Handle :client/ready from browser - this is the handshake initiation.
    Browser is signaling that its handlers are ready for communication.
-   Creates a per-connection state machine instance in :pending-validation."
+   Creates a per-connection state machine instance in :pending-validation
+   via ManyStore initialize."
   [sente-conn-id {:keys [session-id]}]
   (let [probe-id (str "probe-" (uuidv7/uuidv7))
         now (System/currentTimeMillis)
-        initial-state (-> (fsm/initialize browser-connection-machine {:exec false})
-                          (assoc :sente-conn-id sente-conn-id
-                                 :session-id session-id
-                                 :probe-id probe-id
-                                 :connected-at now
-                                 :last-heartbeat now))]
-    ;; Register connection with FSM state
-    (swap! !browser-connections assoc sente-conn-id initial-state)
+        initial-state (store/initialize
+                       !connection-store browser-connection-machine
+                       {:exec false
+                        :context {:sente-conn-id sente-conn-id
+                                  :session-id session-id
+                                  :probe-id probe-id
+                                  :connected-at now
+                                  :last-heartbeat now}})]
     (log/log! {:level :info
                :id ::client-ready-received
                :msg "Browser client-ready received, starting validation"
@@ -196,13 +224,13 @@
 
 (defn handle-browser-disconnect!
   "Called when a browser disconnects.
-   Transitions to :disconnected state, then removes from map.
+   Transitions to :disconnected state, then removes from store.
 
    Note: Does NOT remove session-id from !session-registry so browser
    can reconnect with same identity. Registry cleanup happens separately
    for truly stale sessions."
   [sente-conn-id]
-  (when-let [conn-info (get @!browser-connections sente-conn-id)]
+  (when-let [conn-info (get-conn sente-conn-id)]
             (let [from-state (:_state conn-info)]
       ;; Transition to :disconnected (unless already disconnected)
               (when (not= :disconnected from-state)
@@ -210,8 +238,8 @@
       ;; Only close in conn-state if it was validated (has mcp-conn-id)
               (when-let [mcp-conn-id (:mcp-conn-id conn-info)]
                         (conn-state/mark-connection-closed! mcp-conn-id :browser-disconnect "Browser closed"))
-      ;; Remove from map after side effects
-              (swap! !browser-connections dissoc sente-conn-id)
+      ;; Remove from store after side effects
+              (remove-conn! sente-conn-id)
               (log/log! {:level :info
                          :id ::browser-disconnected
                          :msg "Browser disconnected (session registry preserved for reconnect)"
@@ -237,7 +265,7 @@
         versions (get describe-response :versions {})]
     (if (get ops "eval")
       ;; Valid nREPL - has eval capability
-      (let [session-id (get-in @!browser-connections [sente-conn-id :session-id])
+      (let [session-id (:session-id (get-conn sente-conn-id))
             ;; Check if this session-id has existing mcp-conn-id
             existing-mcp-conn-id (when session-id (get @!session-registry session-id))
             ;; Reuse existing or create new
@@ -296,14 +324,14 @@
        (conn-transition! sente-conn-id
                          {:type :describe-failed
                           :error "Browser lacks eval capability"})
-       ;; Remove from connections
-       (swap! !browser-connections dissoc sente-conn-id)
+       ;; Remove from store
+       (remove-conn! sente-conn-id)
        nil))))
 
 (defn- handle-describe-response!
   "Handle :describe response for pending validation."
   [sente-conn-id response]
-  (let [conn-info (get @!browser-connections sente-conn-id)
+  (let [conn-info (get-conn sente-conn-id)
         probe-id (:probe-id conn-info)
         response-id (:id response)]
     (when (and (= :pending-validation (:_state conn-info))
@@ -340,14 +368,14 @@
     ;; Return nil so sente-lite doesn't try to send :ingested back as a response
     :telemetry/log
     (do (when (validated? sente-conn-id)
-          (let [conn-info (get @!browser-connections sente-conn-id)]
+          (let [conn-info (get-conn sente-conn-id)]
             (telemetry-db/ingest!
              (assoc data :source (str "browser:" (:mcp-conn-id conn-info))))))
         nil)
 
     ;; nREPL response - native map format (browser_adapter parses before sending)
     :nrepl/response
-    (let [conn-info (get @!browser-connections sente-conn-id)
+    (let [conn-info (get-conn sente-conn-id)
           msg-id (:id data)]
       (cond
         ;; Check if this is a describe probe response for pending validation
@@ -446,22 +474,22 @@
 (defn browser-count
   "Get count of connected browsers."
   []
-  (count @!browser-connections))
+  (count (all-connections)))
 
 (defn get-browser-connections
   "Get all browser connections as {sente-conn-id {:mcp-conn-id ... :last-heartbeat ...}}."
   []
-  @!browser-connections)
+  (all-connections))
 
 (defn get-mcp-conn-id
   "Get MCP connection ID for a sente connection ID."
   [sente-conn-id]
-  (get-in @!browser-connections [sente-conn-id :mcp-conn-id]))
+  (:mcp-conn-id (get-conn sente-conn-id)))
 
 (defn get-sente-conn-id
   "Get sente connection ID for an MCP connection ID."
   [target-mcp-conn-id]
-  (->> @!browser-connections
+  (->> (all-connections)
        (filter (fn [[_ {:keys [mcp-conn-id]}]] (= mcp-conn-id target-mcp-conn-id)))
        first
        first))
@@ -476,7 +504,7 @@
   "Send an event to all connected browsers.
    Returns count of browsers message was sent to."
   [event]
-  (let [conn-ids (keys @!browser-connections)]
+  (let [conn-ids (keys (all-connections))]
     (doseq [conn-id conn-ids]
            (send-to-browser! conn-id event))
     (count conn-ids)))
@@ -492,7 +520,7 @@
                    [sente-conn-id {:mcp-conn-id mcp-conn-id
                                    :healthy? (< ms-ago heartbeat-timeout-ms)
                                    :last-seen-ms-ago ms-ago}]))
-               @!browser-connections))))
+               (all-connections)))))
 
 (defn get-session-registry
   "Get the session registry (session-id -> mcp-conn-id mappings).
@@ -551,7 +579,7 @@
    Fires :heartbeat-timeout FSM event before cleanup."
   []
   (let [now (System/currentTimeMillis)
-        stale-conns (->> @!browser-connections
+        stale-conns (->> (all-connections)
                          (filter (fn [[_ conn]]
                                    (let [hb (:last-heartbeat conn)]
                                      (and hb
@@ -572,7 +600,7 @@
   "Run one heartbeat cycle: send pings to all, check for stale."
   []
   ;; Send pings to all connected browsers
-  (doseq [conn-id (keys @!browser-connections)]
+  (doseq [conn-id (keys (all-connections))]
          (send-heartbeat-ping! conn-id))
   ;; Check for stale connections
   (check-stale-connections!)
@@ -679,12 +707,12 @@
   (msg-state/unregister-browser-send-fn!)
 
   ;; Mark all browser connections as closed
-  (doseq [[_sente-conn-id {:keys [mcp-conn-id]}] @!browser-connections]
+  (doseq [[_sente-conn-id {:keys [mcp-conn-id]}] (all-connections)]
          (when mcp-conn-id
            (conn-state/mark-connection-closed! mcp-conn-id :server-shutdown "Server stopping")))
 
-  ;; Clear our tracking
-  (reset! !browser-connections {})
+  ;; Clear connection store
+  (reset! (:states* !connection-store) {})
 
   ;; Stop sente server
   (sente-server/stop-server!)
