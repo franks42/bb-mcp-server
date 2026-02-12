@@ -139,7 +139,7 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
-PENDING feat: Statechart Service/ManyStore adoption with FSM runtime introspection
+f5e47e3 feat: Statechart Service/ManyStore adoption with FSM runtime introspection
 1307d59 docs: Update context.md with commit hash for v1.29.0
 b6b2f8c feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
 e2e4288 feat: Runtime project addition with bb add-project CLI and browser input

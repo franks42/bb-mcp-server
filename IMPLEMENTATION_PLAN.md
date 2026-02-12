@@ -13,7 +13,7 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
-| v1.30.0 | — | Statechart Service/ManyStore adoption, FSM runtime introspection |
+| v1.30.0 | `f5e47e3` | Statechart Service/ManyStore adoption, FSM runtime introspection |
 | v1.29.0 | `1307d59` | Live var value display with type-aware rendering + statechart detection |
 | v1.26.0 | — | Runtime project addition, `bb add-project` CLI, sente warning fixes |
 | v1.25.0 | `a55d8e5` | File watcher robustness, enhanced telemetry, heartbeat noise elimination |
