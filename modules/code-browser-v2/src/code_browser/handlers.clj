@@ -6,6 +6,7 @@
     (:require [code-browser.sync :as sync]
               [code-browser.db.protocol :as db-proto]
               [code-browser.sources.protocol :as source-proto]
+              [code-browser.sources.nrepl :as nrepl-source]
               [code-browser.uri :as uri]
               [taoensso.trove :as log]))
 
@@ -62,7 +63,8 @@
     (let [results (db-proto/q db
                               '[:find (pull ?e [*])
                                 :where [?e :uri/source _]
-                                [?e :project/root-path _]])]
+                                (or [?e :project/root-path _]
+                                    [?e :project/nrepl-host _])])]
       (->> results
            (map first)
            (sort-by :uri/project)
@@ -141,6 +143,16 @@
     ;; Try each source until one returns content
     (some (fn [[_proj-uri source]]
             (source-proto/fetch-source source symbol-uri))
+          sources)))
+
+(defn- fetch-var-value
+  "Fetch the current runtime value for a var from nREPL sources.
+   Iterates registered sources, finds nREPL sources by :type, calls fetch-var-value."
+  [ns-name var-name]
+  (let [sources (:sources @!module-state)]
+    (some (fn [[_proj-uri source]]
+            (when (= :nrepl (:type (source-proto/source-info source)))
+              (nrepl-source/fetch-var-value source ns-name var-name {})))
           sources)))
 
 ;;; ---------------------------------------------------------------------------
@@ -345,6 +357,15 @@
                (if (and parsed symbol-name)
                  {:success true :data []}
                  {:success false :error "callers requires a symbol-level URI"})
+
+               :var-value
+               (if (and parsed symbol-name)
+                 (if-let [result (fetch-var-value ns-name symbol-name)]
+                         {:success true :data result}
+                         {:success false
+                          :error "Value unavailable (nREPL sources only)"})
+                 {:success false
+                  :error "var-value requires a symbol-level URI"})
 
           ;; Unknown property
                {:success false :error (str "Unknown property: " property)}))

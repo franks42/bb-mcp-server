@@ -4,116 +4,96 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-09
-**Version:** v1.25.0 (stable)
-**Focus:** File watcher robustness + telemetry observability
+**Last Updated:** 2026-02-11
+**Version:** v1.29.0 (stable)
+**Focus:** Live var value display (Phase L2) with type-aware rendering + statechart detection
 
 ---
 
-## Current State (2026-02-09)
+## Current State (2026-02-11)
 
 ### Committed & Pushed
 
-1. **File watcher robustness + telemetry** (v1.25.0, stable):
-   - **3 race condition fixes**: thread-safe debounce (`locking`), per-file serialization (`!rescan-locks`), phantom deletion correction (`fs/exists?` check)
-   - **Enhanced telemetry**: debounce coalescing counter, entity counts in rescan-complete, lock contention logging
-   - **Heartbeat noise elimination**: self-transitions silenced entirely; only absence (timeout) logged
-   - **"." project name fix**: `fs/normalize` in directory.clj
-   - **Project deduplication**: sorted-reduce in handlers.clj
-   - **URI decode**: `js/decodeURIComponent` for spaces in browser hash
-   - Root cause found via telemetry: 4 concurrent rescans interleaved → 0 symbols
-   - E2E verified: rapid edits, live file watching, heartbeat timeout detection
-   - Tests: 47 tests, 542 assertions (code-browser-v2), 24 tests, 62 assertions (sente-browser)
+1. **Live var value display — Phase L2** (v1.29.0):
+   - **"+ Value" button** in toolbar for nREPL-sourced symbols — fetches live runtime value
+   - **Type-aware rendering**: maps, vectors, atoms, statecharts, nil, functions, etc.
+   - **Atom auto-deref**: detects `IAtom`, double-derefs, shows "atom →" badge + inner type
+   - **Statechart detection**: `statecharts.types/statechart?` check, shows machine id, initial state, compiled status, state tags
+   - **Truncation**: `*print-length* 20`, `*print-level* 5`, 4096 char hard cap
+   - **Var & value metadata** display
+   - **Predicate badges**: `counted?`, `sorted?`, `fn?`, `var?`, `sequential?`, `associative?`
+   - New source abstraction layer: `sources/protocol.clj`, `sources/runtime.clj`, `sources/runtime/babashka.clj`, `sources/nrepl.clj`
+   - Tests: 80 tests, 625 assertions (code-browser-v2)
 
-2. **Per-connection server statechart** (v1.24.0, `bd16e44`):
-   - `sente_browser/server.clj` — 4 states, 5 transitions per browser WebSocket connection
-     (pending-validation→validated→disconnected, with validation-failed branch)
-   - Replaces implicit `:status` keyword FSM with formal `clj-statecharts` machine instances
-   - Per-connection instances in `!browser-connections` atom (`:_state` replaces `:status`)
-   - `conn-transition!` helper with telemetry on state changes (self-transitions silenced in v1.25.0)
-   - `validated?` and `get-connection-state` query helpers replace 7 repeated guards
-   - Heartbeat pong self-transition updates `:last-heartbeat` via `fsm/assign`
-   - Heartbeat timeout fires `:heartbeat-timeout` FSM event (not direct disconnect)
-   - 24 tests, 62 assertions (`bb test:module sente-browser`)
-   - Integration verified: Playwright browser connect/browse/disconnect, telemetry logs
+2. **Runtime project addition** (v1.26.0):
+   - `bb add-project` CLI and browser input for adding projects at runtime
+   - Multi-project browsing + CM6 zoom fix for short content
 
-2. **Browser connection statechart** (v1.23.0, `e1fba2a`):
-   - `bootstrap_client.cljs` — 6 states, 9 transitions
-     (idle→connecting→ws-open→connected, with disconnected/reconnecting)
-   - Server `local_nrepl_server.clj` — added telemetry + config/machine split
-   - CDN-served `statecharts-bundle.cljc` via `<script>` tag in `bootstrap.clj`
-   - Coding conventions documented in `docs/STATECHARTS_REFERENCE.md`
-   - Verified via Playwright: full connection flow, code browser nav, 0 errors
+3. **File watcher robustness + telemetry** (v1.25.0):
+   - 3 race condition fixes: thread-safe debounce, per-file serialization, phantom deletion correction
+   - Enhanced telemetry for debugging
 
-3. **Statechart static analyzer "statechart-kondo"** (v1.22.0–v1.22.1):
-   - `src/statecharts/validate.cljc` — 5 structural checks + 4 convention checks
-   - Structural: unreachable, dead-end, non-deterministic, orphan, self-only
-   - Conventions: missing `:id`, missing `:context`, error without recovery, no return to initial
-   - `bb statechart:validate ns/var` CLI with colored graph output
-   - `bb test:statecharts` — 19 tests, 69 assertions
-   - State management best practices added to `docs/CLOJURE_EXPERT_CONTEXT.md`
-   - Full reference at `docs/STATECHARTS_REFERENCE.md`
+4. **Statecharts infrastructure** (v1.21.0–v1.24.0):
+   - `clj-statecharts` integration, static analyzer, browser + server connection statecharts
+   - Per-connection server statechart (4 states, 5 transitions)
 
-4. **clj-statecharts integration** (v1.21.0, `87a7156`):
-   - `local_nrepl_server.clj` uses `fsm/machine` for lifecycle state management
-   - Pure transition tests (no I/O) — 70 tests, 275 assertions
-
-5. **Live code refresh** (v1.20.0):
-   - File watcher, incremental rescan, widget auto-update via sente
-
-6. **Telemetry infrastructure** (v1.18.0–v1.19.1):
-   - In-memory queryable log store, `bb logs`, `bb telemetry:catalog` (849 log points)
-
-### Architecture — Live Code Refresh
+### Architecture — Phase L2 Var Value
 
 ```
-File saved on disk (e.g., echo/core.clj)
+Browser: "+ Value" button clicked
     │
     ▼
-code-browser.core file watcher (java.nio WatchService)
+send-event! :code-browser-v2/fetch {:query-type :var-value, :uri "..."}
     │
-    ├── Incremental rescan (clj-kondo single-file analysis)
-    ├── Cache invalidation (clear stale source entries)
-    └── broadcast-to-browsers! :code-browser-v2/invalidate
+    ▼ (sente WebSocket)
+Server: handlers.clj handle-fetch :var-value case
+    │
+    ├── Find NreplSource in registered sources
+    ├── nrepl.clj fetch-var-value → runtime/fetch-var-value multimethod
+    └── babashka.clj :babashka defmethod → remote eval on target server
               │
-              ▼ (sente WebSocket)
-Browser: code_browser_v2.cljs receives invalidation
-    │
-    ├── All open widgets re-fetch their data
-    └── Source view, symbol list, namespace list auto-refresh
+              ▼
+    Target BB server: single eval string
+    ├── resolve var, deref (double-deref if atom)
+    ├── classify type, detect statechart
+    ├── pprint with truncation
+    ├── collect var & value metadata
+    └── return EDN map
+              │
+              ▼
+Browser: var-value-content renderer
+    ├── Header badges (container, type, statechart, count, predicates)
+    ├── Statechart info box (when detected)
+    ├── Pprinted value display
+    └── Metadata sections
 ```
 
 ### Key Files
 
-- `modules/sente-browser/src/sente_browser/server.clj` — server per-connection statechart (4 states)
-- `modules/sente-browser/src/browser/bootstrap_client.cljs` — browser connection statechart (6 states)
-- `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj` — server nREPL statechart (5 states)
-- `modules/sente-browser/test/sente_browser/server_test.clj` — 24 tests, 62 assertions
-- `modules/sente-browser/src/sente_browser/bootstrap.clj` — serves statecharts CDN script
-- `src/statecharts/validate.cljc` — static analyzer (5 checks + graph extraction)
-- `scripts/statechart_validate.clj` — CLI with colored output
-- `test/statecharts/validate_test.clj` — 19 tests with synthetic + real machines
-- `docs/STATECHARTS_REFERENCE.md` — full reference + coding conventions
-- `docs/CLOJURE_EXPERT_CONTEXT.md` — state management best practices section
+- `modules/code-browser-v2/src/code_browser/sources/runtime.clj` — `fetch-var-value` multimethod
+- `modules/code-browser-v2/src/code_browser/sources/runtime/babashka.clj` — babashka implementation
+- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj` — nREPL wrapper
+- `modules/code-browser-v2/src/code_browser/handlers.clj` — `:var-value` case in `handle-fetch`
+- `modules/sente-browser/src/browser/code_browser_v2.cljs` — `var-value-content` renderer, `"+ Value"` button
+- `modules/sente-browser/src/sente_browser/bootstrap.clj` — CSS for var-value widgets
 
 ### Key Decisions
 
-- **Per-connection FSM instances** — each browser connection gets its own state machine in `!browser-connections`.
-- **Config/machine split** — always `def` the config map separately from `fsm/machine` for REPL inspectability.
-- **Telemetry on every transition** — `conn-transition!` / `transition!` logs from-state, to-state, event for full observability.
-- **Entry actions for side effects** — browser statechart uses entry actions for `set-status!`, logging, adapter calls.
-- **Thin callback dispatchers** — WebSocket callbacks just call `(transition! {:type ...})`, no inline logic.
-- **Statechart for lifecycle, not routing** — event routing stays as `case` dispatch, statechart only gates via `validated?`.
-- **`.cljc` for analyzer** — works in BB (tests, CLI) and Scittle (future browser viz).
-- **Pure data output** — `validate` returns `{:errors :warnings :info :conventions :graph :summary}`, no I/O.
+- **Source abstraction layer** — `IProjectSource` protocol extended with `sources/protocol.clj`; `runtime.clj` provides multimethods dispatched on runtime type (`:babashka`, `:default`)
+- **Remote eval for introspection** — single eval string sent to target BB server, returns EDN map
+- **Statechart detection is optional** — `try/catch` around `resolve` of `statecharts.types/statechart?`; gracefully returns false if not loaded
+- **"+ Value" button visibility** — only shown for nREPL-sourced symbols (`:uri/source :nrepl` check)
+- **Atom auto-deref** — detects `IAtom`, double-derefs, reports both container and inner type
+- **FSM state introspection tabled** — bare atoms lose machine↔state link; `SingleStore`/`ManyStore` from `statecharts.store` would provide formal association (future work in IMPLEMENTATION_PLAN.md)
 
 ### What's NOT done yet (future PRs)
 
-1. **Statechart write gate** — Wire `widget_lifecycle.cljc` as write gate for `!widgets` r/atom (Step 2 of plan)
-2. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
-3. **Browser log viewer** — UI widget for browsing telemetry in browser
-4. **Git status display** — show modified/staged files in code browser
-5. **JAR/GitHub source adapters** — browse dependencies
+1. **FSM runtime state introspection** — detect `:_state` in atoms, show current FSM state + link to statechart definition
+2. **Statechart write gate** — wire `widget_lifecycle.cljc` as write gate for `!widgets` r/atom
+3. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
+4. **Browser log viewer** — UI widget for browsing telemetry in browser
+5. **Git status display** — show modified/staged files in code browser
+6. **JAR/GitHub source adapters** — browse dependencies
 
 ### Browser Testing Policy
 
@@ -127,10 +107,10 @@ The MCP tools provide interactive, real-time browser automation directly from th
 
 ```bash
 # Run tests
-bb test:module sente-browser     # 24 tests, 62 assertions (server statechart)
-bb test:statecharts              # 19 tests, 69 assertions (validate analyzer)
-bb test:nrepl                    # 70 tests, 275 assertions (includes machine validation)
-bb test:module code-browser-v2   # 47 tests, 542 assertions
+bb test:module code-browser-v2   # 80 tests, 625 assertions
+bb test:module sente-browser     # 24 tests, 62 assertions
+bb test:statecharts              # 19 tests, 69 assertions
+bb test:nrepl                    # 70 tests, 275 assertions
 bb test:module telemetry-db      # 16 tests, 35 assertions
 
 # Statechart validation
@@ -148,17 +128,15 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
-a55d8e5 fix: Eliminate heartbeat noise from telemetry — log absence, not presence
-fa4febe feat: Enhanced file watcher telemetry for faster debugging
-9b184fc fix: File watcher race conditions causing "0 symbols" after rapid edits
-7f2c6df fix: Normalize "." project name and deduplicate project list
-2db3240 fix: Make Datalevin queries version-agnostic for stale hash resilience
-95f9a1c docs: Add statechart-as-write-gate pattern for Reagent apps
-b92b8d8 feat: Add widget lifecycle statechart for documentation and validation
-8ca7d3a refactor: Extract explicit widget :status field + centralized mutation helpers
-bd16e44 feat: Add per-connection statechart to server-side browser management
+<pending> feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
+e2e4288 feat: Runtime project addition with bb add-project CLI and browser input
+c6e3894 feat: Multi-project browsing + fix CM6 zoom for short content
+5784d5b fix: Fix WinBox zoom/fit-to-content for CM6 source views
+43f08fa feat: Replace inline JS loader with Scittle CLJS ui_loader.cljs
+c49f014 feat: Add load-local-js-file command for importing JS as ES modules in browser
+85424fb feat: Upgrade Scittle from 0.7.30 to 0.8.31
 ```
 
 ---
 
-*Last Updated: 2026-02-09*
+*Last Updated: 2026-02-11*

@@ -219,9 +219,11 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - [ ] Fix zoom/fit-to-content inconsistency in project list widget
 
 ### Live Mode (nREPL Introspection)
-- Connect to running nREPL and introspect live system
-- Loaded vs unloaded namespaces, live var values
+- ~~Connect to running nREPL and introspect live system~~ ✅ Phase L0-L1 (nREPL source browsing)
+- ~~Live var values~~ ✅ Phase L2 (var-value widget with type-aware rendering, statechart detection)
+- Loaded vs unloaded namespaces
 - tools.trace integration
+- [ ] **FSM runtime state introspection**: Detect atoms containing `:_state` key (clj-statecharts convention), show current FSM state alongside the statechart definition. **Key insight**: bare atoms (our current pattern with `swap!` + `fsm/transition`) lose the formal link between a `Statechart` machine and its runtime state atom. When multiple statecharts exist, there's no way to know which atom belongs to which machine. Adopting `SingleStore`/`ManyStore` from `statecharts.store` (which wrap atoms in an `IStore` protocol) would provide this association. Revisit when adding FSM state display to var-value widgets.
 
 ### Symbol-at-Point
 - Click any symbol in CM6 source viewer → navigate to definition
@@ -292,6 +294,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 30 | Server per-connection statechart: 4 states, 5 transitions, both sides of WebSocket (v1.24.0) |
 | 31 | File watcher robustness: thread-safe debounce, per-file locks, atomic write handling (v1.25.0) |
 | 32 | Runtime project addition: browser input, `bb add-project` CLI, sente warning fixes (v1.26.0) |
+| 33 | Live var value display: type-aware rendering, atom auto-deref, statechart detection (v1.29.0) |
 
 ---
 

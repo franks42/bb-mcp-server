@@ -393,6 +393,29 @@
     .source-view .cm-container { flex: 1; overflow: hidden; }
     .source-view .cm-editor { height: 100%; }
     .source-info { padding: 0.25rem 0.5rem; font-size: 11px; color: #666; border-top: 1px solid #eee; }
+    /* Var value view */
+    .var-value-view { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 0.5rem; gap: 0.5rem; }
+    .value-header { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+    .value-class-label { font-size: 11px; font-family: 'Fira Code', monospace; color: #555; }
+    .atom-badge { font-size: 11px; padding: 0.1rem 0.4rem; border-radius: 3px; background: #fff3e0; color: #e65100; font-weight: 500; }
+    .value-count-badge { font-size: 11px; color: #666; }
+    .truncated-badge { font-size: 10px; padding: 0.1rem 0.3rem; border-radius: 3px; background: #fff9c4; color: #f57f17; }
+    .predicate-badges { display: flex; flex-wrap: wrap; gap: 0.2rem; }
+    .pred-badge { font-size: 10px; padding: 0.05rem 0.35rem; border-radius: 3px; background: #e8eaf6; color: #283593; font-family: 'Fira Code', monospace; cursor: default; }
+    .pred-badge.pred-statechart { background: #f3e5f5; color: #7b1fa2; font-weight: 500; }
+    .statechart-info { background: #faf5ff; border: 1px solid #e1bee7; border-radius: 4px; padding: 0.5rem; font-size: 12px; }
+    .sc-row { margin-bottom: 0.2rem; }
+    .sc-row strong { color: #6a1b9a; }
+    .sc-states { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+    .sc-state-tag { font-size: 11px; padding: 0.05rem 0.35rem; border-radius: 3px; background: #e8eaf6; color: #283593; font-family: 'Fira Code', monospace; }
+    .value-content { flex: 1; overflow: auto; font-family: 'Fira Code', monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 0.75rem; border-radius: 4px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .meta-section { border-top: 1px solid #eee; padding-top: 0.4rem; }
+    .meta-title { font-size: 11px; font-weight: 600; color: #666; margin-bottom: 0.25rem; }
+    .meta-entries { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.5rem; font-size: 11px; }
+    .meta-entry { display: contents; }
+    .meta-key { color: #1565C0; font-family: 'Fira Code', monospace; }
+    .meta-val { color: #333; font-family: 'Fira Code', monospace; overflow: hidden; text-overflow: ellipsis; }
+    .meta-content { font-family: 'Fira Code', monospace; font-size: 11px; background: #f5f5f5; padding: 0.4rem; border-radius: 3px; margin: 0; white-space: pre-wrap; max-height: 100px; overflow: auto; }
   </style>
 </head>
 <body>

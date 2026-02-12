@@ -14,6 +14,8 @@
 
 ;; Source adapter tests
 (require 'code-browser.sources.directory-test)
+(require 'code-browser.sources.runtime-test)
+(require 'code-browser.sources.nrepl-test)
 
 (def result
      "Test results from code-browser-v2 module."
@@ -21,7 +23,9 @@
                   'code-browser.db.protocol-test
                   'code-browser.db.datalevin-test
                   'code-browser.handlers-test
-                  'code-browser.sources.directory-test))
+                  'code-browser.sources.directory-test
+                  'code-browser.sources.runtime-test
+                  'code-browser.sources.nrepl-test))
 
 (when (or (pos? (:fail result)) (pos? (:error result)))
   (System/exit 1))

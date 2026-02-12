@@ -22,6 +22,7 @@
               [code-browser.db.datalevin :as datalevin]
               [code-browser.sources.protocol :as source-proto]
               [code-browser.sources.directory :as dir-source]
+              [code-browser.sources.nrepl :as nrepl-source]
               [sente-browser.server :as sente-server]
               [babashka.fs :as fs]
               [clojure.string :as str]
@@ -74,6 +75,9 @@
              :data source-config})
   (case type
     :dir (dir-source/create-directory-source path)
+    :nrepl (nrepl-source/create-nrepl-source
+            (:host source-config) (:port source-config)
+            (select-keys source-config [:project-name :exclude-patterns]))
     (throw (ex-info "Unknown source type" {:type type}))))
 
 (defn- scan-and-populate!
@@ -123,67 +127,91 @@
                :aliases (count aliases)
                :refers (count refers)})))
 
+(defn- validate-dir-source
+  "Validate a directory source config. Returns error string or nil."
+  [{:keys [path]}]
+  (cond
+    (str/blank? path) "Path is blank"
+    (not (fs/directory? path)) (str "Not a directory: " path)
+    (not (is-clojure-project? path)) (str "Not a Clojure project (no deps.edn, bb.edn, project.clj, or shadow-cljs.edn): " path)))
+
+(defn- validate-nrepl-source
+  "Validate an nREPL source config. Returns error string or nil."
+  [{:keys [host port]}]
+  (cond
+    (str/blank? host) "Host is blank"
+    (nil? port) "Port is required"
+    (not (integer? port)) (str "Port must be an integer, got: " (type port))))
+
+(defn- register-and-notify!
+  "Shared logic after source creation: scan, populate DB, start watching, notify browsers."
+  [source]
+  (let [proj-name (:project-name source)
+        existing-sources (:sources @handlers/!module-state)]
+    (if (some (fn [[_uri s]] (= (:project-name s) proj-name))
+              existing-sources)
+      {:success false :error (str "Project already loaded: " proj-name)}
+      (if-let [db (handlers/get-db)]
+              (let [stats (scan-and-populate! db source)]
+                ;; Start file watching if supported
+                (when (:supports-watch? (source-proto/source-info source))
+                  (let [watch-handle
+                        (source-proto/watch!
+                         source
+                         (fn [event]
+                           (rescan-file! proj-name source
+                                         (:path event) (:type event))))]
+                    (when watch-handle
+                      (swap! !config update :watch-handles
+                             conj watch-handle))))
+                ;; Notify browsers about the new project
+                (handlers/handle-load-projects!)
+                ;; Broadcast invalidation so browser widgets refresh
+                (sente-server/broadcast-to-browsers!
+                 [:code-browser-v2/invalidate
+                  {:project proj-name}])
+                (log/log! {:level :info
+                           :id ::add-source-complete
+                           :msg "Project source added successfully"
+                           :data {:project-name proj-name :stats stats}})
+                {:success true :project-name proj-name :stats stats})
+              {:success false :error "No database configured"}))))
+
 (defn add-source!
   "Add a new project source at runtime.
-   Validates the path, scans it, populates the database, and starts file watching.
+   Validates the config, scans it, populates the database, and starts file watching.
+
+   For :dir sources: {:type :dir :path \"/path/to/project\"} or just {:path \"...\"}
+   For :nrepl sources: {:type :nrepl :host \"localhost\" :port 7888}
 
    Returns {:success true :project-name \"...\" :stats {...}} on success,
    or {:success false :error \"reason\"} on failure."
-  [{:keys [path]}]
-  (log/log! {:level :info
-             :id ::add-source
-             :msg "Adding project source at runtime"
-             :data {:path path}})
-  (try
-   (cond
-     (str/blank? path)
-     {:success false :error "Path is blank"}
+  [{:keys [type path] :as config}]
+  (let [source-type (or type (when path :dir))]
+    (log/log! {:level :info
+               :id ::add-source
+               :msg "Adding project source at runtime"
+               :data (select-keys config [:type :path :host :port])})
+    (try
+     (case source-type
+       :dir
+       (if-let [err (validate-dir-source config)]
+               {:success false :error err}
+               (register-and-notify! (create-source (assoc config :type :dir))))
 
-     (not (fs/directory? path))
-     {:success false :error (str "Not a directory: " path)}
+       :nrepl
+       (if-let [err (validate-nrepl-source config)]
+               {:success false :error err}
+               (register-and-notify! (create-source config)))
 
-     (not (is-clojure-project? path))
-     {:success false :error (str "Not a Clojure project (no deps.edn, bb.edn, project.clj, or shadow-cljs.edn): " path)}
-
-     :else
-     (let [source (create-source {:type :dir :path path})
-           proj-name (:project-name source)
-           ;; Check if already loaded
-           existing-sources (:sources @handlers/!module-state)]
-       (if (some (fn [[_uri s]] (= (:project-name s) proj-name))
-                 existing-sources)
-         {:success false :error (str "Project already loaded: " proj-name)}
-         (if-let [db (handlers/get-db)]
-                 (let [stats (scan-and-populate! db source)]
-                   ;; Start file watching
-                   (when (:supports-watch? (source-proto/source-info source))
-                     (let [watch-handle
-                           (source-proto/watch!
-                            source
-                            (fn [event]
-                              (rescan-file! proj-name source
-                                            (:path event) (:type event))))]
-                       (when watch-handle
-                         (swap! !config update :watch-handles
-                                conj watch-handle))))
-                   ;; Notify browsers about the new project
-                   (handlers/handle-load-projects!)
-                   ;; Broadcast invalidation so browser widgets refresh
-                   (sente-server/broadcast-to-browsers!
-                    [:code-browser-v2/invalidate
-                     {:project proj-name}])
-                   (log/log! {:level :info
-                              :id ::add-source-complete
-                              :msg "Project source added successfully"
-                              :data {:project-name proj-name :stats stats}})
-                   {:success true :project-name proj-name :stats stats})
-                 {:success false :error "No database configured"}))))
-   (catch Exception e
-          (log/log! {:level :error
-                     :id ::add-source-error
-                     :msg "Failed to add project source"
-                     :data {:path path :error (ex-message e)}})
-          {:success false :error (ex-message e)})))
+       {:success false :error (str "Unknown source type: " source-type)})
+     (catch Exception e
+            (log/log! {:level :error
+                       :id ::add-source-error
+                       :msg "Failed to add project source"
+                       :data {:config (select-keys config [:type :path :host :port])
+                              :error (ex-message e)}})
+            {:success false :error (ex-message e)}))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; File Change Re-scan

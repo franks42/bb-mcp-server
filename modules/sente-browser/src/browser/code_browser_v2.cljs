@@ -151,7 +151,8 @@
       :aliases "Aliases"
       :refers "Refers"
       :deps "Deps"
-      :callers "Callers"})
+      :callers "Callers"
+      :var-value "Value"})
 
 (def ^:private project-list-color
      "Title bar color for the project-list hub widget."
@@ -190,6 +191,7 @@
                :ns-list {:width 300 :height 450 :x 60 :y 30}
                :symbol-list {:width 320 :height 450 :x 100 :y 40}
                :source {:width 600 :height 500 :x 150 :y 50}
+               :var-value {:width 500 :height 400 :x 160 :y 55}
                ;; default for doc, aliases, refers, deps, callers
                {:width 350 :height 400 :x 140 :y 60})]
     (swap! !cascade-offset #(mod (inc %) 10))
@@ -229,6 +231,7 @@
                      :refers :refers
                      :deps :deps
                      :callers :callers
+                     :var-value :var-value
                      nil))]
     (log/log! {:level :info :id ::fetch-requested
                :msg "Fetch requested"
@@ -759,6 +762,74 @@
      [:div.widget-footer
       [:span (str (count filtered) " refers")]]]))
 
+(defn- var-value-content
+  "Content body for var value display widget."
+  [_widget-id widget]
+  (let [data (:data widget)]
+    (if data
+      [:div.var-value-view
+       ;; Header: container badge + class name
+       [:div.value-header
+        (when (:container-type data)
+          [:span.atom-badge (:container-type data) " \u2192"])
+        [:span.value-class-label (:value-class data)]
+        (when (:count data)
+          [:span.value-count-badge (str "(" (:count data) " items)")])
+        (when (:truncated? data)
+          [:span.truncated-badge "truncated"])]
+       ;; Predicate badges row
+       (when (seq (:predicates data))
+         [:div.predicate-badges
+          (when (:is-statechart? data)
+            [:span.pred-badge.pred-statechart "statechart"])
+          (doall
+           (map-indexed
+            (fn [i pred-name]
+              ^{:key i}
+              [:span.pred-badge (clojure.string/replace pred-name "?" "")])
+            (:predicates data)))])
+       ;; Statechart info section
+       (when-let [sc (:statechart data)]
+                 [:div.statechart-info
+                  [:div.sc-row
+                   [:strong "Machine: "]
+                   [:span (str (:id sc))]]
+                  [:div.sc-row
+                   [:strong "Initial: "]
+                   [:span (str (:initial sc))]]
+                  [:div.sc-row
+                   [:strong "Compiled: "]
+                   [:span (str (:compiled? sc))]]
+                  (when-let [states (:states sc)]
+                            [:div.sc-row
+                             [:strong "States: "]
+                             [:span.sc-states
+                              (doall
+                               (map-indexed
+                                (fn [i s]
+                                  ^{:key i}
+                                  [:span.sc-state-tag (str s)])
+                                states))]])])
+       ;; Value display
+       [:pre.value-content (:value-str data)]
+       ;; Var metadata section
+       (when (seq (:var-meta data))
+         [:div.meta-section
+          [:div.meta-title "Var Metadata"]
+          [:div.meta-entries
+           (doall
+            (for [[k v] (sort-by key (:var-meta data))]
+                 ^{:key (str k)}
+                 [:div.meta-entry
+                  [:span.meta-key (str k)]
+                  [:span.meta-val (str v)]]))]])
+       ;; Value metadata section
+       (when (:value-meta data)
+         [:div.meta-section
+          [:div.meta-title "Value Metadata"]
+          [:pre.meta-content (:value-meta data)]])]
+      [:div.empty-message "No value available"])))
+
 (defn- deps-content
   "Content body for deps view widget (no header)."
   [_widget-id _widget]
@@ -790,6 +861,7 @@
     :refers [refers-content widget-id widget]
     :deps [deps-content widget-id widget]
     :callers [callers-content widget-id widget]
+    :var-value [var-value-content widget-id widget]
     [:div "Unknown widget type: " (str (:type widget))]))
 
 ;; =============================================================================
@@ -823,6 +895,7 @@
         widget-body (.querySelector body ".winbox-widget-body")
         list-container (some-> widget-body (.querySelector ".list-container"))
         cm-editor (some-> widget-body (.querySelector ".cm-editor"))
+        var-value-view (some-> widget-body (.querySelector ".var-value-view"))
         breadcrumb (.querySelector widget-body ".widget-breadcrumb")
         filter-input (.querySelector widget-body ".filter-input")
         footer (.querySelector widget-body ".widget-footer")
@@ -854,9 +927,9 @@
 
           cm-editor
           ;; CM6: width from nowrap line measurement, height from two cases:
-          ;; 1. Content overflows: scrollHeight > clientHeight → use scrollHeight
+          ;; 1. Content overflows: scrollHeight > clientHeight -> use scrollHeight
           ;;    (CM6 virtualizes rendering, scrollHeight reports full virtual height)
-          ;; 2. Content fits: scrollHeight == clientHeight → sum line heights
+          ;; 2. Content fits: scrollHeight == clientHeight -> sum line heights
           ;;    (cm-content has min-height:100% so offsetHeight == container height,
           ;;     not actual content height; must sum lines + padding instead)
           (let [cm-scroller (.querySelector cm-editor ".cm-scroller")
@@ -889,6 +962,31 @@
             [(+ max-line-w gutter-w 20)
              (+ scroller-h si-h)])
 
+          ;; Var-value widget: pre.value-content has overflow:auto so its
+          ;; scrollHeight is trapped in its own scroll context. Sum child
+          ;; heights directly, using scrollHeight for the pre element.
+          var-value-view
+          (let [children (array-seq (.-children var-value-view))
+                pre (.querySelector var-value-view ".value-content")
+                ;; Sum natural heights: use scrollHeight for the pre,
+                ;; offsetHeight for everything else
+                total-h (reduce
+                         (fn [total child]
+                           (+ total
+                              (if (= child pre)
+                                (.-scrollHeight child)
+                                (.-offsetHeight child))))
+                         0 children)
+                ;; CSS gap: 0.5rem between children
+                gap (* (max 0 (dec (count children))) 8)
+                ;; Container padding: 0.5rem each side
+                pad 16
+                ;; Width: use pre's scrollWidth (or container width)
+                content-w (if pre
+                            (+ (.-scrollWidth pre) pad)
+                            (.-scrollWidth var-value-view))]
+            [content-w (+ total-h gap pad)])
+
           :else
           ;; Fallback: shrink container to measure true content height
           (let [saved-h (.-height (.-style widget-body))
@@ -914,7 +1012,8 @@
         has-content? (and widget-body
                           (or (.querySelector widget-body ".list-container")
                               (.querySelector widget-body ".cm-editor")
-                              (.querySelector widget-body ".doc-view")))]
+                              (.querySelector widget-body ".doc-view")
+                              (.querySelector widget-body ".var-value-view")))]
     (when has-content?
       (let [{:keys [w h]} (measure-content-size wb)
             cur-x (.-x wb)
@@ -1014,8 +1113,13 @@
            {:on-click #(open-widget! {:uri (uri/with-query base {"view" "refers"})})}
            "+ Refers"]]))
      (when at-sym?
-       (let [base (uri/base-uri focused-uri)]
+       (let [base (uri/base-uri focused-uri)
+             is-nrepl? (= :nrepl (:uri/source parsed))]
          [:<>
+          (when is-nrepl?
+            [:button.toolbar-btn
+             {:on-click #(open-widget! {:uri (uri/with-query base {"view" "var-value"})})}
+             "+ Value"])
           [:button.toolbar-btn
            {:on-click #(open-widget! {:uri (uri/with-query base {"view" "doc"})})}
            "+ Doc"]
