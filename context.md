@@ -128,7 +128,7 @@ bb nrepl-direct eval "<code>" -t cb-v2-test
 ## Recent Commits
 
 ```
-<pending> feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
+b6b2f8c feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
 e2e4288 feat: Runtime project addition with bb add-project CLI and browser input
 c6e3894 feat: Multi-project browsing + fix CM6 zoom for short content
 5784d5b fix: Fix WinBox zoom/fit-to-content for CM6 source views
