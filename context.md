@@ -4,84 +4,63 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-14 (evening)
+**Last Updated:** 2026-02-14 (late evening)
 **Version:** v1.31.0-dev (in progress)
-**Focus:** 🐛 Widget response handling broken - fetches work but widgets stuck in loading state
+**Focus:** Live polling stability + incremental rescans
 
 ---
 
 ## Current Work (2026-02-14)
 
-### BLOCKING BUG: Widget Response Handling Broken 🔴
+### Widget Response Handling Bug — RESOLVED ✅
 
-**Status:** INVESTIGATING - Fetches succeed on server but widgets never update.
+**Root Cause:** Datalevin deadlock caused by rescan storm.
 
-**Symptoms:**
-- Widgets stuck in loading state with `<div class="loading-overlay"><div class="spinner"></div></div>`
-- Server receives and processes fetch requests successfully
-- Browser NEVER logs receiving fetch responses
-- Happens for ALL widgets (projects, namespaces, symbols)
-- Happens whether widget created by clicking buttons OR restored from URI hash
+**Mechanism:**
+1. `handle-check-ns-list-fingerprint` and `handle-check-symbol-list-fingerprint` never stored fingerprints after initial computation
+2. Every 3-second poll found "no stored fingerprint" → triggered full `rescan-nrepl-sources!`
+3. Each rescan does batch-introspect (slow nREPL call) + 2 Datalevin transactions
+4. Multiple concurrent rescans deadlocked the Datalevin pod
+5. All subsequent queries (including normal fetch operations) blocked indefinitely
 
-**Evidence:**
-```bash
-# Server shows fetch processed:
-bb logs -t cb-v2-test --event handle-fetch
-22:20:39.742 INFO Stateless fetch {:uri nil, :property :project-list}
+**Fixes Applied (handlers.clj):**
+- Added `!rescan-in-progress` atom with `compare-and-set!` guard to prevent concurrent rescans
+- Fixed `handle-check-ns-list-fingerprint` to compute and store initial fingerprint on first check
+- Fixed `handle-check-symbol-list-fingerprint` to compute and store initial fingerprint on first check
+- Added telemetry to `dispatch-event` for fetch response tracing
+- Removed verbose debug logging from `rescan-nrepl-sources!`
 
-# Browser shows fetch sent:
-bb logs -t cb-v2-test --source browser --event fetch
-22:20:39.741 INFO Fetch requested
-
-# Browser shows NO response received:
-bb logs -t cb-v2-test --source browser --event response
-0 entries
-```
-
-**Testing Done:**
-1. ✅ Clicked "+ Projects" button - fetch sent, server processed, widget stuck loading
-2. ✅ Navigated to URI hash - widgets created but stuck loading (no fetch sent)
-3. ✅ Manual refresh-widget! call - returns nil, no fetch sent
-4. ✅ Fresh page load with all ghost widgets removed - same issue
-
-**Files Involved:**
-- `modules/sente-browser/src/browser/code_browser_v2.cljs` - fetch request/response handling
-- `modules/code-browser-v2/src/code_browser/handlers.clj` - server-side fetch handler
-- Response routing likely through sente websocket events
-
-**Next Steps for Fresh Claude:**
-1. Read `code_browser_v2.cljs` and trace fetch response handling
-2. Check how `:code-browser-v2/fetch` responses route back to widgets
-3. Look for missing event handlers or broken response->widget-state updates
-4. Check if response arrives but fails silently during processing
+**Verification:**
+- clj-kondo: 0 errors, 0 warnings
+- cljfmt: clean
+- Tests: 80 tests, 629 assertions, 0 failures
+- Live browser test: Projects widget (3 projects), namespace list (670 namespaces) load correctly
 
 ---
 
 ## Fixed Issues ✅
 
-### Fixed: dispatch-event Unbound Bug
+### Fixed: Datalevin Deadlock from Rescan Storm (2026-02-14)
+
+**Problem:** All widgets stuck in perpetual loading state. Datalevin queries hung indefinitely.
+
+**Root Cause:** Fingerprints never stored → infinite rescan loop → concurrent rescans deadlocked Datalevin pod.
+
+**Fix:** Store initial fingerprints + `compare-and-set!` concurrency guard on rescans.
+
+### Fixed: dispatch-event Unbound Bug (2026-02-13)
 
 **Problem:** `code-browser.handlers/dispatch-event` was unbound, blocking all event handling.
 
-**Root Cause:** TWO parenthesis errors in `handlers.clj`:
-- Line 577: `rescan-nrepl-sources!` missing one closing paren (had 6, needed 7)
-- Line 711: `dispatch-event` extra closing paren (had 4, needed 3)
+**Root Cause:** TWO parenthesis errors in `handlers.clj`.
 
 **Fix:** Corrected paren errors. **Committed.**
 
-### Fixed: nREPL Source Not Registered
+### Fixed: nREPL Source Not Registered (2026-02-13)
 
 **Problem:** Widget viewing `nrepl://localhost:7888` but source NOT in `:sources` map.
 
-**Impact:** `rescan-nrepl-sources!` found no nREPL sources, rescans never executed.
-
-**Fix:** Added `{:type :nrepl :host "localhost" :port 7888}` to `system-cb-v2-test.edn`. **Committed and pushed.**
-
-**Verification:**
-```bash
-bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
-# Now returns: ("dir://bb-mcp-server@..." "dir://hasch@..." "nrepl://localhost:7888@...")
-```
+**Fix:** Added `{:type :nrepl :host "localhost" :port 7888}` to `system-cb-v2-test.edn`. **Committed.**
 
 ---
 
@@ -89,27 +68,24 @@ bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t
 
 #### Issue 1: Wasteful Full Rescans
 
-**Problem:** Built sophisticated fingerprint detection to identify specific changes, then rescan EVERYTHING anyway.
+**Problem:** Fingerprint detection identifies specific changes, then rescans EVERYTHING anyway.
 
 **Current Flow:**
 1. Fingerprint detects change in ONE namespace (e.g., `user`)
 2. Calls `rescan-nrepl-sources!`
-3. Calls `batch-introspect` which does `(for [n (all-ns)] ...)` - ALL 212 namespaces!
+3. Calls `batch-introspect` which does `(for [n (all-ns)] ...)` - ALL namespaces
 4. Retracts ALL entities from Datalevin
 5. Writes ALL entities back to Datalevin
-
-**Impact:** Every change to any single var triggers full rescan of entire runtime.
 
 **Correct Implementation Should:**
 - Symbol list change in namespace X → rescan ONLY namespace X
 - Var value change in X/y → fetch ONLY that var's value
 - Namespace added/removed → rescan namespace list only
 
-#### Issue 2: Fingerprints Not Stored
+#### Issue 2: ~~Fingerprints Not Stored~~ FIXED ✅
 
-**Problem:** Every fingerprint check reports "No stored fingerprint" because fingerprints aren't persisted in `!module-state` between checks.
-
-**Impact:** Can't detect REAL changes. Every check looks like a first check, triggering rescans even when nothing changed.
+~~Every fingerprint check reports "No stored fingerprint" because fingerprints aren't persisted.~~
+Fixed: Initial fingerprints now stored on first check. Concurrency guard prevents rescan storms.
 
 #### Issue 3: Runtime Data Sync Statechart Not Integrated
 
@@ -164,30 +140,14 @@ bb logs -t cb-v2-test --source browser --event fetch --limit 5
 
 ---
 
-## Next Session - IMMEDIATE ACTION REQUIRED
+## Next Session Priorities
 
-**BLOCKING:** Widget response handling is broken. Start here:
-
-1. **Trace fetch response flow in browser**
-   - Read `modules/sente-browser/src/browser/code_browser_v2.cljs`
-   - Find where `:code-browser-v2/fetch` responses are received
-   - Check if response handler exists and is wired up
-   - Look for sente event routing to widget state updates
-
-2. **Test response arrival**
-   - Add telemetry to response handler
-   - Verify responses actually arrive from server via websocket
-   - Check if they fail silently during processing
-
-3. **Check widget state update logic**
-   - Trace from response data → widget atom update
-   - Look for missing `swap!` or broken state transition
-   - Widget should go from `:loading` state to `:ready` with data
-
-**After response handling fixed, then:**
-- Implement fingerprint storage (store after computing)
-- Add incremental rescans (single namespace, not all-ns)
-- Integrate runtime-data-sync statechart
+1. **Implement incremental rescans** (Issue 1 above)
+   - Single-namespace rescan instead of full `all-ns` batch-introspect
+   - Per-var value refresh instead of full rescan
+2. **Integrate runtime-data-sync statechart** (Issue 3 above)
+3. **Continue browser testing** - verify symbol-list, source, and var-value widgets work end-to-end
+4. **Monitor server stability** - confirm fingerprint polling no longer causes rescan storms
 
 ---
 

@@ -63,6 +63,9 @@
   (let [k (str ns-name "/" var-name)]
     (swap! !module-state update :fingerprints dissoc k)))
 
+(defonce ^{:doc "Guard against concurrent rescan operations."}
+ !rescan-in-progress (atom false))
+
 (defonce ^{:doc "Callback to core/add-source! — avoids circular dep."}
  !add-source-fn (atom nil))
 
@@ -500,8 +503,19 @@
                          :data {:project project-uri
                                 :error (ex-message e)}})
               {:success true :changed? false}))
-      ;; No stored fingerprint — tell browser to do a full fetch
-      {:success true :changed? true})))
+      ;; No stored fingerprint — compute and store initial fingerprint
+      (do
+       (log/log! {:level :debug
+                  :id ::ns-list-first-check
+                  :msg "No stored ns-list fingerprint, computing initial"
+                  :data {:project project-uri}})
+       (let [result (check-ns-list-fingerprint-via-source
+                     project-uri nil {})]
+         (when (and (map? result) (:count result) (:hash result))
+           (store-fingerprint! (str "ns-list:" project-uri) nil
+                               {:count (:count result)
+                                :hash (:hash result)})))
+       {:success true :changed? true}))))
 
 (defn- check-symbol-list-fingerprint-via-source
   "Check a namespace's symbol list fingerprint using the first available nREPL source."
@@ -526,55 +540,57 @@
 
 (defn- rescan-nrepl-sources!
   "Rescan all nREPL sources and update Datalevin with fresh runtime data.
-   Runtime is the source of truth for nREPL sources."
+   Runtime is the source of truth for nREPL sources.
+   Guarded against concurrent execution — returns false if already running."
   []
-  (log/log! {:level :info
-             :id ::rescan-nrepl-sources-called
-             :msg "rescan-nrepl-sources! called"
-             :data {:has-db? (some? (get-db))
-                    :source-count (count (:sources @!module-state))}})
-  (when-let [db (get-db)]
-            (doseq [[proj-uri source] (:sources @!module-state)]
-                   (let [source-info (source-proto/source-info source)
-                         source-type (:type source-info)]
-                     (log/log! {:level :info
-                                :id ::checking-source-type
-                                :msg "Checking source type"
-                                :data {:project-uri (str proj-uri)
-                                       :source-info (pr-str source-info)
-                                       :source-type (pr-str source-type)
-                                       :source-type-class (pr-str (class source-type))
-                                       :nrepl-keyword (pr-str :nrepl)
-                                       :is-nrepl? (= :nrepl source-type)
-                                       :is-nrepl-str? (= "nrepl" (name source-type))}})
-                     (when (= :nrepl source-type)
-                       (log/log! {:level :info
-                                  :id ::scanning-nrepl-source
-                                  :msg "Scanning nREPL source"
-                                  :data {:source-type :nrepl}})
-                       ;; Get fresh data from runtime
-                       (when-let [{:keys [project namespaces symbols aliases refers]}
-                                  (source-proto/scan-project source)]
-                                 (let [proj-uri (:uri/string project)]
-                                   (log/log! {:level :info
-                                              :id ::resyncing-runtime
-                                              :msg "Resyncing runtime to Datalevin"
-                                              :data {:project proj-uri
-                                                     :ns-count (count namespaces)
-                                                     :symbol-count (count symbols)}})
-                                   ;; Retract old entities for this project
-                                   (db-proto/transact! db
-                                                       [{:db/retractEntity [:uri/string proj-uri]}])
-                                   ;; Write fresh entities
-                                   (db-proto/transact! db (concat [project]
-                                                                  namespaces
-                                                                  symbols
-                                                                  aliases
-                                                                  refers))
-                                   (log/log! {:level :info
-                                              :id ::resync-complete
-                                              :msg "Resync complete, Datalevin updated"
-                                              :data {:project proj-uri}}))))))))
+  (if-not (compare-and-set! !rescan-in-progress false true)
+    (do
+     (log/log! {:level :debug
+                :id ::rescan-skipped
+                :msg "Rescan skipped, already in progress"})
+     false)
+    (try
+     (log/log! {:level :info
+                :id ::rescan-nrepl-sources-called
+                :msg "rescan-nrepl-sources! called"
+                :data {:has-db? (some? (get-db))
+                       :source-count (count (:sources @!module-state))}})
+     (when-let [db (get-db)]
+               (doseq [[proj-uri source] (:sources @!module-state)]
+                      (let [source-info (source-proto/source-info source)
+                            source-type (:type source-info)]
+                        (when (= :nrepl source-type)
+                          (log/log! {:level :info
+                                     :id ::scanning-nrepl-source
+                                     :msg "Scanning nREPL source"
+                                     :data {:project-uri (str proj-uri)}})
+                          ;; Get fresh data from runtime
+                          (when-let [{:keys [project namespaces symbols aliases refers]}
+                                     (source-proto/scan-project source)]
+                                    (let [proj-uri (:uri/string project)]
+                                      (log/log! {:level :info
+                                                 :id ::resyncing-runtime
+                                                 :msg "Resyncing runtime to Datalevin"
+                                                 :data {:project proj-uri
+                                                        :ns-count (count namespaces)
+                                                        :symbol-count (count symbols)}})
+                                      ;; Retract old entities for this project
+                                      (db-proto/transact! db
+                                                          [{:db/retractEntity
+                                                            [:uri/string proj-uri]}])
+                                      ;; Write fresh entities
+                                      (db-proto/transact! db (concat [project]
+                                                                     namespaces
+                                                                     symbols
+                                                                     aliases
+                                                                     refers))
+                                      (log/log! {:level :info
+                                                 :id ::resync-complete
+                                                 :msg "Resync complete, Datalevin updated"
+                                                 :data {:project proj-uri}})))))))
+     true
+     (finally
+      (reset! !rescan-in-progress false)))))
 
 (defn- handle-check-symbol-list-fingerprint
   "Handle a fingerprint check request for a symbol-list widget.
@@ -616,12 +632,18 @@
                          :data {:ns ns-name
                                 :error (ex-message e)}})
               {:success true :changed? false}))
-      ;; No stored fingerprint — rescan and tell browser to fetch
+      ;; No stored fingerprint — compute and store initial fingerprint, then rescan
       (do
        (log/log! {:level :debug
                   :id ::symbol-list-first-check
-                  :msg "No stored fingerprint, triggering initial rescan"
+                  :msg "No stored symbol-list fingerprint, computing initial"
                   :data {:ns ns-name}})
+       (let [result (check-symbol-list-fingerprint-via-source
+                     ns-name nil {})]
+         (when (and (map? result) (:count result) (:hash result))
+           (store-fingerprint! (str "symbol-list:" ns-name) nil
+                               {:count (:count result)
+                                :hash (:hash result)})))
        (rescan-nrepl-sources!)
        {:success true :changed? true}))))
 
@@ -664,14 +686,24 @@
     [:code-browser-v2/symbol-selected (handle-select-symbol! (:uri data))]
 
     :code-browser-v2/fetch
-    (let [result (handle-fetch {:uri (:uri data) :property (:property data)})]
-      [:code-browser-v2/fetch-response
-       (assoc result
-              :widget-id (:widget-id data)
-              :property (or (:property data)
-                            (derive-property
-                             (when (:uri data) (uri/parse (:uri data)))
-                             nil)))])
+    (let [result (handle-fetch {:uri (:uri data) :property (:property data)})
+          response (assoc result
+                          :widget-id (:widget-id data)
+                          :property (or (:property data)
+                                        (derive-property
+                                         (when (:uri data) (uri/parse (:uri data)))
+                                         nil)))]
+      (log/log! {:level :info
+                 :id ::fetch-response-prepared
+                 :msg "Fetch response prepared for browser"
+                 :data {:widget-id (:widget-id data)
+                        :success (:success result)
+                        :property (:property response)
+                        :data-type (when (:data result)
+                                     (str (type (:data result))))
+                        :data-count (when (sequential? (:data result))
+                                      (count (:data result)))}})
+      [:code-browser-v2/fetch-response response])
 
     :code-browser-v2/toggle-sort-mode
     [:code-browser-v2/sort-mode-toggled {:mode (sync/toggle-sort-mode!)}]
@@ -708,4 +740,4 @@
                 :id ::unknown-event
                 :msg "Unknown event"
                 :data {:event-id event-id}})
-    nil)))
+     nil)))
