@@ -47,22 +47,22 @@
     (if (pod-available?)
       ;; Pod already loaded (likely by datalevin-pod module) - just use it
       (do
-        (log/log! {:level :debug
-                   :id ::using-existing-pod
-                   :msg "Using existing Datalevin pod (loaded by another module)"})
-        (reset! d-ns (find-ns 'pod.huahaiy.datalevin)))
+       (log/log! {:level :debug
+                  :id ::using-existing-pod
+                  :msg "Using existing Datalevin pod (loaded by another module)"})
+       (reset! d-ns (find-ns 'pod.huahaiy.datalevin)))
       ;; No pod loaded yet - load it ourselves
       (do
-        (log/log! {:level :info
-                   :id ::loading-pod
-                   :msg "Loading Datalevin pod for code-browser"
-                   :data {:version datalevin-version}})
-        (pods/load-pod 'huahaiy/datalevin datalevin-version)
-        (require '[pod.huahaiy.datalevin])
-        (reset! d-ns (find-ns 'pod.huahaiy.datalevin))
-        (log/log! {:level :info
-                   :id ::pod-loaded
-                   :msg "Datalevin pod loaded successfully"})))))
+       (log/log! {:level :info
+                  :id ::loading-pod
+                  :msg "Loading Datalevin pod for code-browser"
+                  :data {:version datalevin-version}})
+       (pods/load-pod 'huahaiy/datalevin datalevin-version)
+       (require '[pod.huahaiy.datalevin])
+       (reset! d-ns (find-ns 'pod.huahaiy.datalevin))
+       (log/log! {:level :info
+                  :id ::pod-loaded
+                  :msg "Datalevin pod loaded successfully"})))))
 
 (defn- d-fn
   "Get a function from the datalevin pod namespace."
@@ -79,13 +79,29 @@
 
            (q [_this query]
               (when-let [q-fn (d-fn "q")]
-                        (let [db-fn (d-fn "db")]
-                          (q-fn query (db-fn conn)))))
+                        (let [db-fn (d-fn "db")
+                              start (System/currentTimeMillis)
+                              result (q-fn query (db-fn conn))
+                              elapsed (- (System/currentTimeMillis) start)]
+                          (log/log! {:level :debug
+                                     :id ::query
+                                     :msg "Query executed"
+                                     :data {:elapsed-ms elapsed
+                                            :result-count (count result)}})
+                          result)))
 
            (q [_this query args]
               (when-let [q-fn (d-fn "q")]
-                        (let [db-fn (d-fn "db")]
-                          (apply q-fn query (db-fn conn) args))))
+                        (let [db-fn (d-fn "db")
+                              start (System/currentTimeMillis)
+                              result (apply q-fn query (db-fn conn) args)
+                              elapsed (- (System/currentTimeMillis) start)]
+                          (log/log! {:level :debug
+                                     :id ::query
+                                     :msg "Query executed"
+                                     :data {:elapsed-ms elapsed
+                                            :result-count (count result)}})
+                          result)))
 
            (pull [_this pattern eid]
                  (when-let [pull-fn (d-fn "pull")]
@@ -94,11 +110,15 @@
 
            (transact! [_this tx-data]
                       (when-let [transact-fn (d-fn "transact!")]
-                                (log/log! {:level :debug
-                                           :id ::transact
-                                           :msg "Executing transaction"
-                                           :data {:tx-count (count tx-data)}})
-                                (transact-fn conn tx-data)))
+                                (let [start (System/currentTimeMillis)
+                                      result (transact-fn conn tx-data)
+                                      elapsed (- (System/currentTimeMillis) start)]
+                                  (log/log! {:level :debug
+                                             :id ::transact
+                                             :msg "Transaction executed"
+                                             :data {:tx-count (count tx-data)
+                                                    :elapsed-ms elapsed}})
+                                  result)))
 
            (entity [_this eid]
                    (when-let [entity-fn (d-fn "entity")]
