@@ -3,7 +3,8 @@
 
    Handles browser requests by querying Datalevin and updating synced state.
    Uses the IProjectSource protocol for source fetching."
-    (:require [code-browser.sync :as sync]
+    (:require [clojure.set :as set]
+              [code-browser.sync :as sync]
               [code-browser.db.protocol :as db-proto]
               [code-browser.sources.protocol :as source-proto]
               [code-browser.sources.nrepl :as nrepl-source]
@@ -62,9 +63,6 @@
   [ns-name var-name]
   (let [k (str ns-name "/" var-name)]
     (swap! !module-state update :fingerprints dissoc k)))
-
-(defonce ^{:doc "Guard against concurrent rescan operations."}
- !rescan-in-progress (atom false))
 
 (defonce ^{:doc "Callback to core/add-source! — avoids circular dep."}
  !add-source-fn (atom nil))
@@ -405,6 +403,58 @@
           {:success false :error (ex-message e)})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Incremental Datalevin Updates
+;;; ---------------------------------------------------------------------------
+
+(defn- find-first-nrepl-source
+  "Find the first registered nREPL source. Returns [proj-uri source] or nil."
+  []
+  (some (fn [[proj-uri source]]
+          (when (= :nrepl (:type (source-proto/source-info source)))
+            [proj-uri source]))
+        (:sources @!module-state)))
+
+(defn- update-namespace-symbols!
+  "Targeted Datalevin update for one namespace's symbols.
+   Retracts existing symbol entities and transacts new ones built from symbols data.
+   Also ensures the namespace entity exists (upsert via :uri/string identity)."
+  [db ns-name symbols source]
+  (let [project-name (:project-name source)
+        version (:version source)
+        uri-base (:uri-base source)
+        ;; Query existing symbol entity IDs for this project+namespace
+        existing (db-proto/q db
+                             '[:find ?e
+                               :in $ ?proj-name ?ns-name
+                               :where [?e :symbol/name _]
+                               [?e :uri/project ?proj-name]
+                               [?e :uri/namespace ?ns-name]]
+                             [project-name ns-name])
+        retract-tx (mapv (fn [[eid]] [:db/retractEntity eid]) existing)
+        ;; Build new symbol entities from the fresh symbols data
+        new-symbols (mapv #(nrepl-source/build-symbol-entity
+                            % ns-name uri-base project-name version)
+                          symbols)
+        ;; Ensure namespace entity exists (upsert via :uri/string identity)
+        ns-entity {:uri/string (str uri-base "/" ns-name)
+                   :uri/source :nrepl
+                   :uri/project project-name
+                   :uri/version version
+                   :uri/version-type :temporal
+                   :uri/namespace ns-name
+                   :ns/name ns-name}]
+    (log/log! {:level :info
+               :id ::update-namespace-symbols
+               :msg "Targeted symbol update for namespace"
+               :data {:ns ns-name
+                      :retracted (count retract-tx)
+                      :new-count (count new-symbols)}})
+    ;; Retract old symbols first, then transact new ones + namespace entity
+    (when (seq retract-tx)
+      (db-proto/transact! db retract-tx))
+    (db-proto/transact! db (into [ns-entity] new-symbols))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Var Fingerprint Checking
 ;;; ---------------------------------------------------------------------------
 
@@ -467,9 +517,66 @@
                source project-uri fingerprint opts)))
           sources)))
 
+(defn- update-ns-list-in-datalevin!
+  "Diff the current Datalevin namespace list with the new runtime namespaces
+   and apply targeted adds/removes. Returns {:added N :removed N}."
+  [db project-name new-ns-names source]
+  (let [existing-ns (query-namespaces db project-name)
+        existing-names (set (map :ns/name existing-ns))
+        new-names (set new-ns-names)
+        added (set/difference new-names existing-names)
+        removed (set/difference existing-names new-names)
+        uri-base (:uri-base source)
+        version (:version source)]
+    (log/log! {:level :info
+               :id ::update-ns-list
+               :msg "Updating namespace list in Datalevin"
+               :data {:project project-name
+                      :existing (count existing-names)
+                      :new (count new-names)
+                      :added (count added)
+                      :removed (count removed)}})
+    ;; Remove deleted namespaces and their symbols
+    (when (seq removed)
+      (doseq [ns-name removed]
+        ;; Retract symbol entities for this namespace
+             (let [sym-eids (db-proto/q db
+                                        '[:find ?e
+                                          :in $ ?proj-name ?ns-name
+                                          :where [?e :symbol/name _]
+                                          [?e :uri/project ?proj-name]
+                                          [?e :uri/namespace ?ns-name]]
+                                        [project-name ns-name])
+                   ns-eids (db-proto/q db
+                                       '[:find ?e
+                                         :in $ ?proj-name ?ns-name
+                                         :where [?e :ns/name ?ns-name]
+                                         [?e :uri/project ?proj-name]]
+                                       [project-name ns-name])
+                   all-eids (concat (map first sym-eids) (map first ns-eids))
+                   retract-tx (mapv (fn [eid] [:db/retractEntity eid]) all-eids)]
+               (when (seq retract-tx)
+                 (db-proto/transact! db retract-tx)))))
+    ;; Add new namespace entities (symbols populated when user opens widget)
+    (when (seq added)
+      (let [ns-entities (mapv (fn [ns-name]
+                                {:uri/string (str uri-base "/" ns-name)
+                                 :uri/source :nrepl
+                                 :uri/project project-name
+                                 :uri/version version
+                                 :uri/version-type :temporal
+                                 :uri/namespace ns-name
+                                 :ns/name ns-name})
+                              added)]
+        (db-proto/transact! db ns-entities)))
+    {:added (count added) :removed (count removed)}))
+
 (defn- handle-check-ns-list-fingerprint
   "Handle a fingerprint check request for a ns-list widget.
-   Returns {:success true :changed? bool :data map-or-nil}."
+   Returns {:success true :changed? bool :data map-or-nil}.
+
+   When namespace list changes, diffs with Datalevin and adds/removes
+   namespace entities incrementally."
   [data]
   (let [{:keys [project-uri]} data
         stored (get-fingerprint (str "ns-list:" project-uri) nil)]
@@ -483,7 +590,7 @@
        (let [result (check-ns-list-fingerprint-via-source
                      project-uri stored {})]
          (if (and (map? result) (:changed? result))
-           ;; Changed — store new fingerprint and return indication
+           ;; Changed — store new fingerprint and update Datalevin
            (do
             (when (and (:count result) (:hash result))
               (store-fingerprint! (str "ns-list:" project-uri) nil
@@ -493,6 +600,14 @@
                        :id ::ns-list-changed
                        :msg "Namespace list changed"
                        :data {:project project-uri}})
+            (when (and (:namespaces result) (get-db))
+              (let [parsed (uri/parse project-uri)
+                    project-name (:uri/project parsed)]
+                (when-let [[_proj-uri source] (find-first-nrepl-source)]
+                          (update-ns-list-in-datalevin!
+                           (get-db) project-name
+                           (map :name (:namespaces result))
+                           source))))
             {:success true :changed? true})
            ;; Unchanged
            {:success true :changed? false}))
@@ -538,66 +653,12 @@
                       :result result}})
     result))
 
-(defn- rescan-nrepl-sources!
-  "Rescan all nREPL sources and update Datalevin with fresh runtime data.
-   Runtime is the source of truth for nREPL sources.
-   Guarded against concurrent execution — returns false if already running."
-  []
-  (if-not (compare-and-set! !rescan-in-progress false true)
-    (do
-     (log/log! {:level :debug
-                :id ::rescan-skipped
-                :msg "Rescan skipped, already in progress"})
-     false)
-    (try
-     (log/log! {:level :info
-                :id ::rescan-nrepl-sources-called
-                :msg "rescan-nrepl-sources! called"
-                :data {:has-db? (some? (get-db))
-                       :source-count (count (:sources @!module-state))}})
-     (when-let [db (get-db)]
-               (doseq [[proj-uri source] (:sources @!module-state)]
-                      (let [source-info (source-proto/source-info source)
-                            source-type (:type source-info)]
-                        (when (= :nrepl source-type)
-                          (log/log! {:level :info
-                                     :id ::scanning-nrepl-source
-                                     :msg "Scanning nREPL source"
-                                     :data {:project-uri (str proj-uri)}})
-                          ;; Get fresh data from runtime
-                          (when-let [{:keys [project namespaces symbols aliases refers]}
-                                     (source-proto/scan-project source)]
-                                    (let [proj-uri (:uri/string project)]
-                                      (log/log! {:level :info
-                                                 :id ::resyncing-runtime
-                                                 :msg "Resyncing runtime to Datalevin"
-                                                 :data {:project proj-uri
-                                                        :ns-count (count namespaces)
-                                                        :symbol-count (count symbols)}})
-                                      ;; Retract old entities for this project
-                                      (db-proto/transact! db
-                                                          [{:db/retractEntity
-                                                            [:uri/string proj-uri]}])
-                                      ;; Write fresh entities
-                                      (db-proto/transact! db (concat [project]
-                                                                     namespaces
-                                                                     symbols
-                                                                     aliases
-                                                                     refers))
-                                      (log/log! {:level :info
-                                                 :id ::resync-complete
-                                                 :msg "Resync complete, Datalevin updated"
-                                                 :data {:project proj-uri}})))))))
-     true
-     (finally
-      (reset! !rescan-in-progress false)))))
-
 (defn- handle-check-symbol-list-fingerprint
   "Handle a fingerprint check request for a symbol-list widget.
    Returns {:success true :changed? bool :data map-or-nil}.
 
-   When runtime changes detected, triggers rescan to update Datalevin
-   (runtime is source of truth)."
+   When runtime changes detected, performs targeted Datalevin update for
+   just the changed namespace's symbols (not a full rescan)."
   [data]
   (let [{:keys [ns-name]} data
         stored (get-fingerprint (str "symbol-list:" ns-name) nil)]
@@ -611,7 +672,7 @@
        (let [result (check-symbol-list-fingerprint-via-source
                      ns-name stored {})]
          (if (and (map? result) (:changed? result))
-           ;; Changed — store new fingerprint, rescan to update Datalevin
+           ;; Changed — store new fingerprint, do targeted symbol update
            (do
             (when (and (:count result) (:hash result))
               (store-fingerprint! (str "symbol-list:" ns-name) nil
@@ -619,9 +680,13 @@
                                    :hash (:hash result)}))
             (log/log! {:level :debug
                        :id ::symbol-list-changed
-                       :msg "Symbol list changed, triggering rescan"
-                       :data {:ns ns-name}})
-            (rescan-nrepl-sources!)
+                       :msg "Symbol list changed, updating namespace"
+                       :data {:ns ns-name
+                              :symbol-count (count (:symbols result))}})
+            (when-let [db (get-db)]
+                      (when-let [[_proj-uri source] (find-first-nrepl-source)]
+                                (update-namespace-symbols!
+                                 db ns-name (:symbols result) source)))
             {:success true :changed? true})
            ;; Unchanged
            {:success true :changed? false}))
@@ -632,7 +697,7 @@
                          :data {:ns ns-name
                                 :error (ex-message e)}})
               {:success true :changed? false}))
-      ;; No stored fingerprint — compute and store initial fingerprint, then rescan
+      ;; No stored fingerprint — compute and store initial, do targeted update
       (do
        (log/log! {:level :debug
                   :id ::symbol-list-first-check
@@ -643,8 +708,12 @@
          (when (and (map? result) (:count result) (:hash result))
            (store-fingerprint! (str "symbol-list:" ns-name) nil
                                {:count (:count result)
-                                :hash (:hash result)})))
-       (rescan-nrepl-sources!)
+                                :hash (:hash result)}))
+         (when (and (map? result) (:symbols result))
+           (when-let [db (get-db)]
+                     (when-let [[_proj-uri source] (find-first-nrepl-source)]
+                               (update-namespace-symbols!
+                                db ns-name (:symbols result) source)))))
        {:success true :changed? true}))))
 
 ;;; ---------------------------------------------------------------------------

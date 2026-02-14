@@ -47,7 +47,7 @@
                            :error (:err result)}})
          nil)))))
 
-(defn- build-ns-entity
+(defn build-ns-entity
   "Build a namespace entity map for Datalevin from introspection data.
 
    Arguments:
@@ -66,7 +66,7 @@
      :ns/name ns-name
      :ns/doc (:doc ns-data)}))
 
-(defn- build-symbol-entity
+(defn build-symbol-entity
   "Build a symbol entity map for Datalevin from var introspection data.
 
    Arguments:
