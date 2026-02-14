@@ -4,54 +4,90 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-14
+**Last Updated:** 2026-02-14 (evening)
 **Version:** v1.31.0-dev (in progress)
-**Focus:** 🐛 Code Browser v2 live polling - architectural issues discovered
+**Focus:** 🐛 Widget response handling broken - fetches work but widgets stuck in loading state
 
 ---
 
 ## Current Work (2026-02-14)
 
-### Fixed: dispatch-event Unbound Bug ✅
+### BLOCKING BUG: Widget Response Handling Broken 🔴
+
+**Status:** INVESTIGATING - Fetches succeed on server but widgets never update.
+
+**Symptoms:**
+- Widgets stuck in loading state with `<div class="loading-overlay"><div class="spinner"></div></div>`
+- Server receives and processes fetch requests successfully
+- Browser NEVER logs receiving fetch responses
+- Happens for ALL widgets (projects, namespaces, symbols)
+- Happens whether widget created by clicking buttons OR restored from URI hash
+
+**Evidence:**
+```bash
+# Server shows fetch processed:
+bb logs -t cb-v2-test --event handle-fetch
+22:20:39.742 INFO Stateless fetch {:uri nil, :property :project-list}
+
+# Browser shows fetch sent:
+bb logs -t cb-v2-test --source browser --event fetch
+22:20:39.741 INFO Fetch requested
+
+# Browser shows NO response received:
+bb logs -t cb-v2-test --source browser --event response
+0 entries
+```
+
+**Testing Done:**
+1. ✅ Clicked "+ Projects" button - fetch sent, server processed, widget stuck loading
+2. ✅ Navigated to URI hash - widgets created but stuck loading (no fetch sent)
+3. ✅ Manual refresh-widget! call - returns nil, no fetch sent
+4. ✅ Fresh page load with all ghost widgets removed - same issue
+
+**Files Involved:**
+- `modules/sente-browser/src/browser/code_browser_v2.cljs` - fetch request/response handling
+- `modules/code-browser-v2/src/code_browser/handlers.clj` - server-side fetch handler
+- Response routing likely through sente websocket events
+
+**Next Steps for Fresh Claude:**
+1. Read `code_browser_v2.cljs` and trace fetch response handling
+2. Check how `:code-browser-v2/fetch` responses route back to widgets
+3. Look for missing event handlers or broken response->widget-state updates
+4. Check if response arrives but fails silently during processing
+
+---
+
+## Fixed Issues ✅
+
+### Fixed: dispatch-event Unbound Bug
 
 **Problem:** `code-browser.handlers/dispatch-event` was unbound, blocking all event handling.
 
 **Root Cause:** TWO parenthesis errors in `handlers.clj`:
 - Line 577: `rescan-nrepl-sources!` missing one closing paren (had 6, needed 7)
 - Line 711: `dispatch-event` extra closing paren (had 4, needed 3)
-- File was balanced but functions appeared "inline" inside previous function
-- clj-kondo warned "inline def" - the key clue we should have heeded
 
-**Fix:** Corrected both paren errors. Server restart confirms dispatch-event is now bound and functional.
+**Fix:** Corrected paren errors. **Committed.**
 
-**Commit:** Already committed in previous session.
+### Fixed: nREPL Source Not Registered
 
-### Discovered: Critical Architectural Issues 🚨
+**Problem:** Widget viewing `nrepl://localhost:7888` but source NOT in `:sources` map.
 
-While demonstrating live polling, discovered **two major design flaws:**
+**Impact:** `rescan-nrepl-sources!` found no nREPL sources, rescans never executed.
 
-#### Issue 1: nREPL Source Not Registered
+**Fix:** Added `{:type :nrepl :host "localhost" :port 7888}` to `system-cb-v2-test.edn`. **Committed and pushed.**
 
-**Problem:** Widget viewing `nrepl://localhost:7888` but that source is NOT in `:sources` map in `!module-state`.
-
-**Evidence:**
-```clojure
-(keys (:sources @code-browser.handlers/!module-state))
-=> ("dir://bb-mcp-server@c5dc1b7" "dir://hasch@ed83bf8")
-;; nrepl://localhost:7888 is MISSING!
+**Verification:**
+```bash
+bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
+# Now returns: ("dir://bb-mcp-server@..." "dir://hasch@..." "nrepl://localhost:7888@...")
 ```
 
-**Impact:** `rescan-nrepl-sources!` loops through `:sources` looking for nREPL sources (line 537), finds none, does nothing. Rescans are called but never execute.
+---
 
-**Telemetry Confirms:**
-- `rescan-nrepl-sources-called` events every 3s ✅
-- NO `scanning-nrepl-source` events ❌
-- NO `resync-complete` events ❌
-- NO `batch-introspect-complete` events ❌
+## Known Architectural Issues (Not Yet Fixed)
 
-**Fix Required:** When nREPL project is added, must register the source in `:sources` map.
-
-#### Issue 2: Wasteful Full Rescans
+#### Issue 1: Wasteful Full Rescans
 
 **Problem:** Built sophisticated fingerprint detection to identify specific changes, then rescan EVERYTHING anyway.
 
@@ -69,132 +105,89 @@ While demonstrating live polling, discovered **two major design flaws:**
 - Var value change in X/y → fetch ONLY that var's value
 - Namespace added/removed → rescan namespace list only
 
-**Statechart Gap:** `runtime_data_sync.cljc` doesn't specify rescan granularity. Need to define incremental rescan events.
-
-#### Issue 3: Fingerprints Not Stored
+#### Issue 2: Fingerprints Not Stored
 
 **Problem:** Every fingerprint check reports "No stored fingerprint" because fingerprints aren't persisted in `!module-state` between checks.
 
 **Impact:** Can't detect REAL changes. Every check looks like a first check, triggering rescans even when nothing changed.
 
-**Telemetry Evidence:**
+#### Issue 3: Runtime Data Sync Statechart Not Integrated
+
+**Problem:** `runtime_data_sync.cljc` exists as documentation but isn't wired into code.
+
+**Impact:** No state machine enforcing valid transitions, no protection against impossible states.
+
+---
+
+## Test Environment
+
+**Running Server:** cb-v2-test (ports 7888, 8090, 8091)
+```bash
+# Start server
+bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
+
+# Open browser
+open http://localhost:8091
+
+# Load UI (if not auto-loaded)
+# Click "Load Code Browser" button OR
+bb nrepl-direct eval "(scittle.core/eval-string \"(ui-loader/load-code-browser-ui!)\")" -t cb-v2-test/browser-1
 ```
-21:47:29.834 DEBUG No stored fingerprint, triggering initial rescan
-21:47:27.218 DEBUG No stored fingerprint, triggering initial rescan
-21:47:23.809 DEBUG No stored fingerprint, triggering initial rescan
-```
-
-**Fix Required:** Store fingerprints after computing them, compare on subsequent checks.
-
-### Statechart vs Implementation Analysis
-
-**Statechart Definition:** (`src/statecharts/machines/runtime_data_sync.cljc`)
-- States: `:idle`, `:syncing`, `:ready`, `:resyncing`, `:error`
-- Events: `:widget-opened`, `:poll-detected-change`, `:rescan-complete`, etc.
-- Critical invariant: "Widgets MUST NOT query while in :syncing/:resyncing"
-
-**Implementation Status:**
-- ✅ Widget lifecycle statechart IS integrated (in browser code)
-- ❌ Runtime data sync statechart is NOT integrated (documentation only)
-- ✅ Polling infrastructure works (3s interval firing)
-- ✅ Events route correctly (dispatch-event fixed)
-- ✅ Widgets refresh on change signal
-- ❌ Rescans don't execute (no nREPL sources registered)
-- ❌ Rescans are too broad (full rescan instead of incremental)
-- ❌ Change detection broken (fingerprints not stored)
-
-**Timing Analysis:**
-```
-21:57:50.777 - rescan-nrepl-sources! called    (SERVER)
-21:57:50.786 - Widget refresh requested        (BROWSER - 9ms later)
-21:57:50.818 - Fetch response received         (BROWSER - 41ms later)
-```
-
-Rescan completes before fetch (synchronous), but rescan does nothing because nREPL source not registered.
-
-### Files Needing Changes
-
-**Priority 1 - Make polling functional:**
-- `modules/code-browser-v2/src/code_browser/handlers.clj`
-  - Register nREPL source when project added
-  - Store fingerprints after computing them
-
-**Priority 2 - Fix inefficiency:**
-- `modules/code-browser-v2/src/code_browser/handlers.clj`
-  - Implement incremental rescan for namespace changes
-  - Implement incremental rescan for var value changes
-- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj`
-  - Add `rescan-namespace` method for single-namespace rescans
-- `src/statecharts/machines/runtime_data_sync.cljc`
-  - Add granular rescan events to statechart
-
-### Test Status
-
-**Server:**
-- `bb test:module code-browser-v2` - All tests passing
-
-**Browser:**
-- Polling fires every 3s ✅
-- Events reach server ✅
-- dispatch-event routes correctly ✅
-- Widgets call refresh-widget! ✅
-- Fetches succeed ✅
-- Data doesn't update (rescans don't run) ❌
 
 **Verification Commands:**
 ```bash
-# Check nREPL source registration
+# Check server status
 bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
 
-# Check runtime has our test vars
-bb nrepl-direct eval "(keys (ns-publics 'user))" -t cb-v2-test
+# Check telemetry
+bb logs -t cb-v2-test --event handle-fetch --limit 5
+bb logs -t cb-v2-test --source browser --event fetch --limit 5
 
-# Check fingerprint storage
-bb logs -t cb-v2-test --event symbol-list-first-check --limit 5
-
-# Check if rescans execute
-bb logs -t cb-v2-test --event resync-complete --limit 5
+# Check widget state (in browser console or via nREPL)
+# scittle.core.eval_string("@code-browser-v2/!widgets")
 ```
 
 ---
 
 ## Recent Commits
 
+**Latest (2026-02-14):**
+- Fixed dispatch-event unbound bug (paren errors in handlers.clj)
+- Fixed nREPL source registration (added to system-cb-v2-test.edn)
+- Added extensive telemetry for debugging
+- Committed and pushed snapshot
+
 **v1.30.0** - Statechart Service/ManyStore adoption (2026-02-13)
 - Added FSM runtime introspection
 - Live var value display with type-aware rendering
 - Statechart detection in var-value widgets
 
-**Uncommitted:**
-- Fixed dispatch-event unbound bug (paren errors)
-- Added extensive telemetry for debugging polling
-- Discovered nREPL source registration issue
-
 ---
 
-## Key Project Files
+## Next Session - IMMEDIATE ACTION REQUIRED
 
-**Core:**
-- `modules/code-browser-v2/src/code_browser/handlers.clj` - Server event handlers
-- `modules/sente-browser/src/browser/code_browser_v2.cljs` - Browser UI + polling
-- `src/statecharts/machines/runtime_data_sync.cljc` - Sync lifecycle statechart
+**BLOCKING:** Widget response handling is broken. Start here:
 
-**Runtime Introspection:**
-- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj` - nREPL adapter
-- `modules/code-browser-v2/src/code_browser/sources/runtime/babashka.clj` - Babashka introspection
+1. **Trace fetch response flow in browser**
+   - Read `modules/sente-browser/src/browser/code_browser_v2.cljs`
+   - Find where `:code-browser-v2/fetch` responses are received
+   - Check if response handler exists and is wired up
+   - Look for sente event routing to widget state updates
 
-**Configuration:**
-- `system-cb-v2-test.edn` - Test server config (ports 7888, 8090, 8091)
-- `.ports/cb-v2-test.json` - Running server info
+2. **Test response arrival**
+   - Add telemetry to response handler
+   - Verify responses actually arrive from server via websocket
+   - Check if they fail silently during processing
 
----
+3. **Check widget state update logic**
+   - Trace from response data → widget atom update
+   - Look for missing `swap!` or broken state transition
+   - Widget should go from `:loading` state to `:ready` with data
 
-## Next Session Priorities
-
-1. **Fix nREPL source registration** - Make rescans actually execute
-2. **Implement fingerprint storage** - Enable real change detection
-3. **Add incremental rescans** - Stop rescanning entire runtime for single var changes
-4. **Integrate runtime-data-sync statechart** - Wire up state machine for proper lifecycle management
+**After response handling fixed, then:**
+- Implement fingerprint storage (store after computing)
+- Add incremental rescans (single namespace, not all-ns)
+- Integrate runtime-data-sync statechart
 
 ---
 

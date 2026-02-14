@@ -1,7 +1,29 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.30.0 (stable) — Statechart Service/ManyStore adoption, FSM runtime introspection
-**Last Updated:** 2026-02-12
+**Status:** v1.31.0-dev (BLOCKED) — Widget response handling bug discovered
+**Last Updated:** 2026-02-14
+
+---
+
+## 🔴 BLOCKING BUG - READ THIS FIRST
+
+**Widget Response Handling Broken** (discovered 2026-02-14 evening)
+
+All Code Browser v2 widgets stuck in perpetual loading state:
+- Fetch requests sent from browser and processed successfully on server
+- Server responds with data
+- Browser NEVER logs receiving responses
+- Widgets never transition from `:loading` to `:ready` state
+- Affects ALL widget types (projects, namespaces, symbols)
+- Happens whether widgets created via button clicks OR URL hash restoration
+
+**Diagnosis needed:**
+1. Trace `:code-browser-v2/fetch` response routing in `code_browser_v2.cljs`
+2. Verify responses arrive via sente websocket (add telemetry)
+3. Find missing or broken widget state update logic
+4. Expected: response → `swap!` widget atom → loading→ready transition
+
+**Details:** See `context.md` section "BLOCKING BUG: Widget Response Handling Broken"
 
 ---
 
@@ -179,13 +201,25 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | CM6 editor | v1.16.0 | CodeMirror 6 replacing `<pre>` for source view |
 | Zoom fix | v1.16.1 | Fixed zoom creep, Phase 1 UI enhancements |
 
-#### Phase R4: Additional Sources — Pending
+#### Phase R4: Additional Sources — In Progress
 
 | Task | Description | Status |
 |------|-------------|--------|
 | R4.1 | JAR source adapter | Pending |
 | R4.2 | GitHub source adapter | Pending |
-| R4.3 | nREPL source adapter (Live Mode) | Pending |
+| R4.3 | nREPL source adapter (Live Mode) | 🔴 **BLOCKED** - Widget response handling broken |
+
+**R4.3 Status Detail:**
+- ✅ nREPL adapter implementation complete (`sources/nrepl.clj`, `sources/runtime/*.clj`)
+- ✅ Runtime introspection working (Babashka, Clojure)
+- ✅ Fingerprint-based polling implemented (3s interval)
+- ✅ Source registration fixed (nREPL sources now in `:sources` map)
+- ✅ dispatch-event paren bug fixed
+- 🔴 **BLOCKING:** Widgets stuck in loading state - fetch requests succeed but responses don't update widget state
+- 🔴 Browser never logs receiving fetch responses
+- 🔴 Affects ALL widgets (projects, namespaces, symbols), not just nREPL sources
+
+**Next Steps:** See "BLOCKING BUG" section in `context.md` - must fix response handling before continuing.
 
 #### Phase R5: Polish & Switchover — Pending
 
