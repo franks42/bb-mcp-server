@@ -17,7 +17,8 @@
 (defonce ^{:doc "Module state: database and sources."}
  !module-state
          (atom {:db nil
-                :sources {}}))
+                :sources {}
+                :fingerprints {}}))
 
 (defn get-db
   "Get the current database instance."
@@ -43,6 +44,24 @@
   "Unregister a source adapter."
   [project-uri]
   (swap! !module-state update :sources dissoc project-uri))
+
+(defn store-fingerprint!
+  "Store a var fingerprint keyed by ns/var-name."
+  [ns-name var-name fingerprint]
+  (let [k (str ns-name "/" var-name)]
+    (swap! !module-state assoc-in [:fingerprints k] fingerprint)))
+
+(defn get-fingerprint
+  "Get a stored fingerprint for a var."
+  [ns-name var-name]
+  (let [k (str ns-name "/" var-name)]
+    (get-in @!module-state [:fingerprints k])))
+
+(defn clear-fingerprint!
+  "Remove a stored fingerprint for a var."
+  [ns-name var-name]
+  (let [k (str ns-name "/" var-name)]
+    (swap! !module-state update :fingerprints dissoc k)))
 
 (defonce ^{:doc "Callback to core/add-source! — avoids circular dep."}
  !add-source-fn (atom nil))
@@ -361,7 +380,12 @@
                :var-value
                (if (and parsed symbol-name)
                  (if-let [result (fetch-var-value ns-name symbol-name)]
-                         {:success true :data result}
+                         (do
+                          (when (and (:var-id result) (:value-id result))
+                            (store-fingerprint! ns-name symbol-name
+                                                {:var-id (:var-id result)
+                                                 :value-id (:value-id result)}))
+                          {:success true :data result})
                          {:success false
                           :error "Value unavailable (nREPL sources only)"})
                  {:success false
@@ -378,6 +402,230 @@
           {:success false :error (ex-message e)})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Var Fingerprint Checking
+;;; ---------------------------------------------------------------------------
+
+(defn- check-var-fingerprint-via-source
+  "Check a var's fingerprint using the first available nREPL source."
+  [ns-name var-name fingerprint opts]
+  (let [sources (:sources @!module-state)]
+    (some (fn [[_proj-uri source]]
+            (when (= :nrepl (:type (source-proto/source-info source)))
+              (nrepl-source/check-var-fingerprint
+               source ns-name var-name fingerprint opts)))
+          sources)))
+
+(defn- handle-check-var-fingerprint
+  "Handle a fingerprint check request for a var-value widget.
+   Returns {:success true :changed? bool :data map-or-nil}."
+  [data]
+  (let [{:keys [ns-name var-name]} data
+        stored (get-fingerprint ns-name var-name)]
+    (log/log! {:level :trace
+               :id ::check-var-fingerprint
+               :msg "Checking var fingerprint"
+               :data {:ns ns-name :var var-name
+                      :has-stored? (some? stored)}})
+    (if stored
+      (try
+       (let [result (check-var-fingerprint-via-source
+                     ns-name var-name stored {})]
+         (if (and (map? result) (:changed? result))
+           ;; Changed — store new fingerprint and return full data
+           (do
+            (when (and (:var-id result) (:value-id result))
+              (store-fingerprint! ns-name var-name
+                                  {:var-id (:var-id result)
+                                   :value-id (:value-id result)}))
+            (log/log! {:level :debug
+                       :id ::var-value-changed
+                       :msg "Var value changed"
+                       :data {:ns ns-name :var var-name}})
+            {:success true :changed? true :data result})
+           ;; Unchanged
+           {:success true :changed? false}))
+       (catch Exception e
+              (log/log! {:level :warn
+                         :id ::fingerprint-check-error
+                         :msg "Fingerprint check failed"
+                         :data {:ns ns-name :var var-name
+                                :error (ex-message e)}})
+              {:success true :changed? false}))
+      ;; No stored fingerprint — tell browser to do a full fetch
+      {:success true :changed? true :data nil})))
+
+(defn- check-ns-list-fingerprint-via-source
+  "Check a project's namespace list fingerprint using the first available nREPL source."
+  [project-uri fingerprint opts]
+  (let [sources (:sources @!module-state)]
+    (some (fn [[_proj-uri source]]
+            (when (= :nrepl (:type (source-proto/source-info source)))
+              (nrepl-source/check-ns-list-fingerprint
+               source project-uri fingerprint opts)))
+          sources)))
+
+(defn- handle-check-ns-list-fingerprint
+  "Handle a fingerprint check request for a ns-list widget.
+   Returns {:success true :changed? bool :data map-or-nil}."
+  [data]
+  (let [{:keys [project-uri]} data
+        stored (get-fingerprint (str "ns-list:" project-uri) nil)]
+    (log/log! {:level :trace
+               :id ::check-ns-list-fingerprint
+               :msg "Checking namespace list fingerprint"
+               :data {:project project-uri
+                      :has-stored? (some? stored)}})
+    (if stored
+      (try
+       (let [result (check-ns-list-fingerprint-via-source
+                     project-uri stored {})]
+         (if (and (map? result) (:changed? result))
+           ;; Changed — store new fingerprint and return indication
+           (do
+            (when (and (:count result) (:hash result))
+              (store-fingerprint! (str "ns-list:" project-uri) nil
+                                  {:count (:count result)
+                                   :hash (:hash result)}))
+            (log/log! {:level :debug
+                       :id ::ns-list-changed
+                       :msg "Namespace list changed"
+                       :data {:project project-uri}})
+            {:success true :changed? true})
+           ;; Unchanged
+           {:success true :changed? false}))
+       (catch Exception e
+              (log/log! {:level :warn
+                         :id ::ns-list-fingerprint-check-error
+                         :msg "Namespace list fingerprint check failed"
+                         :data {:project project-uri
+                                :error (ex-message e)}})
+              {:success true :changed? false}))
+      ;; No stored fingerprint — tell browser to do a full fetch
+      {:success true :changed? true})))
+
+(defn- check-symbol-list-fingerprint-via-source
+  "Check a namespace's symbol list fingerprint using the first available nREPL source."
+  [ns-name fingerprint opts]
+  (log/log! {:level :trace
+             :id ::check-symbol-list-fingerprint-via-source
+             :msg "Checking symbol list fingerprint via source"
+             :data {:ns ns-name
+                    :stored-fingerprint fingerprint}})
+  (let [sources (:sources @!module-state)
+        result (some (fn [[_proj-uri source]]
+                       (when (= :nrepl (:type (source-proto/source-info source)))
+                         (nrepl-source/check-symbol-list-fingerprint
+                          source ns-name fingerprint opts)))
+                     sources)]
+    (log/log! {:level :trace
+               :id ::check-symbol-list-fingerprint-via-source-result
+               :msg "Symbol list fingerprint check result"
+               :data {:ns ns-name
+                      :result result}})
+    result))
+
+(defn- rescan-nrepl-sources!
+  "Rescan all nREPL sources and update Datalevin with fresh runtime data.
+   Runtime is the source of truth for nREPL sources."
+  []
+  (log/log! {:level :info
+             :id ::rescan-nrepl-sources-called
+             :msg "rescan-nrepl-sources! called"
+             :data {:has-db? (some? (get-db))
+                    :source-count (count (:sources @!module-state))}})
+  (when-let [db (get-db)]
+            (doseq [[proj-uri source] (:sources @!module-state)]
+                   (let [source-info (source-proto/source-info source)
+                         source-type (:type source-info)]
+                     (log/log! {:level :info
+                                :id ::checking-source-type
+                                :msg "Checking source type"
+                                :data {:project-uri (str proj-uri)
+                                       :source-info (pr-str source-info)
+                                       :source-type (pr-str source-type)
+                                       :source-type-class (pr-str (class source-type))
+                                       :nrepl-keyword (pr-str :nrepl)
+                                       :is-nrepl? (= :nrepl source-type)
+                                       :is-nrepl-str? (= "nrepl" (name source-type))}})
+                     (when (= :nrepl source-type)
+                       (log/log! {:level :info
+                                  :id ::scanning-nrepl-source
+                                  :msg "Scanning nREPL source"
+                                  :data {:source-type :nrepl}})
+                       ;; Get fresh data from runtime
+                       (when-let [{:keys [project namespaces symbols aliases refers]}
+                                  (source-proto/scan-project source)]
+                                 (let [proj-uri (:uri/string project)]
+                                   (log/log! {:level :info
+                                              :id ::resyncing-runtime
+                                              :msg "Resyncing runtime to Datalevin"
+                                              :data {:project proj-uri
+                                                     :ns-count (count namespaces)
+                                                     :symbol-count (count symbols)}})
+                                   ;; Retract old entities for this project
+                                   (db-proto/transact! db
+                                                       [{:db/retractEntity [:uri/string proj-uri]}])
+                                   ;; Write fresh entities
+                                   (db-proto/transact! db (concat [project]
+                                                                  namespaces
+                                                                  symbols
+                                                                  aliases
+                                                                  refers))
+                                   (log/log! {:level :info
+                                              :id ::resync-complete
+                                              :msg "Resync complete, Datalevin updated"
+                                              :data {:project proj-uri}}))))))))
+
+(defn- handle-check-symbol-list-fingerprint
+  "Handle a fingerprint check request for a symbol-list widget.
+   Returns {:success true :changed? bool :data map-or-nil}.
+
+   When runtime changes detected, triggers rescan to update Datalevin
+   (runtime is source of truth)."
+  [data]
+  (let [{:keys [ns-name]} data
+        stored (get-fingerprint (str "symbol-list:" ns-name) nil)]
+    (log/log! {:level :trace
+               :id ::check-symbol-list-fingerprint
+               :msg "Checking symbol list fingerprint"
+               :data {:ns ns-name
+                      :has-stored? (some? stored)}})
+    (if stored
+      (try
+       (let [result (check-symbol-list-fingerprint-via-source
+                     ns-name stored {})]
+         (if (and (map? result) (:changed? result))
+           ;; Changed — store new fingerprint, rescan to update Datalevin
+           (do
+            (when (and (:count result) (:hash result))
+              (store-fingerprint! (str "symbol-list:" ns-name) nil
+                                  {:count (:count result)
+                                   :hash (:hash result)}))
+            (log/log! {:level :debug
+                       :id ::symbol-list-changed
+                       :msg "Symbol list changed, triggering rescan"
+                       :data {:ns ns-name}})
+            (rescan-nrepl-sources!)
+            {:success true :changed? true})
+           ;; Unchanged
+           {:success true :changed? false}))
+       (catch Exception e
+              (log/log! {:level :warn
+                         :id ::symbol-list-fingerprint-check-error
+                         :msg "Symbol list fingerprint check failed"
+                         :data {:ns ns-name
+                                :error (ex-message e)}})
+              {:success true :changed? false}))
+      ;; No stored fingerprint — rescan and tell browser to fetch
+      (do
+       (log/log! {:level :debug
+                  :id ::symbol-list-first-check
+                  :msg "No stored fingerprint, triggering initial rescan"
+                  :data {:ns ns-name}})
+       (rescan-nrepl-sources!)
+       {:success true :changed? true}))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Event Dispatch
 ;;; ---------------------------------------------------------------------------
 
@@ -390,6 +638,9 @@
    - :code-browser-v2/select-namespace {:uri \"...\"}
    - :code-browser-v2/select-symbol {:uri \"...\"}
    - :code-browser-v2/fetch {:uri \"...\" :property :ns-list|:symbol-list|... :widget-id :w1}
+   - :code-browser-v2/check-var-fingerprint {:ns-name :var-name :widget-id}
+   - :code-browser-v2/check-ns-list-fingerprint {:project-uri :widget-id}
+   - :code-browser-v2/check-symbol-list-fingerprint {:ns-name :widget-id}
    - :code-browser-v2/toggle-sort-mode {}
    - :code-browser-v2/clear-error {}
 
@@ -429,6 +680,21 @@
     (do (sync/clear-error!)
         [:code-browser-v2/error-cleared {}])
 
+    :code-browser-v2/check-var-fingerprint
+    (let [result (handle-check-var-fingerprint data)]
+      [:code-browser-v2/var-fingerprint-result
+       (assoc result :widget-id (:widget-id data))])
+
+    :code-browser-v2/check-ns-list-fingerprint
+    (let [result (handle-check-ns-list-fingerprint data)]
+      [:code-browser-v2/ns-list-fingerprint-result
+       (assoc result :widget-id (:widget-id data))])
+
+    :code-browser-v2/check-symbol-list-fingerprint
+    (let [result (handle-check-symbol-list-fingerprint data)]
+      [:code-browser-v2/symbol-list-fingerprint-result
+       (assoc result :widget-id (:widget-id data))])
+
     :code-browser-v2/add-project
     (let [add-fn @!add-source-fn]
       (if add-fn
@@ -442,4 +708,4 @@
                 :id ::unknown-event
                 :msg "Unknown event"
                 :data {:event-id event-id}})
-     nil)))
+    nil)))
