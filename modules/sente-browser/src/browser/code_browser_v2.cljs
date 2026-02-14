@@ -94,6 +94,13 @@
 (defonce ^{:doc "Cascade offset for positioning new windows"}
  !cascade-offset (atom 0))
 
+(defonce ^{:doc "setInterval handle for live polling (nil when inactive)"}
+ !poll-interval (atom nil))
+
+(def ^:private poll-interval-ms
+     "Polling interval for fingerprint checks (ms)."
+     3000)
+
 (defn- next-widget-id
   "Generate a unique widget ID."
   []
@@ -334,7 +341,124 @@
             (log/log! {:level :info :id ::widget-refreshed
                        :msg "Widget refresh requested"
                        :data {:widget-id widget-id :type (:type w) :uri (:uri w)}})
+            ;; Transition to :refreshing state before fetching (required by statechart)
+            (transition-widget! widget-id {:type :invalidate
+                                           :new-version-hash (.now js/Date)})
             (fetch-widget-data! widget-id (:type w) (:uri w))))
+
+(defn- poll-var-value-widgets!
+  "Poll fingerprint for all open var-value widgets in :ready state."
+  []
+  (doseq [[wid w] @!widgets]
+         (when (and (= (:type w) :var-value)
+                    (= (:_state w) :ready)
+                    (:uri w))
+           (let [parsed (uri/parse (uri/base-uri (:uri w)))
+                 ns-name (:uri/namespace parsed)
+                 var-name (:uri/symbol parsed)]
+             (when (and ns-name var-name)
+               (send-event! :code-browser-v2/check-var-fingerprint
+                            {:ns-name ns-name
+                             :var-name var-name
+                             :widget-id wid}))))))
+
+(defn- poll-ns-list-widgets!
+  "Poll fingerprint for all open ns-list widgets in :ready state (nREPL sources only)."
+  []
+  (doseq [[wid w] @!widgets]
+         (when (and (= (:type w) :ns-list)
+                    (= (:_state w) :ready)
+                    (:uri w))
+           (let [parsed (uri/parse (uri/base-uri (:uri w)))
+                 project-uri (:uri/string parsed)]
+             ;; Only poll nREPL sources (nrepl://...)
+             (when (and project-uri (str/starts-with? project-uri "nrepl://"))
+               (send-event! :code-browser-v2/check-ns-list-fingerprint
+                            {:project-uri project-uri
+                             :widget-id wid}))))))
+
+(defn- poll-symbol-list-widgets!
+  "Poll fingerprint for all open symbol-list widgets in :ready state (nREPL sources only)."
+  []
+  (let [symbol-list-widgets (filter (fn [[_wid w]] (= (:type w) :symbol-list)) @!widgets)
+        ready-widgets (filter (fn [[_wid w]] (= (:_state w) :ready)) symbol-list-widgets)]
+    (log/log! {:level :trace
+               :id ::poll-symbol-list-widgets
+               :msg "Polling symbol-list widgets"
+               :data {:total-widgets (count @!widgets)
+                      :symbol-list-count (count symbol-list-widgets)
+                      :ready-count (count ready-widgets)}})
+    (doseq [[wid w] ready-widgets]
+           (when (:uri w)
+             (let [parsed (uri/parse (uri/base-uri (:uri w)))
+                   ns-name (:uri/namespace parsed)
+                   project-uri (when parsed
+                                 (uri/build {:source (:uri/source parsed)
+                                             :project (:uri/project parsed)
+                                             :version (:uri/version parsed)}))]
+               ;; Only poll nREPL sources (nrepl://...)
+               (when (and ns-name project-uri (str/starts-with? project-uri "nrepl://"))
+                 (log/log! {:level :trace
+                            :id ::sending-symbol-list-fingerprint-check
+                            :msg "Sending symbol list fingerprint check"
+                            :data {:widget-id wid
+                                   :ns-name ns-name}})
+                 (send-event! :code-browser-v2/check-symbol-list-fingerprint
+                              {:ns-name ns-name
+                               :widget-id wid})))))))
+
+(defn- poll-all-widgets!
+  "Poll fingerprints for all widget types (ns-list, symbol-list, var-value)."
+  []
+  (poll-ns-list-widgets!)
+  (poll-symbol-list-widgets!)
+  (poll-var-value-widgets!))
+
+(defn- handle-var-fingerprint-result!
+  "Handle the fingerprint check result. If changed, update widget data."
+  [data]
+  (let [{:keys [widget-id changed?]} data
+        wid (keyword (str (name widget-id)))]
+    (when changed?
+      (if-let [new-data (:data data)]
+        ;; Server sent full refreshed data — swap directly into widget
+              (do
+               (transition-widget! wid {:type :fetch-success :data new-data})
+         ;; Add flash class for visual indicator
+               (when-let [wb (get @!winbox-instances wid)]
+                         (when-let [body (.-body wb)]
+                                   (when-let [vv (.querySelector body ".var-value-view")]
+                                             (.add (.-classList vv) "value-flash")
+                                             (js/setTimeout
+                                              #(.remove (.-classList vv) "value-flash")
+                                              1000))))
+               (log/log! {:level :info :id ::var-value-updated
+                          :msg "Var value auto-updated"
+                          :data {:widget-id wid}}))
+        ;; No data — tell widget to do a full refresh
+              (refresh-widget! wid)))))
+
+(defn- handle-ns-list-fingerprint-result!
+  "Handle the namespace list fingerprint check result. If changed, refresh widget."
+  [data]
+  (let [{:keys [widget-id changed?]} data
+        wid (keyword (str (name widget-id)))]
+    (when changed?
+      (refresh-widget! wid)
+      (log/log! {:level :info :id ::ns-list-updated
+                 :msg "Namespace list auto-refreshed"
+                 :data {:widget-id wid}}))))
+
+(defn- handle-symbol-list-fingerprint-result!
+  "Handle the symbol list fingerprint check result. If changed, refresh widget."
+  [data]
+  (let [{:keys [widget-id changed?]} data
+        wid (keyword (str (name widget-id)))]
+    (when changed?
+      (refresh-widget! wid)
+      (log/log! {:level :info :id ::symbol-list-updated
+                 :msg "Symbol list auto-refreshed"
+                 :data {:widget-id wid}}))))
 
 (defn- handle-fetch-response!
   "Handle a fetch response from the server, updating the widget's data."
@@ -429,6 +553,15 @@
 
      :code-browser-v2/add-project-result
      (handle-add-project-result! data)
+
+     :code-browser-v2/var-fingerprint-result
+     (handle-var-fingerprint-result! data)
+
+     :code-browser-v2/ns-list-fingerprint-result
+     (handle-ns-list-fingerprint-result! data)
+
+     :code-browser-v2/symbol-list-fingerprint-result
+     (handle-symbol-list-fingerprint-result! data)
 
      ;; Ignore other events (handled by atom-sync)
      nil)))
@@ -1266,7 +1399,8 @@
 
 (defn mount!
   "Mount code browser v2 to #code-browser-root element.
-   Opens a project-list widget on startup, or restores from hash."
+   Opens a project-list widget on startup, or restores from hash.
+   Starts fingerprint polling for live var-value updates."
   []
   (setup-hash-routing!)
   (bootstrap/mount-root! [main-panel])
@@ -1276,12 +1410,21 @@
       (open-widget-chain-for-uri! hash)
       ;; Default: open project list
       (open-widget! {:type :project-list :uri nil})))
+  ;; Start fingerprint polling for all widget types
+  (when-let [old @!poll-interval]
+            (js/clearInterval old))
+  (reset! !poll-interval (js/setInterval poll-all-widgets! poll-interval-ms))
   (js/console.log "[code-browser-v2] Mounted (widget architecture)")
   (log/log! {:level :info :id ::mounted :msg "Code Browser v2 mounted"}))
 
 (defn unmount!
-  "Unmount code browser v2. Closes all WinBox windows and resets state."
+  "Unmount code browser v2. Closes all WinBox windows and resets state.
+   Stops fingerprint polling."
   []
+  ;; Stop fingerprint polling
+  (when-let [interval @!poll-interval]
+            (js/clearInterval interval)
+            (reset! !poll-interval nil))
   ;; Close all WinBox instances
   (doseq [[_wid wb] @!winbox-instances]
          (.close wb))

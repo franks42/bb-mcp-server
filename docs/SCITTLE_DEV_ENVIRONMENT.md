@@ -131,6 +131,138 @@ open http://localhost:8091
 
 ---
 
+## nREPL Live Runtime Browsing
+
+Code Browser v2 can browse **live Babashka runtimes** via nREPL, not just static files. This lets you:
+- Introspect all loaded namespaces and vars in a running BB process
+- View live var values with auto-refresh (polls every 3 seconds)
+- Detect statecharts, Services, and Stores with FSM state display
+- Browse source code from the running system
+
+### Quick Start: Browse the cb-v2-test Server Itself
+
+The simplest setup is to have the code browser introspect **its own runtime**:
+
+```bash
+# 1. Start the dev environment
+bb dev:cb-v2
+
+# 2. Add the nREPL source (the server's own nREPL on port 7888)
+bb nrepl-direct eval "(code-browser.core/add-source! {:type :nrepl :host \"localhost\" :port 7888})" -t cb-v2-test
+
+# 3. Open browser (if not already open)
+open http://localhost:8091
+
+# 4. Click "Load Code Browser" button
+# 5. In the project list, you'll now see "localhost:7888" alongside directory projects
+# 6. Click it to browse live namespaces → symbols → source → values
+```
+
+### Browse an External BB Process
+
+To browse a different Babashka process:
+
+```bash
+# 1. Start target BB process with nREPL (in a separate terminal)
+bb nrepl-server 9999
+# Or any BB server with nREPL enabled
+
+# 2. Start Code Browser
+bb dev:cb-v2
+
+# 3. Add the external nREPL source
+bb nrepl-direct eval "(code-browser.core/add-source! {:type :nrepl :host \"localhost\" :port 9999})" -t cb-v2-test
+
+# 4. Browser shows "localhost:9999" project
+```
+
+### Static Config (Before Startup)
+
+Instead of dynamic `add-source!`, you can configure nREPL sources in `system-cb-v2-test.edn`:
+
+```edn
+"code-browser-v2" {:enabled true
+                   :db-path "/tmp/cb-v2-test"
+                   :sources [{:type :dir :path "."}
+                             {:type :dir :path "../hasch"}
+                             {:type :nrepl :host "localhost" :port 7888}]}
+```
+
+Then `bb dev:cb-v2` will automatically scan the nREPL source on startup.
+
+**Note:** The target nREPL server must already be running when cb-v2-test starts, or the scan will fail.
+
+### The "+ Value" Button
+
+When browsing symbols from an nREPL source (not directory sources), the toolbar shows a **"+ Value"** button:
+
+1. Click it to open a live value viewer widget
+2. The widget shows:
+   - **Container type** (atom indicator if it holds an `IAtom`)
+   - **Type badges** (map?, vector?, fn?, etc.)
+   - **Statechart/Service/Store detection** — displays FSM state, context, instances
+   - **Pretty-printed value** (truncated at 4096 chars)
+   - **Metadata** (var metadata + value metadata)
+3. **Auto-polling**: The value refreshes every 3 seconds if changed (uses identity hash comparison)
+4. **Visual flash** when value changes
+
+### URI Scheme for nREPL Sources
+
+nREPL sources use a different URI scheme than directory sources:
+
+- **Directory**: `dir://.@<git-sha>/<namespace>/<symbol>`
+- **nREPL**: `nrepl://localhost:7888@<uuidv7>/<namespace>/<symbol>`
+
+The `@<uuidv7>` version is generated at scan time (temporal, not content-based). Queries are version-agnostic, so stale URIs still work.
+
+### Limitations
+
+- **No file watching** — nREPL sources don't support live updates when code changes. Use the browser "Refresh" button (if implemented) or restart the scan.
+- **No aliases/refers** — Runtime introspection only sees public vars, not `require`/`alias` forms.
+- **Namespace exclusions** — By default filters out `clojure.spec.*`, `nrepl.*`, `borkdude.*`, `sci.*`, `edamame.*` to reduce noise.
+
+### How It Works
+
+```
+Browser: Click "+ Value" button
+    │
+    ▼
+send-event! :code-browser-v2/fetch {:query-type :var-value, :uri "nrepl://..."}
+    │
+    ▼
+Server: handlers.clj → NreplSource.fetch-var-value
+    │
+    ▼
+nrepl-direct TCP → eval on target BB server:
+    - Resolve var
+    - Detect type (atom? statechart? service? store?)
+    - Auto-deref if atom
+    - Probe ~30 predicates (map?, fn?, vector?, ...)
+    - pprint with truncation
+    - Return EDN map with value + metadata
+    │
+    ▼
+Browser: Render in var-value widget
+    - Display badges, FSM state, pprinted value
+    - Start 3-second polling loop (check identity hash)
+    - If changed, fetch full value again + flash animation
+```
+
+### Debugging nREPL Sources
+
+```bash
+# Check if nREPL source was registered
+bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
+
+# Query projects in the database
+bb nrepl-direct eval "(->> @code-browser.sync/!state :projects (map :uri/project))" -t cb-v2-test
+
+# Manually trigger a scan (if source exists but DB is empty)
+bb nrepl-direct eval "(code-browser.core/scan-all-sources!)" -t cb-v2-test
+```
+
+---
+
 ## Useful Commands
 
 ```bash
@@ -239,4 +371,4 @@ bb datalevin:cleanup    # Stop pods + remove lock files
 
 ---
 
-*Last Updated: 2026-02-07*
+*Last Updated: 2026-02-13*

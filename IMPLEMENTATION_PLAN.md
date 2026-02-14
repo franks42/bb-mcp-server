@@ -219,6 +219,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 ### Code Browser v2 UI Polish
 - [ ] Add remove/delete button per project in the project list widget
 - [ ] Fix zoom/fit-to-content inconsistency in project list widget
+- [ ] Fix WinBox z-index overlap preventing toolbar button clicks — buttons become unclickable when another widget overlaps (workaround: use `dispatchEvent('click')` via browser console or Playwright)
 
 ### Live Mode (nREPL Introspection)
 - ~~Connect to running nREPL and introspect live system~~ ✅ Phase L0-L1 (nREPL source browsing)

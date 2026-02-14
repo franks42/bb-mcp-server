@@ -194,6 +194,58 @@
         rt-type (:type @(:runtime-info source))]
     (runtime/fetch-var-value (or rt-type :babashka) eval-fn ns-name var-name opts)))
 
+(defn check-var-fingerprint
+  "Check if a var's value has changed by comparing identity fingerprints.
+
+   Arguments:
+     source      - NreplSource instance
+     ns-name     - namespace name string
+     var-name    - var name string
+     fingerprint - map with :var-id and :value-id from previous fetch
+     opts        - options map
+
+   Returns {:changed? false} when fingerprint matches, or the full value
+   map (with :changed? true and updated fingerprint fields) when changed."
+  [source ns-name var-name fingerprint opts]
+  (let [eval-fn (make-eval-fn (:conn source) (:host source) (:port source))
+        rt-type (:type @(:runtime-info source))]
+    (runtime/check-var-fingerprint
+     (or rt-type :babashka) eval-fn ns-name var-name fingerprint opts)))
+
+(defn check-ns-list-fingerprint
+  "Check if the namespace list has changed by comparing count and hash.
+
+   Arguments:
+     source      - NreplSource instance
+     project-uri - project URI string
+     fingerprint - map with :count and :hash from previous check
+     opts        - options map
+
+   Returns {:changed? false} when fingerprint matches, or {:changed? true
+   :count N :hash \"...\" :namespaces [...]} when changed."
+  [source project-uri fingerprint opts]
+  (let [eval-fn (make-eval-fn (:conn source) (:host source) (:port source))
+        rt-type (:type @(:runtime-info source))]
+    (runtime/check-ns-list-fingerprint
+     (or rt-type :babashka) eval-fn project-uri fingerprint opts)))
+
+(defn check-symbol-list-fingerprint
+  "Check if a namespace's symbol list has changed by comparing count and hash.
+
+   Arguments:
+     source      - NreplSource instance
+     ns-name     - namespace name string
+     fingerprint - map with :count and :hash from previous check
+     opts        - options map
+
+   Returns {:changed? false} when fingerprint matches, or {:changed? true
+   :count N :hash \"...\" :symbols [...]} when changed."
+  [source ns-name fingerprint opts]
+  (let [eval-fn (make-eval-fn (:conn source) (:host source) (:port source))
+        rt-type (:type @(:runtime-info source))]
+    (runtime/check-symbol-list-fingerprint
+     (or rt-type :babashka) eval-fn ns-name fingerprint opts)))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Constructor
 ;;; ---------------------------------------------------------------------------

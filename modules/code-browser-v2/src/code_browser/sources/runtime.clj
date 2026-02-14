@@ -110,6 +110,53 @@
    Or nil if value unavailable."
           (fn [runtime-type _eval-fn _ns-name _var-name _opts] runtime-type))
 
+(defmulti check-var-fingerprint
+          "Check if a var's value has changed by comparing identity fingerprints.
+
+   Arguments:
+     runtime-type - keyword (:babashka, :jvm-clojure, etc.)
+     eval-fn      - (fn [code-string] -> parsed-result)
+     ns-name      - namespace name string
+     var-name     - var name string
+     fingerprint  - map with :var-id and :value-id from previous fetch
+     opts         - options map
+
+   Returns {:changed? false} when fingerprint matches, or the full value
+   map (with :changed? true and updated fingerprint fields) when changed."
+          (fn [runtime-type _eval-fn _ns-name _var-name _fingerprint _opts]
+            runtime-type))
+
+(defmulti check-ns-list-fingerprint
+          "Check if the namespace list has changed by comparing count and hash.
+
+   Arguments:
+     runtime-type - keyword (:babashka, :jvm-clojure, etc.)
+     eval-fn      - (fn [code-string] -> parsed-result)
+     project-uri  - project URI string
+     fingerprint  - map with :count and :hash from previous check
+     opts         - options map with:
+                    :exclude-patterns - vector of regex patterns to exclude namespaces
+
+   Returns {:changed? false} when fingerprint matches, or {:changed? true
+   :count N :hash \"...\" :namespaces [...]} when changed."
+          (fn [runtime-type _eval-fn _project-uri _fingerprint _opts]
+            runtime-type))
+
+(defmulti check-symbol-list-fingerprint
+          "Check if a namespace's symbol list has changed by comparing count and hash.
+
+   Arguments:
+     runtime-type - keyword (:babashka, :jvm-clojure, etc.)
+     eval-fn      - (fn [code-string] -> parsed-result)
+     ns-name      - namespace name string
+     fingerprint  - map with :count and :hash from previous check
+     opts         - options map
+
+   Returns {:changed? false} when fingerprint matches, or {:changed? true
+   :count N :hash \"...\" :symbols [...]} when changed."
+          (fn [runtime-type _eval-fn _ns-name _fingerprint _opts]
+            runtime-type))
+
 (defmulti batch-introspect
           "Introspect all namespaces and their vars in a single batch.
 

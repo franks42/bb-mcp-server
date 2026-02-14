@@ -253,7 +253,9 @@
        :var-meta vmeta
        :value-meta val-meta
        :count cnt
-       :truncated? truncated?})))")
+       :truncated? truncated?
+       :var-id (System/identityHashCode raw-val)
+       :value-id (if is-atom? (System/identityHashCode val) (System/identityHashCode raw-val))})))")
 
 (defmethod runtime/fetch-var-value :babashka
            [_runtime-type eval-fn ns-name var-name _opts]
@@ -274,6 +276,124 @@
                       :data {:runtime-type runtime-type}})
            ((get-method runtime/fetch-var-value :babashka)
             :babashka eval-fn ns-name var-name opts))
+
+;;; ---------------------------------------------------------------------------
+;;; check-var-fingerprint
+;;; ---------------------------------------------------------------------------
+
+(def ^:private check-var-fingerprint-code
+     "Remote eval code template for checking if a var's fingerprint changed.
+   Placeholders: ns-name, var-name, stored-var-id, stored-value-id."
+     "(let [v (resolve (symbol \"%s\" \"%s\"))]
+  (if v
+    (let [raw-val (deref v)
+          is-atom? (instance? clojure.lang.IAtom raw-val)
+          val (if is-atom? (deref raw-val) raw-val)
+          var-id (System/identityHashCode raw-val)
+          value-id (if is-atom? (System/identityHashCode val) var-id)]
+      (if (and (= var-id %s) (= value-id %s))
+        {:changed? false}
+        {:changed? true :var-id var-id :value-id value-id}))
+    {:changed? false :error \"var-not-found\"}))")
+
+(defmethod runtime/check-var-fingerprint :babashka
+           [_runtime-type eval-fn ns-name var-name fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-var-fingerprint
+                      :msg "Checking var fingerprint"
+                      :data {:ns ns-name :var var-name}})
+           (let [stored-var-id (:var-id fingerprint)
+                 stored-value-id (:value-id fingerprint)
+                 code (format check-var-fingerprint-code
+                              ns-name var-name
+                              stored-var-id stored-value-id)
+                 result (eval-fn code)]
+             (if (and (map? result) (:changed? result))
+               ;; Changed — do a full fetch to get the new value
+               (let [full (runtime/fetch-var-value :babashka eval-fn
+                                                   ns-name var-name opts)]
+                 (if (map? full)
+                   (assoc full :changed? true)
+                   {:changed? true :var-id (:var-id result)
+                    :value-id (:value-id result)}))
+               ;; Unchanged or error
+               (if (map? result)
+                 result
+                 {:changed? false}))))
+
+(defmethod runtime/check-var-fingerprint :default
+           [runtime-type eval-fn ns-name var-name fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-var-fingerprint-default
+                      :msg "Using default (Babashka) check-var-fingerprint"
+                      :data {:runtime-type runtime-type}})
+           ((get-method runtime/check-var-fingerprint :babashka)
+            :babashka eval-fn ns-name var-name fingerprint opts))
+
+;;; ---------------------------------------------------------------------------
+;;; check-ns-list-fingerprint
+;;; ---------------------------------------------------------------------------
+
+(defmethod runtime/check-ns-list-fingerprint :babashka
+           [_runtime-type eval-fn _project-uri fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-ns-list-fingerprint
+                      :msg "Checking namespace list fingerprint"})
+           (let [;; Fetch current namespace list
+                 all-ns-vec (runtime/list-namespaces :babashka eval-fn opts)
+                 current-count (count all-ns-vec)
+                 current-hash (hash (mapv :name all-ns-vec))
+                 stored-count (:count fingerprint)
+                 stored-hash (:hash fingerprint)]
+             (if (and (= current-count stored-count)
+                      (= current-hash stored-hash))
+               {:changed? false}
+               {:changed? true
+                :count current-count
+                :hash current-hash
+                :namespaces all-ns-vec})))
+
+(defmethod runtime/check-ns-list-fingerprint :default
+           [runtime-type eval-fn project-uri fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-ns-list-fingerprint-default
+                      :msg "Using default (Babashka) check-ns-list-fingerprint"
+                      :data {:runtime-type runtime-type}})
+           ((get-method runtime/check-ns-list-fingerprint :babashka)
+            :babashka eval-fn project-uri fingerprint opts))
+
+;;; ---------------------------------------------------------------------------
+;;; check-symbol-list-fingerprint
+;;; ---------------------------------------------------------------------------
+
+(defmethod runtime/check-symbol-list-fingerprint :babashka
+           [_runtime-type eval-fn ns-name fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-symbol-list-fingerprint
+                      :msg "Checking symbol list fingerprint"
+                      :data {:ns ns-name}})
+           (let [;; Fetch current symbol list
+                 symbols-vec (runtime/introspect-namespace :babashka eval-fn ns-name opts)
+                 current-count (count symbols-vec)
+                 current-hash (hash (mapv :name symbols-vec))
+                 stored-count (:count fingerprint)
+                 stored-hash (:hash fingerprint)]
+             (if (and (= current-count stored-count)
+                      (= current-hash stored-hash))
+               {:changed? false}
+               {:changed? true
+                :count current-count
+                :hash current-hash
+                :symbols symbols-vec})))
+
+(defmethod runtime/check-symbol-list-fingerprint :default
+           [runtime-type eval-fn ns-name fingerprint opts]
+           (log/log! {:level :trace
+                      :id ::check-symbol-list-fingerprint-default
+                      :msg "Using default (Babashka) check-symbol-list-fingerprint"
+                      :data {:runtime-type runtime-type}})
+           ((get-method runtime/check-symbol-list-fingerprint :babashka)
+            :babashka eval-fn ns-name fingerprint opts))
 
 ;;; ---------------------------------------------------------------------------
 ;;; batch-introspect

@@ -416,6 +416,9 @@
     .meta-key { color: #1565C0; font-family: 'Fira Code', monospace; }
     .meta-val { color: #333; font-family: 'Fira Code', monospace; overflow: hidden; text-overflow: ellipsis; }
     .meta-content { font-family: 'Fira Code', monospace; font-size: 11px; background: #f5f5f5; padding: 0.4rem; border-radius: 3px; margin: 0; white-space: pre-wrap; max-height: 100px; overflow: auto; }
+    /* Var-value change flash animation */
+    .value-flash { animation: flash-bg 1s ease-out; }
+    @keyframes flash-bg { 0% { background-color: rgba(76, 175, 80, 0.3); } 100% { background-color: transparent; } }
   </style>
 </head>
 <body>

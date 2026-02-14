@@ -4,152 +4,225 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-12
-**Version:** v1.30.0 (stable)
-**Focus:** Statechart Service/ManyStore adoption + FSM runtime introspection
+**Last Updated:** 2026-02-14
+**Version:** v1.31.0-dev (in progress)
+**Focus:** 🐛 Code Browser v2 live polling - architectural issues discovered
 
 ---
 
-## Current State (2026-02-11)
+## Current Work (2026-02-14)
 
-### Committed & Pushed
+### Fixed: dispatch-event Unbound Bug ✅
 
-1. **Statechart Service/ManyStore adoption + FSM runtime introspection** (v1.30.0):
-   - **Service pattern** for `local_nrepl_server.clj` — `!service` defonce wraps compiled statechart
-   - **ManyStore pattern** for `sente_browser/server.clj` — `!connection-store` tracks per-browser-connection FSM state
-   - **`:reinit` transition** on `:stopped` state for clean test resets (preserves `:_state`)
-   - **Service/Store detection** in `babashka.clj` — protocol-based detection (`IService`, `IStore`)
-   - **Browser rendering** for Service (FSM state + context) and ManyStore (store type, instances, states)
-   - **SCI deftype fix** — use `(resolve 'statecharts.service/state)` protocol fn instead of `.state` method
-   - 72 mcp-nrepl tests (303 assertions), all modules pass
+**Problem:** `code-browser.handlers/dispatch-event` was unbound, blocking all event handling.
 
-2. **Live var value display — Phase L2** (v1.29.0):
-   - **"+ Value" button** in toolbar for nREPL-sourced symbols — fetches live runtime value
-   - **Type-aware rendering**: maps, vectors, atoms, statecharts, nil, functions, etc.
-   - **Atom auto-deref**: detects `IAtom`, double-derefs, shows "atom →" badge + inner type
-   - **Statechart detection**: `statecharts.types/statechart?` check, shows machine id, initial state, compiled status, state tags
-   - **Truncation**: `*print-length* 20`, `*print-level* 5`, 4096 char hard cap
-   - **Var & value metadata** display
-   - **Predicate badges**: `counted?`, `sorted?`, `fn?`, `var?`, `sequential?`, `associative?`
-   - New source abstraction layer: `sources/protocol.clj`, `sources/runtime.clj`, `sources/runtime/babashka.clj`, `sources/nrepl.clj`
-   - Tests: 80 tests, 625 assertions (code-browser-v2)
+**Root Cause:** TWO parenthesis errors in `handlers.clj`:
+- Line 577: `rescan-nrepl-sources!` missing one closing paren (had 6, needed 7)
+- Line 711: `dispatch-event` extra closing paren (had 4, needed 3)
+- File was balanced but functions appeared "inline" inside previous function
+- clj-kondo warned "inline def" - the key clue we should have heeded
 
-2. **Runtime project addition** (v1.26.0):
-   - `bb add-project` CLI and browser input for adding projects at runtime
-   - Multi-project browsing + CM6 zoom fix for short content
+**Fix:** Corrected both paren errors. Server restart confirms dispatch-event is now bound and functional.
 
-3. **File watcher robustness + telemetry** (v1.25.0):
-   - 3 race condition fixes: thread-safe debounce, per-file serialization, phantom deletion correction
-   - Enhanced telemetry for debugging
+**Commit:** Already committed in previous session.
 
-4. **Statecharts infrastructure** (v1.21.0–v1.24.0):
-   - `clj-statecharts` integration, static analyzer, browser + server connection statecharts
-   - Per-connection server statechart (4 states, 5 transitions)
+### Discovered: Critical Architectural Issues 🚨
 
-### Architecture — Phase L2 Var Value
+While demonstrating live polling, discovered **two major design flaws:**
 
-```
-Browser: "+ Value" button clicked
-    │
-    ▼
-send-event! :code-browser-v2/fetch {:query-type :var-value, :uri "..."}
-    │
-    ▼ (sente WebSocket)
-Server: handlers.clj handle-fetch :var-value case
-    │
-    ├── Find NreplSource in registered sources
-    ├── nrepl.clj fetch-var-value → runtime/fetch-var-value multimethod
-    └── babashka.clj :babashka defmethod → remote eval on target server
-              │
-              ▼
-    Target BB server: single eval string
-    ├── resolve var, deref (double-deref if atom)
-    ├── classify type, detect statechart/service/store
-    ├── pprint with truncation
-    ├── collect var & value metadata
-    └── return EDN map
-              │
-              ▼
-Browser: var-value-content renderer
-    ├── Header badges (container, type, statechart/service/store, count, predicates)
-    ├── Statechart/Service/Store info box (when detected)
-    ├── Pprinted value display
-    └── Metadata sections
+#### Issue 1: nREPL Source Not Registered
+
+**Problem:** Widget viewing `nrepl://localhost:7888` but that source is NOT in `:sources` map in `!module-state`.
+
+**Evidence:**
+```clojure
+(keys (:sources @code-browser.handlers/!module-state))
+=> ("dir://bb-mcp-server@c5dc1b7" "dir://hasch@ed83bf8")
+;; nrepl://localhost:7888 is MISSING!
 ```
 
-### Key Files
+**Impact:** `rescan-nrepl-sources!` loops through `:sources` looking for nREPL sources (line 537), finds none, does nothing. Rescans are called but never execute.
 
-- `modules/code-browser-v2/src/code_browser/sources/runtime.clj` — `fetch-var-value` multimethod
-- `modules/code-browser-v2/src/code_browser/sources/runtime/babashka.clj` — babashka implementation
-- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj` — nREPL wrapper
-- `modules/code-browser-v2/src/code_browser/handlers.clj` — `:var-value` case in `handle-fetch`
-- `modules/sente-browser/src/browser/code_browser_v2.cljs` — `var-value-content` renderer, `"+ Value"` button
-- `modules/sente-browser/src/sente_browser/bootstrap.clj` — CSS for var-value widgets
-- `modules/mcp-nrepl/src/mcp_nrepl/state/local_nrepl_server.clj` — Service-wrapped nREPL server statechart
-- `modules/sente-browser/src/sente_browser/server.clj` — ManyStore for per-connection browser FSM states
+**Telemetry Confirms:**
+- `rescan-nrepl-sources-called` events every 3s ✅
+- NO `scanning-nrepl-source` events ❌
+- NO `resync-complete` events ❌
+- NO `batch-introspect-complete` events ❌
 
-### Key Decisions
+**Fix Required:** When nREPL project is added, must register the source in `:sources` map.
 
-- **Source abstraction layer** — `IProjectSource` protocol extended with `sources/protocol.clj`; `runtime.clj` provides multimethods dispatched on runtime type (`:babashka`, `:default`)
-- **Remote eval for introspection** — single eval string sent to target BB server, returns EDN map
-- **Statechart detection is optional** — `try/catch` around `resolve` of `statecharts.types/statechart?`; gracefully returns false if not loaded
-- **"+ Value" button visibility** — only shown for nREPL-sourced symbols (`:uri/source :nrepl` check)
-- **Atom auto-deref** — detects `IAtom`, double-derefs, reports both container and inner type
-- **FSM state introspection done** — Service pattern (single-instance) and ManyStore pattern (multi-instance) adopted; var-value widgets detect and render live FSM state
+#### Issue 2: Wasteful Full Rescans
 
-### What's NOT done yet (future PRs)
+**Problem:** Built sophisticated fingerprint detection to identify specific changes, then rescan EVERYTHING anyway.
 
-1. ~~**FSM runtime state introspection**~~ ✅ Done in v1.30.0
-2. **Statechart write gate** — wire `widget_lifecycle.cljc` as write gate for `!widgets` r/atom
-3. **Browser statechart viz** — serve `validate.cljc` via `/cljc/`, render graphs with Mermaid.js
-4. **Browser log viewer** — UI widget for browsing telemetry in browser
-5. **Git status display** — show modified/staged files in code browser
-6. **JAR/GitHub source adapters** — browse dependencies
+**Current Flow:**
+1. Fingerprint detects change in ONE namespace (e.g., `user`)
+2. Calls `rescan-nrepl-sources!`
+3. Calls `batch-introspect` which does `(for [n (all-ns)] ...)` - ALL 212 namespaces!
+4. Retracts ALL entities from Datalevin
+5. Writes ALL entities back to Datalevin
 
-### Browser Testing Policy
+**Impact:** Every change to any single var triggers full rescan of entire runtime.
 
-**ALWAYS use Playwright MCP tools** (`mcp__playwright__browser_*`) for browser/E2E testing.
-**NEVER** install npx packages, create TypeScript test files, or use `npx playwright` CLI.
-The MCP tools provide interactive, real-time browser automation directly from the conversation.
+**Correct Implementation Should:**
+- Symbol list change in namespace X → rescan ONLY namespace X
+- Var value change in X/y → fetch ONLY that var's value
+- Namespace added/removed → rescan namespace list only
 
----
+**Statechart Gap:** `runtime_data_sync.cljc` doesn't specify rescan granularity. Need to define incremental rescan events.
 
-## Quick Resume
+#### Issue 3: Fingerprints Not Stored
 
+**Problem:** Every fingerprint check reports "No stored fingerprint" because fingerprints aren't persisted in `!module-state` between checks.
+
+**Impact:** Can't detect REAL changes. Every check looks like a first check, triggering rescans even when nothing changed.
+
+**Telemetry Evidence:**
+```
+21:47:29.834 DEBUG No stored fingerprint, triggering initial rescan
+21:47:27.218 DEBUG No stored fingerprint, triggering initial rescan
+21:47:23.809 DEBUG No stored fingerprint, triggering initial rescan
+```
+
+**Fix Required:** Store fingerprints after computing them, compare on subsequent checks.
+
+### Statechart vs Implementation Analysis
+
+**Statechart Definition:** (`src/statecharts/machines/runtime_data_sync.cljc`)
+- States: `:idle`, `:syncing`, `:ready`, `:resyncing`, `:error`
+- Events: `:widget-opened`, `:poll-detected-change`, `:rescan-complete`, etc.
+- Critical invariant: "Widgets MUST NOT query while in :syncing/:resyncing"
+
+**Implementation Status:**
+- ✅ Widget lifecycle statechart IS integrated (in browser code)
+- ❌ Runtime data sync statechart is NOT integrated (documentation only)
+- ✅ Polling infrastructure works (3s interval firing)
+- ✅ Events route correctly (dispatch-event fixed)
+- ✅ Widgets refresh on change signal
+- ❌ Rescans don't execute (no nREPL sources registered)
+- ❌ Rescans are too broad (full rescan instead of incremental)
+- ❌ Change detection broken (fingerprints not stored)
+
+**Timing Analysis:**
+```
+21:57:50.777 - rescan-nrepl-sources! called    (SERVER)
+21:57:50.786 - Widget refresh requested        (BROWSER - 9ms later)
+21:57:50.818 - Fetch response received         (BROWSER - 41ms later)
+```
+
+Rescan completes before fetch (synchronous), but rescan does nothing because nREPL source not registered.
+
+### Files Needing Changes
+
+**Priority 1 - Make polling functional:**
+- `modules/code-browser-v2/src/code_browser/handlers.clj`
+  - Register nREPL source when project added
+  - Store fingerprints after computing them
+
+**Priority 2 - Fix inefficiency:**
+- `modules/code-browser-v2/src/code_browser/handlers.clj`
+  - Implement incremental rescan for namespace changes
+  - Implement incremental rescan for var value changes
+- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj`
+  - Add `rescan-namespace` method for single-namespace rescans
+- `src/statecharts/machines/runtime_data_sync.cljc`
+  - Add granular rescan events to statechart
+
+### Test Status
+
+**Server:**
+- `bb test:module code-browser-v2` - All tests passing
+
+**Browser:**
+- Polling fires every 3s ✅
+- Events reach server ✅
+- dispatch-event routes correctly ✅
+- Widgets call refresh-widget! ✅
+- Fetches succeed ✅
+- Data doesn't update (rescans don't run) ❌
+
+**Verification Commands:**
 ```bash
-# Run tests
-bb test:module code-browser-v2   # 80 tests, 625 assertions
-bb test:module sente-browser     # 24 tests, 62 assertions
-bb test:statecharts              # 19 tests, 69 assertions
-bb test:nrepl                    # 72 tests, 303 assertions
-bb test:module telemetry-db      # 16 tests, 35 assertions
+# Check nREPL source registration
+bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
 
-# Statechart validation
-bb statechart:validate mcp-nrepl.state.local-nrepl-server/nrepl-server-statechart-compiled
+# Check runtime has our test vars
+bb nrepl-direct eval "(keys (ns-publics 'user))" -t cb-v2-test
 
-# Start dev environment
-bb dev:cb-v2
+# Check fingerprint storage
+bb logs -t cb-v2-test --event symbol-list-first-check --limit 5
 
-# nrepl-direct (ALWAYS use double quotes for !)
-bb nrepl-direct eval "<code>" -t cb-v2-test
+# Check if rescans execute
+bb logs -t cb-v2-test --event resync-complete --limit 5
 ```
 
 ---
 
 ## Recent Commits
 
-```
-f5e47e3 feat: Statechart Service/ManyStore adoption with FSM runtime introspection
-1307d59 docs: Update context.md with commit hash for v1.29.0
-b6b2f8c feat: Live var value display with type-aware rendering and statechart detection (Phase L2)
-e2e4288 feat: Runtime project addition with bb add-project CLI and browser input
-c6e3894 feat: Multi-project browsing + fix CM6 zoom for short content
-5784d5b fix: Fix WinBox zoom/fit-to-content for CM6 source views
-43f08fa feat: Replace inline JS loader with Scittle CLJS ui_loader.cljs
-c49f014 feat: Add load-local-js-file command for importing JS as ES modules in browser
-85424fb feat: Upgrade Scittle from 0.7.30 to 0.8.31
-```
+**v1.30.0** - Statechart Service/ManyStore adoption (2026-02-13)
+- Added FSM runtime introspection
+- Live var value display with type-aware rendering
+- Statechart detection in var-value widgets
+
+**Uncommitted:**
+- Fixed dispatch-event unbound bug (paren errors)
+- Added extensive telemetry for debugging polling
+- Discovered nREPL source registration issue
 
 ---
 
-*Last Updated: 2026-02-12*
+## Key Project Files
+
+**Core:**
+- `modules/code-browser-v2/src/code_browser/handlers.clj` - Server event handlers
+- `modules/sente-browser/src/browser/code_browser_v2.cljs` - Browser UI + polling
+- `src/statecharts/machines/runtime_data_sync.cljc` - Sync lifecycle statechart
+
+**Runtime Introspection:**
+- `modules/code-browser-v2/src/code_browser/sources/nrepl.clj` - nREPL adapter
+- `modules/code-browser-v2/src/code_browser/sources/runtime/babashka.clj` - Babashka introspection
+
+**Configuration:**
+- `system-cb-v2-test.edn` - Test server config (ports 7888, 8090, 8091)
+- `.ports/cb-v2-test.json` - Running server info
+
+---
+
+## Next Session Priorities
+
+1. **Fix nREPL source registration** - Make rescans actually execute
+2. **Implement fingerprint storage** - Enable real change detection
+3. **Add incremental rescans** - Stop rescanning entire runtime for single var changes
+4. **Integrate runtime-data-sync statechart** - Wire up state machine for proper lifecycle management
+
+---
+
+## Session Notes Archive
+
+<details>
+<summary>2026-02-13: dispatch-event Unbound Bug (RESOLVED)</summary>
+
+### Problem
+Live polling completely non-functional due to `dispatch-event` function being unbound in running server.
+
+### Investigation
+1. File evaluation stopped mid-file at line 577
+2. Functions after line 577 never bound despite valid syntax
+3. Could load functions individually but not from full file
+4. Created test artifacts to isolate issue
+
+### Resolution
+Found TWO parenthesis errors via GPT-4 review:
+- Line 577: missing closing paren
+- Line 711: extra closing paren
+- clj-kondo showed "inline def" warnings pointing to the issue
+
+### Lesson Learned
+**ALWAYS fix clj-kondo warnings, not just errors.** "inline def" warning indicated structural issue that errors didn't catch.
+
+</details>
+
+---
+
+*For detailed debugging history, see git log and claude-mem observations.*
