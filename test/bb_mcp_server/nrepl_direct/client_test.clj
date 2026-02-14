@@ -163,13 +163,22 @@
 
 (deftest test-eval-error
          (when *test-port*
-           (testing "eval with error"
+           (testing "eval with error returns error status"
                     (let [result (client/eval! "(/ 1 0)" :port *test-port*)]
-                      (is (= "success" (:status result)))
-                      ;; Error should be in :ex or :err
+                      (is (= "error" (:status result)))
+                      ;; Error details should be in :ex or :err
                       (is (or (:ex result)
-                              (:err result)
-                              (re-find #"Divide by zero" (str result))))))))
+                              (:err result)))))
+
+           (testing "eval with undefined symbol returns error status"
+                    (let [result (client/eval! "(nonexistent-fn 42)" :port *test-port*)]
+                      (is (= "error" (:status result)))
+                      (is (or (:ex result) (:err result)))))
+
+           (testing "eval with bad require returns error status"
+                    (let [result (client/eval! "(require '[no.such.ns])" :port *test-port*)]
+                      (is (= "error" (:status result)))
+                      (is (or (:ex result) (:err result)))))))
 
 (deftest test-eval-with-namespace
          (when *test-port*

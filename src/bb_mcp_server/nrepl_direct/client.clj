@@ -161,8 +161,12 @@
     (.flush out)
     (let [result (read-responses in timeout-ms)]
       (if (= :success (:status result))
-        ;; Flatten: merge response fields directly, use string status
-        (assoc (merge-responses (:responses result)) :status "success")
+        ;; Flatten: merge response fields directly
+        ;; nREPL "done" means the protocol exchange completed, NOT that eval succeeded.
+        ;; Check for :ex/:root-ex to detect eval errors.
+        (let [merged (merge-responses (:responses result))
+              has-error? (or (:ex merged) (:root-ex merged))]
+          (assoc merged :status (if has-error? "error" "success")))
         ;; Error/timeout: convert status to string
         (update result :status name)))))
 
