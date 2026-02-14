@@ -26,8 +26,11 @@
           ;; code-browser-v2 auto-initializes during module start:
           ;; creates Datalevin DB, scans sources, enables browser sync.
           ;; Delete /tmp/cb-v2-test before restart if you need fresh data.
+          ;; IMPORTANT: nREPL source points to EXTERNAL target (port 9876),
+          ;; not self (port 7888). Self-introspection causes pod deadlocks.
+          ;; Start target first: bb --nrepl-server 9876 (or use bb dev:cb-v2)
           "code-browser-v2" {:enabled true
                              :db-path "/tmp/cb-v2-test"
                              :sources [{:type :dir :path "."}
                                       {:type :dir :path "../hasch"}
-                                      {:type :nrepl :host "localhost" :port 7888}]}}}
+                                      {:type :nrepl :host "localhost" :port 9876}]}}}

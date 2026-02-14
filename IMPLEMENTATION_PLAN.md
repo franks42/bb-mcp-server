@@ -1,6 +1,6 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.31.0-dev (active)
+**Status:** v1.31.1 (active)
 **Last Updated:** 2026-02-14
 
 ---
@@ -13,6 +13,8 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.31.1 | — | Two-process dev env (external nREPL target), self-introspection fix |
+| v1.31.0 | `6332a9d` | Fix nrepl-direct silent error swallowing |
 | v1.30.0 | `f5e47e3` | Statechart Service/ManyStore adoption, FSM runtime introspection |
 | v1.29.0 | `1307d59` | Live var value display with type-aware rendering + statechart detection |
 | v1.26.0 | — | Runtime project addition, `bb add-project` CLI, sente warning fixes |
@@ -194,7 +196,10 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - ✅ Source registration fixed (nREPL sources now in `:sources` map)
 - ✅ dispatch-event paren bug fixed
 - ✅ Datalevin deadlock from rescan storm fixed (fingerprint storage + concurrency guard)
-- ✅ Widgets load correctly: projects (3), namespaces (670) verified in browser
+- ✅ Self-introspection deadlock fixed — two-process architecture (external nREPL target on port 9876)
+- ✅ `bb dev:cb-v2` manages both processes (start/stop/status)
+- ✅ Graceful shutdown restored (no more SIGKILL)
+- ✅ Widgets load correctly: projects (3), namespaces verified in browser
 
 **Remaining work:** Incremental rescans (single-ns instead of all-ns), runtime-data-sync statechart integration.
 

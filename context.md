@@ -4,177 +4,104 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-14 (late evening)
-**Version:** v1.31.0-dev (in progress)
-**Focus:** Live polling stability + incremental rescans
+**Last Updated:** 2026-02-14 (evening)
+**Version:** v1.31.1
+**Focus:** Two-process dev environment, self-introspection fix
 
 ---
 
 ## Current Work (2026-02-14)
 
-### Widget Response Handling Bug — RESOLVED ✅
+### Self-Introspection Deadlock — RESOLVED
 
-**Root Cause:** Datalevin deadlock caused by rescan storm.
+**Problem:** When code-browser-v2 introspected its own nREPL server (port 7888), all Datalevin pod calls hung after initialization. Server required SIGKILL to stop.
 
-**Mechanism:**
-1. `handle-check-ns-list-fingerprint` and `handle-check-symbol-list-fingerprint` never stored fingerprints after initial computation
-2. Every 3-second poll found "no stored fingerprint" → triggered full `rescan-nrepl-sources!`
-3. Each rescan does batch-introspect (slow nREPL call) + 2 Datalevin transactions
-4. Multiple concurrent rescans deadlocked the Datalevin pod
-5. All subsequent queries (including normal fetch operations) blocked indefinitely
+**Root Cause:** Self-introspection consumed nREPL threads needed for other operations. Introspection evals waited for threads that were waiting for pod responses that needed more nREPL threads — a thread-pool deadlock.
 
-**Fixes Applied (handlers.clj):**
-- Added `!rescan-in-progress` atom with `compare-and-set!` guard to prevent concurrent rescans
-- Fixed `handle-check-ns-list-fingerprint` to compute and store initial fingerprint on first check
-- Fixed `handle-check-symbol-list-fingerprint` to compute and store initial fingerprint on first check
-- Added telemetry to `dispatch-event` for fetch response tracing
-- Removed verbose debug logging from `rescan-nrepl-sources!`
+**Fix:** Two-process architecture:
+- Process 1: nREPL target (`bb --nrepl-server 9876`) — separate process to introspect
+- Process 2: Main server — code-browser-v2 introspects port 9876 (not self)
 
-**Verification:**
-- clj-kondo: 0 errors, 0 warnings
-- cljfmt: clean
-- Tests: 80 tests, 629 assertions, 0 failures
-- Live browser test: Projects widget (3 projects), namespace list (670 namespaces) load correctly
+**Changes:**
+- `system-cb-v2-test.edn`: nREPL source port 7888 → 9876
+- `scripts/cb_v2_dev.clj`: Manages nREPL target lifecycle (start/stop/status)
+- `docs/SCITTLE_DEV_ENVIRONMENT.md`: Documented two-process architecture
+
+### nrepl-direct Error Reporting — FIXED (v1.31.0)
+
+**Problem:** `nrepl-direct eval` silently swallowed all eval errors. Divide-by-zero, undefined symbols, bad requires — all returned success with no output.
+
+**Root Cause:** `send-message` in `client.clj` conflated nREPL protocol "done" (exchange complete) with eval success. Set status to `"success"` even when `:ex`/`:root-ex` fields were present.
+
+**Fix:** Check merged response for `:ex`/`:root-ex` before setting status. Errors now print to stderr and exit with code 1.
+
+### Dev Environment Setup
+
+```bash
+# Standard dev environment (ALWAYS use this):
+bb dev:cb-v2                    # Full start: target + server + browser
+bb dev:cb-v2 start --no-open    # Same but skip browser
+bb dev:cb-v2 stop               # Stop server + nREPL target
+bb dev:cb-v2 status             # Check both processes
+
+# Two-process architecture:
+# Process 1: nREPL target on port 9876 (auto-managed by dev:cb-v2)
+# Process 2: Main server on port 7888 (introspects port 9876)
+
+# Testing:
+bb nrepl-direct eval "(+ 1 2)" -t cb-v2-test
+bb nrepl-direct eval "(code-browser.handlers/dispatch-event :code-browser-v2/fetch {:type :projects})" -t cb-v2-test
+```
 
 ---
 
-## Fixed Issues ✅
+## Fixed Issues
+
+### Fixed: Self-Introspection Deadlock (2026-02-14)
+
+**Problem:** Pod calls hang, server needs SIGKILL, widgets stuck loading.
+**Root Cause:** code-browser-v2 introspecting its own nREPL server deadlocks nREPL thread pool.
+**Fix:** External nREPL target on port 9876. `bb dev:cb-v2` manages both processes.
+
+### Fixed: nrepl-direct Silent Error Swallowing (2026-02-14)
+
+**Problem:** All eval errors silently swallowed — no output, exit 0.
+**Root Cause:** `send-message` set status "success" for all completed exchanges.
+**Fix:** Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ### Fixed: Datalevin Deadlock from Rescan Storm (2026-02-14)
 
-**Problem:** All widgets stuck in perpetual loading state. Datalevin queries hung indefinitely.
-
-**Root Cause:** Fingerprints never stored → infinite rescan loop → concurrent rescans deadlocked Datalevin pod.
-
-**Fix:** Store initial fingerprints + `compare-and-set!` concurrency guard on rescans.
+**Problem:** Fingerprints never stored → infinite rescan loop → concurrent rescans.
+**Fix:** Store initial fingerprints + `compare-and-set!` concurrency guard.
 
 ### Fixed: dispatch-event Unbound Bug (2026-02-13)
 
-**Problem:** `code-browser.handlers/dispatch-event` was unbound, blocking all event handling.
-
-**Root Cause:** TWO parenthesis errors in `handlers.clj`.
-
-**Fix:** Corrected paren errors. **Committed.**
+**Problem:** Two parenthesis errors in handlers.clj.
+**Fix:** Corrected paren errors.
 
 ### Fixed: nREPL Source Not Registered (2026-02-13)
 
-**Problem:** Widget viewing `nrepl://localhost:7888` but source NOT in `:sources` map.
-
-**Fix:** Added `{:type :nrepl :host "localhost" :port 7888}` to `system-cb-v2-test.edn`. **Committed.**
-
----
-
-## Known Architectural Issues (Not Yet Fixed)
-
-#### Issue 1: Wasteful Full Rescans
-
-**Problem:** Fingerprint detection identifies specific changes, then rescans EVERYTHING anyway.
-
-**Current Flow:**
-1. Fingerprint detects change in ONE namespace (e.g., `user`)
-2. Calls `rescan-nrepl-sources!`
-3. Calls `batch-introspect` which does `(for [n (all-ns)] ...)` - ALL namespaces
-4. Retracts ALL entities from Datalevin
-5. Writes ALL entities back to Datalevin
-
-**Correct Implementation Should:**
-- Symbol list change in namespace X → rescan ONLY namespace X
-- Var value change in X/y → fetch ONLY that var's value
-- Namespace added/removed → rescan namespace list only
-
-#### Issue 2: ~~Fingerprints Not Stored~~ FIXED ✅
-
-~~Every fingerprint check reports "No stored fingerprint" because fingerprints aren't persisted.~~
-Fixed: Initial fingerprints now stored on first check. Concurrency guard prevents rescan storms.
-
-#### Issue 3: Runtime Data Sync Statechart Not Integrated
-
-**Problem:** `runtime_data_sync.cljc` exists as documentation but isn't wired into code.
-
-**Impact:** No state machine enforcing valid transitions, no protection against impossible states.
-
----
-
-## Test Environment
-
-**Running Server:** cb-v2-test (ports 7888, 8090, 8091)
-```bash
-# Start server
-bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
-
-# Open browser
-open http://localhost:8091
-
-# Load UI (if not auto-loaded)
-# Click "Load Code Browser" button OR
-bb nrepl-direct eval "(scittle.core/eval-string \"(ui-loader/load-code-browser-ui!)\")" -t cb-v2-test/browser-1
-```
-
-**Verification Commands:**
-```bash
-# Check server status
-bb nrepl-direct eval "(keys (:sources @code-browser.handlers/!module-state))" -t cb-v2-test
-
-# Check telemetry
-bb logs -t cb-v2-test --event handle-fetch --limit 5
-bb logs -t cb-v2-test --source browser --event fetch --limit 5
-
-# Check widget state (in browser console or via nREPL)
-# scittle.core.eval_string("@code-browser-v2/!widgets")
-```
-
----
-
-## Recent Commits
-
-**Latest (2026-02-14):**
-- Fixed dispatch-event unbound bug (paren errors in handlers.clj)
-- Fixed nREPL source registration (added to system-cb-v2-test.edn)
-- Added extensive telemetry for debugging
-- Committed and pushed snapshot
-
-**v1.30.0** - Statechart Service/ManyStore adoption (2026-02-13)
-- Added FSM runtime introspection
-- Live var value display with type-aware rendering
-- Statechart detection in var-value widgets
+**Problem:** nREPL source missing from `:sources` map.
+**Fix:** Added to `system-cb-v2-test.edn`.
 
 ---
 
 ## Next Session Priorities
 
-1. **Implement incremental rescans** (Issue 1 above)
-   - Single-namespace rescan instead of full `all-ns` batch-introspect
-   - Per-var value refresh instead of full rescan
-2. **Integrate runtime-data-sync statechart** (Issue 3 above)
-3. **Continue browser testing** - verify symbol-list, source, and var-value widgets work end-to-end
-4. **Monitor server stability** - confirm fingerprint polling no longer causes rescan storms
+1. **Continue browser testing** — verify all widget types work end-to-end with two-process setup
+2. **Implement incremental rescans** — single-namespace rescan instead of full `all-ns` batch-introspect
+3. **Integrate runtime-data-sync statechart** — wire documentation into code
+4. **Monitor server stability** — confirm polling works without rescan storms
 
 ---
 
-## Session Notes Archive
+## Recent Commits
 
-<details>
-<summary>2026-02-13: dispatch-event Unbound Bug (RESOLVED)</summary>
-
-### Problem
-Live polling completely non-functional due to `dispatch-event` function being unbound in running server.
-
-### Investigation
-1. File evaluation stopped mid-file at line 577
-2. Functions after line 577 never bound despite valid syntax
-3. Could load functions individually but not from full file
-4. Created test artifacts to isolate issue
-
-### Resolution
-Found TWO parenthesis errors via GPT-4 review:
-- Line 577: missing closing paren
-- Line 711: extra closing paren
-- clj-kondo showed "inline def" warnings pointing to the issue
-
-### Lesson Learned
-**ALWAYS fix clj-kondo warnings, not just errors.** "inline def" warning indicated structural issue that errors didn't catch.
-
-</details>
+- `v1.31.0` (`6332a9d`) — Fix nrepl-direct silent error swallowing
+- `0cd899a` — Datalevin telemetry + tx result checking
+- `467e083` — Datalevin access statechart (documentation)
+- `06863c4` — Incremental per-namespace Datalevin updates
+- `15aaad5` — Rescan storm fix (fingerprint storage + concurrency guard)
 
 ---
 

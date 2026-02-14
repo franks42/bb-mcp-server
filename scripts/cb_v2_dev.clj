@@ -4,10 +4,15 @@
 ;; Usage:
 ;;   bb dev:cb-v2 start           # Clean start (stop, clean DB, start, open browser)
 ;;   bb dev:cb-v2 start --no-open # Clean start without opening browser
-;;   bb dev:cb-v2 stop            # Stop server
+;;   bb dev:cb-v2 stop            # Stop server (and nREPL target)
 ;;   bb dev:cb-v2 restart         # Restart (stop + clean DB + start)
 ;;   bb dev:cb-v2 status          # Show server and database status
 ;;   bb dev:cb-v2                 # Same as 'start'
+;;
+;; Architecture:
+;;   Two-process setup to avoid self-introspection deadlocks:
+;;   1. nREPL target (port 9876) — separate bb process to introspect
+;;   2. Main server (port 7888)  — code-browser-v2 introspects the target
 ;;
 ;; See also: docs/SCITTLE_DEV_ENVIRONMENT.md
 
@@ -24,6 +29,8 @@
 (def ^:private browser-url "http://localhost:8091")
 (def ^:private ports-dir ".ports")
 (def ^:private catalog-dir "telemetry-catalogs")
+(def ^:private target-port 9876)
+(def ^:private target-pid-file "/tmp/cb-v2-nrepl-target.pid")
 
 ;; =============================================================================
 ;; Helpers
@@ -52,6 +59,63 @@
   "Check if the Datalevin database directory exists."
   []
   (.exists (io/file db-path)))
+
+;; =============================================================================
+;; nREPL Target Process Management
+;; =============================================================================
+
+(defn- target-running?
+  "Check if the nREPL target process is running."
+  []
+  (let [pid-file (io/file target-pid-file)]
+    (when (.exists pid-file)
+      (try
+       (let [pid (Long/parseLong (str/trim (slurp pid-file)))
+             handle (.get (java.lang.ProcessHandle/of pid))]
+         (.isAlive handle))
+       (catch Exception _ false)))))
+
+(defn- do-stop-target!
+  "Stop the nREPL target process if running."
+  []
+  (let [pid-file (io/file target-pid-file)]
+    (if (.exists pid-file)
+      (try
+       (let [pid (Long/parseLong (str/trim (slurp pid-file)))
+             handle (.get (java.lang.ProcessHandle/of pid))]
+         (when (.isAlive handle)
+           (.destroy handle)
+           (Thread/sleep 500)
+           (println (str "  Stopped nREPL target (PID " pid ", port " target-port ").")))
+         (.delete pid-file))
+       (catch Exception e
+              (println (str "  Warning: Could not stop nREPL target: " (.getMessage e)))
+              (.delete pid-file)))
+      (println "  No nREPL target process found."))))
+
+(defn- do-start-target!
+  "Start a separate bb process with nREPL server as introspection target."
+  []
+  (println (str "  Starting nREPL target on port " target-port "..."))
+  ;; Stop any existing target first
+  (when (target-running?)
+    (do-stop-target!))
+  (let [process (-> (ProcessBuilder.
+                     ["bb" "--nrepl-server" (str target-port)])
+                    (.directory (io/file "."))
+                    (.redirectOutput (io/file "/tmp/cb-v2-nrepl-target.log"))
+                    (.redirectErrorStream true)
+                    (.start))
+        pid (.pid process)]
+    (spit target-pid-file (str pid))
+    ;; Wait for nREPL to be ready
+    (Thread/sleep 2000)
+    (if (.isAlive process)
+      (println (str "  nREPL target running (PID " pid ", port " target-port ")."))
+      (do
+       (println "  ERROR: nREPL target failed to start.")
+       (println "  Check /tmp/cb-v2-nrepl-target.log for details.")
+       (System/exit 1)))))
 
 (defn- do-stop!
   "Stop cb-v2-test server if running. Returns true if was running."
@@ -157,51 +221,63 @@
 ;; =============================================================================
 
 (defn cmd-start
-  "Clean start: stop existing, clean DB, start server, open browser."
+  "Clean start: stop existing, start nREPL target, clean DB, start server, open browser."
   [opts]
   (println "=== Code Browser v2 Dev Environment ===")
   (println "")
-  (println "[1/5] Generating telemetry catalog...")
+  (println "[1/6] Generating telemetry catalog...")
   (do-generate-catalog!)
-  (println "[2/5] Stopping existing server...")
+  (println "[2/6] Stopping existing server...")
   (do-stop!)
-  (println "[3/5] Cleaning stale database...")
+  (println "[3/6] Starting nREPL target (separate process for introspection)...")
+  (do-start-target!)
+  (println "[4/6] Cleaning stale database...")
   (do-clean-db!)
-  (println "[4/5] Starting server (auto-initializes code-browser-v2)...")
+  (println "[5/6] Starting server (auto-initializes code-browser-v2)...")
   (do-start!)
   (if (:open-browser opts)
     (do
-     (println "[5/5] Opening browser...")
+     (println "[6/6] Opening browser...")
      (do-open-browser!))
-    (println "[5/5] Skipping browser (--no-open)."))
+    (println "[6/6] Skipping browser (--no-open)."))
   (print-next-steps))
 
 (defn cmd-stop
-  "Stop the cb-v2-test server."
+  "Stop the cb-v2-test server and nREPL target."
   []
   (println "=== Stopping Code Browser v2 ===")
   (println "")
-  (do-stop!))
+  (do-stop!)
+  (do-stop-target!))
 
 (defn cmd-restart
-  "Restart: stop, clean DB, start server."
+  "Restart: stop all, start nREPL target, clean DB, start server."
   [_opts]
   (println "=== Restarting Code Browser v2 ===")
   (println "")
-  (println "[1/4] Generating telemetry catalog...")
+  (println "[1/5] Generating telemetry catalog...")
   (do-generate-catalog!)
-  (println "[2/4] Stopping server...")
+  (println "[2/5] Stopping server and nREPL target...")
   (do-stop!)
-  (println "[3/4] Cleaning stale database...")
+  (do-stop-target!)
+  (println "[3/5] Starting nREPL target...")
+  (do-start-target!)
+  (println "[4/5] Cleaning stale database...")
   (do-clean-db!)
-  (println "[4/4] Starting server (auto-initializes code-browser-v2)...")
+  (println "[5/5] Starting server (auto-initializes code-browser-v2)...")
   (do-start!)
   (print-next-steps))
 
 (defn cmd-status
-  "Show server and database status."
+  "Show server, nREPL target, and database status."
   []
   (println "=== Code Browser v2 Status ===")
+  (println "")
+  (println "nREPL target:")
+  (if (target-running?)
+    (let [pid (str/trim (slurp target-pid-file))]
+      (println (str "  RUNNING (PID " pid ", port " target-port ")")))
+    (println "  NOT running"))
   (println "")
   (println "Server:")
   (if (server-running?)

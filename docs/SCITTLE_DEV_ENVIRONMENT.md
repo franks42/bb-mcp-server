@@ -9,10 +9,11 @@ bb dev:cb-v2
 ```
 
 This task:
-1. Stops any existing `cb-v2-test` server
-2. Deletes stale Datalevin database (`/tmp/cb-v2-test`)
-3. Starts server with `system-cb-v2-test.edn` (auto-initializes code-browser-v2)
-4. Opens browser to `http://localhost:8091`
+1. Stops any existing `cb-v2-test` server and nREPL target
+2. Starts a separate nREPL target process (port 9876) for introspection
+3. Deletes stale Datalevin database (`/tmp/cb-v2-test`)
+4. Starts server with `system-cb-v2-test.edn` (auto-initializes code-browser-v2)
+5. Opens browser to `http://localhost:8091`
 
 After the browser loads:
 1. Wait for green "Connected as browser-N" status
@@ -26,9 +27,9 @@ That's it. No manual nREPL commands needed.
 ```bash
 bb dev:cb-v2                  # Clean start + open browser (default)
 bb dev:cb-v2 start --no-open  # Clean start without opening browser
-bb dev:cb-v2 stop             # Stop server
+bb dev:cb-v2 stop             # Stop server + nREPL target
 bb dev:cb-v2 restart          # Restart with fresh database
-bb dev:cb-v2 status           # Show server, database, and browser status
+bb dev:cb-v2 status           # Show server, nREPL target, database status
 bb dev:cb-v2 --help           # Show all options
 ```
 
@@ -38,10 +39,10 @@ The `dev:cb-v2` task (`scripts/cb_v2_dev.clj`) is a Babashka script registered i
 
 | Command | What it does |
 |---------|-------------|
-| `start` (default) | 1. Calls `bb server:stop cb-v2-test` if running. 2. Deletes `/tmp/cb-v2-test` and `.lock` dir. 3. Calls `bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn`. 4. Opens browser via `open http://localhost:8091`. |
-| `stop` | Calls `bb server:stop cb-v2-test`. |
+| `start` (default) | 1. Calls `bb server:stop cb-v2-test` if running. 2. Starts nREPL target on port 9876. 3. Deletes `/tmp/cb-v2-test`. 4. Calls `bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn`. 5. Opens browser via `open http://localhost:8091`. |
+| `stop` | Stops both the cb-v2-test server and the nREPL target process. |
 | `restart` | Same as `start` but skips opening the browser. |
-| `status` | Reads `.ports/cb-v2-test.json` for port info, checks if server process is alive, checks if DB directory exists. |
+| `status` | Shows nREPL target status, server status, DB status. |
 
 The key is the **`start` command**: it delegates to `bb server:start-wait` which starts the server process, waits for the port file to appear, then polls the health endpoint. During server startup, the code-browser-v2 module's `:start` function reads its config (`db-path` and `sources`), calls `init!`, which creates the Datalevin database, runs clj-kondo analysis on the source directories, and populates the database. By the time the health check passes, the database is ready and projects are loaded.
 
@@ -51,49 +52,42 @@ The database is cleaned on every `start` and `restart` because URIs contain git 
 
 ## How It Works
 
-### Architecture
+### Architecture: Two-Process Design
+
+Code Browser v2 uses a **two-process architecture** to avoid self-introspection deadlocks:
 
 ```
-system-cb-v2-test.edn          # Module config with db-path + sources
-    │
-    ▼
-Server startup                  # bb server:start-wait
-    │
-    ├── datalevin-pod module    # Loads Datalevin pod binary
-    ├── atom-sync module        # Bidirectional state sync
-    ├── sente-browser module    # WebSocket + HTTP bootstrap on :8090/:8091
-    └── code-browser-v2 module  # Auto-initializes:
-         ├── create-db          #   Creates Datalevin DB at /tmp/cb-v2-test
-         ├── scan-and-populate  #   Runs clj-kondo analysis, populates DB
-         ├── enable!            #   Registers sync atom
-         └── load-projects!     #   Projects ready for browser
-    │
-    ▼
-Browser connects                # open http://localhost:8091
-    │
-    ├── WebSocket handshake     # sente-lite client/server
-    ├── on-browser-connect!     # Auto-enable (idempotent, already enabled)
-    └── Click "Load Code Browser" button
-         ├── scittle_cm6.cljs   # CodeMirror 6 wrapper
-         ├── uri.cljc           # URI parsing/generation
-         ├── code_browser_v2.cljs  # Widget-based UI
-         └── mount!             # Opens Projects widget
+Process 1: nREPL Target (port 9876)
+    └── bb --nrepl-server 9876
+        (simple bb process to introspect — no other modules)
+
+Process 2: Main Server (port 7888)
+    ├── nREPL server (port 7888)        ← serves external eval requests
+    ├── datalevin-pod                    ← stores symbol data
+    ├── sente-browser (ports 8090/8091)  ← WebSocket + HTTP
+    └── code-browser-v2                  ← introspects Process 1
+          └── source: nrepl://localhost:9876  ← points to target, NOT self
 ```
 
-### Key: Module Config Drives Init
+**Why two processes?** When code-browser-v2 introspects its own nREPL server (self-introspection), the introspection eval calls consume nREPL threads that are also needed for other operations (pod calls, browser events). This creates a thread-pool deadlock: internal introspection evals wait for threads that are waiting for pod responses that are waiting for... more nREPL threads. With a separate target, introspection evals go to Process 1's thread pool, leaving Process 2's threads free.
 
-The `system-cb-v2-test.edn` config includes `db-path` and `sources` for code-browser-v2:
+**Symptoms of self-introspection (if misconfigured):**
+- All Datalevin pod calls hang after initialization
+- Server requires SIGKILL to stop (never graceful shutdown)
+- Browser widgets stuck in perpetual loading state
+
+### Module Config
+
+The `system-cb-v2-test.edn` config points code-browser-v2 to the **external** nREPL target:
 
 ```edn
 "code-browser-v2" {:enabled true
                    :db-path "/tmp/cb-v2-test"
-                   :sources [{:type :dir :path "."}]}
+                   :sources [{:type :dir :path "."}
+                             {:type :dir :path "../hasch"}
+                             ;; IMPORTANT: External target, NOT self (port 7888)
+                             {:type :nrepl :host "localhost" :port 9876}]}
 ```
-
-This makes `init!` run during module startup (in the server process), so:
-- No manual `bb nrepl-direct eval 'init!'` calls needed
-- No nREPL thread blocking (Datalevin ops run in the main thread)
-- Database and projects are ready before any browser connects
 
 ### "Load Code Browser" Button
 
@@ -114,19 +108,28 @@ If you prefer manual steps or need to debug:
 ```bash
 cd /Users/franksiebenlist/Development/bb-mcp-server
 
-# 1. Stop existing server
+# 1. Start nREPL target in background (separate process)
+bb --nrepl-server 9876 &
+TARGET_PID=$!
+echo "nREPL target started (PID $TARGET_PID)"
+
+# 2. Stop existing server
 bb server:stop cb-v2-test 2>/dev/null || true
 
-# 2. Clean stale database (commit hashes in URIs change with code changes)
+# 3. Clean stale database (commit hashes in URIs change with code changes)
 rm -rf /tmp/cb-v2-test /tmp/cb-v2-test.lock
 
-# 3. Start server (auto-initializes code-browser-v2)
+# 4. Start server (auto-initializes code-browser-v2, introspects port 9876)
 bb server:start-wait --nickname cb-v2-test --config system-cb-v2-test.edn
 
-# 4. Open browser
+# 5. Open browser
 open http://localhost:8091
 
-# 5. Click "Load Code Browser" button in browser
+# 6. Click "Load Code Browser" button in browser
+
+# When done:
+bb server:stop cb-v2-test
+kill $TARGET_PID
 ```
 
 ---
@@ -139,58 +142,24 @@ Code Browser v2 can browse **live Babashka runtimes** via nREPL, not just static
 - Detect statecharts, Services, and Stores with FSM state display
 - Browse source code from the running system
 
-### Quick Start: Browse the cb-v2-test Server Itself
+### Default: Browse the nREPL Target
 
-The simplest setup is to have the code browser introspect **its own runtime**:
+With `bb dev:cb-v2`, the nREPL target (port 9876) is automatically configured as a source. In the browser, you'll see `localhost:9876` as a project alongside directory projects.
 
-```bash
-# 1. Start the dev environment
-bb dev:cb-v2
+### Browse a Custom External BB Process
 
-# 2. Add the nREPL source (the server's own nREPL on port 7888)
-bb nrepl-direct eval "(code-browser.core/add-source! {:type :nrepl :host \"localhost\" :port 7888})" -t cb-v2-test
-
-# 3. Open browser (if not already open)
-open http://localhost:8091
-
-# 4. Click "Load Code Browser" button
-# 5. In the project list, you'll now see "localhost:7888" alongside directory projects
-# 6. Click it to browse live namespaces → symbols → source → values
-```
-
-### Browse an External BB Process
-
-To browse a different Babashka process:
+To browse a different Babashka process instead:
 
 ```bash
-# 1. Start target BB process with nREPL (in a separate terminal)
-bb nrepl-server 9999
+# 1. Start your BB process with nREPL
+bb --nrepl-server 9999
 # Or any BB server with nREPL enabled
 
-# 2. Start Code Browser
-bb dev:cb-v2
-
-# 3. Add the external nREPL source
+# 2. Add it to the running Code Browser
 bb nrepl-direct eval "(code-browser.core/add-source! {:type :nrepl :host \"localhost\" :port 9999})" -t cb-v2-test
 
-# 4. Browser shows "localhost:9999" project
+# 3. Browser shows "localhost:9999" project
 ```
-
-### Static Config (Before Startup)
-
-Instead of dynamic `add-source!`, you can configure nREPL sources in `system-cb-v2-test.edn`:
-
-```edn
-"code-browser-v2" {:enabled true
-                   :db-path "/tmp/cb-v2-test"
-                   :sources [{:type :dir :path "."}
-                             {:type :dir :path "../hasch"}
-                             {:type :nrepl :host "localhost" :port 7888}]}
-```
-
-Then `bb dev:cb-v2` will automatically scan the nREPL source on startup.
-
-**Note:** The target nREPL server must already be running when cb-v2-test starts, or the scan will fail.
 
 ### The "+ Value" Button
 
@@ -211,7 +180,7 @@ When browsing symbols from an nREPL source (not directory sources), the toolbar 
 nREPL sources use a different URI scheme than directory sources:
 
 - **Directory**: `dir://.@<git-sha>/<namespace>/<symbol>`
-- **nREPL**: `nrepl://localhost:7888@<uuidv7>/<namespace>/<symbol>`
+- **nREPL**: `nrepl://localhost:9876@<uuidv7>/<namespace>/<symbol>`
 
 The `@<uuidv7>` version is generated at scan time (temporal, not content-based). Queries are version-agnostic, so stale URIs still work.
 
@@ -225,23 +194,23 @@ The `@<uuidv7>` version is generated at scan time (temporal, not content-based).
 
 ```
 Browser: Click "+ Value" button
-    │
-    ▼
+    |
+    v
 send-event! :code-browser-v2/fetch {:query-type :var-value, :uri "nrepl://..."}
-    │
-    ▼
-Server: handlers.clj → NreplSource.fetch-var-value
-    │
-    ▼
-nrepl-direct TCP → eval on target BB server:
+    |
+    v
+Server: handlers.clj -> NreplSource.fetch-var-value
+    |
+    v
+nrepl-direct TCP -> eval on target BB server (port 9876):
     - Resolve var
     - Detect type (atom? statechart? service? store?)
     - Auto-deref if atom
     - Probe ~30 predicates (map?, fn?, vector?, ...)
     - pprint with truncation
     - Return EDN map with value + metadata
-    │
-    ▼
+    |
+    v
 Browser: Render in var-value widget
     - Display badges, FSM state, pprinted value
     - Start 3-second polling loop (check identity hash)
@@ -268,7 +237,7 @@ bb nrepl-direct eval "(code-browser.core/scan-all-sources!)" -t cb-v2-test
 ```bash
 # Server management
 bb dev:cb-v2 status                             # Quick status check
-bb dev:cb-v2 stop                               # Stop server
+bb dev:cb-v2 stop                               # Stop server + nREPL target
 bb dev:cb-v2 restart                            # Restart with fresh data
 bb server:list                                  # List all running servers
 bb server:ports cb-v2-test                      # Show ports
@@ -316,12 +285,21 @@ bb test:module code-browser-v2
 bb dev:cb-v2 stop
 lsof -ti:8090 | xargs kill -9 2>/dev/null
 lsof -ti:8091 | xargs kill -9 2>/dev/null
+lsof -ti:9876 | xargs kill -9 2>/dev/null
 bb dev:cb-v2
 ```
+
+### Datalevin pod calls hang / server needs SIGKILL
+**Cause:** Self-introspection deadlock. The nREPL source in `system-cb-v2-test.edn` points to the server's own nREPL port (7888) instead of the external target (9876).
+**Fix:** Verify `system-cb-v2-test.edn` has `:port 9876` (not 7888) in the nREPL source. Use `bb dev:cb-v2` which handles this automatically.
 
 ### nrepl-direct eval times out
 **Cause:** Wrong connection nickname (nicknames change on reconnect).
 **Fix:** Always query first: `bb nrepl-direct list -t cb-v2-test`
+
+### nrepl-direct eval shows no output (silent failure)
+**Cause:** Pre-v1.31.0 bug — nrepl-direct swallowed all eval errors.
+**Fix:** Update to v1.31.0+. Errors now show error messages and exit with code 1.
 
 ### Server-side code changes not picked up
 **Cause:** Server-side `.clj` files are loaded at startup, not hot-reloaded.
@@ -371,4 +349,4 @@ bb datalevin:cleanup    # Stop pods + remove lock files
 
 ---
 
-*Last Updated: 2026-02-13*
+*Last Updated: 2026-02-14*
