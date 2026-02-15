@@ -4,15 +4,15 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-15 (evening)
-**Version:** v1.31.3
-**Focus:** Stable — Datalevin fix verified, MCP tools installed, ready for browser E2E
+**Last Updated:** 2026-02-15 (late evening)
+**Version:** v1.31.4
+**Focus:** Stable — All CLI `!` escaping fixed, MCP tools installed, ready for browser E2E
 
 ---
 
 ## Current State — STABLE
 
-All tests pass (80 tests, 631 assertions, 0 failures). Lint and format clean.
+All tests pass (163 tests, 503 assertions, 0 failures). Lint and format clean.
 
 **E2E drum roll test passed (2026-02-15):**
 - INSERT: Created `my-test-ns` with 3 symbols (greet, add, multiply) → stored in Datalevin
@@ -107,6 +107,21 @@ Updated across all files. Old databases deleted and recreated.
 
 **Note:** `datalevin-pod` module's functions do NOT use `db-lock` — concern if sharing pod process.
 
+### Fixed: `!` Escaping in All CLI Scripts (2026-02-15)
+
+Claude Code's Bash tool escapes `!` → `\!` in single-quoted strings (known bug: anthropics/claude-code#2941, closed NOT_PLANNED). Since `\!` is never valid Clojure, all four CLI scripts now auto-unescape `\!` → `!`:
+
+| Script | CLI command | Committed |
+|--------|------------|-----------|
+| `scripts/nrepl_direct_cli.clj` | `bb nrepl-direct eval` | `5d09b64` |
+| `scripts/nrepl_cli.clj` | `bb nrepl eval` | `82934b3` |
+| `scripts/mcp_eval_script.clj` | `bb mcp-eval` | `82934b3` |
+| `scripts/mcp_cli.clj` | `bb mcp call` | `82934b3` |
+
+**MCP nrepl tools do NOT need this fix** — they receive params via JSON-RPC over HTTP, not shell args.
+
+**Best practice (still in CLAUDE.md):** Always use double quotes for eval strings containing `!`.
+
 ### Fixed: Self-Introspection Deadlock (2026-02-14)
 
 External nREPL target on port 9876. `bb dev:cb-v2` manages both processes.
@@ -119,11 +134,12 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
+- `82934b3` — Fix: Auto-unescape `\!` in all MCP CLI scripts (nrepl, mcp-eval, mcp call)
+- `5d09b64` — Fix: Auto-unescape `\!` in nrepl-direct eval strings
+- `601f939` — Docs: Update context.md with E2E results, MCP setup, port reference
 - `b8a9d58` — Fix MCP port to 54321 for dev environment
 - `47cc2b8` — Clean up diagnostic scripts, bogus URL directories, empty .mcp.json
 - `2da6f71` — Fix Datalevin pod transact! hang — nil values + future wrapper
-- `9a81401` — Two-process dev env to prevent nREPL self-introspection deadlock
-- `6332a9d` — Fix nrepl-direct silent error swallowing
 
 ---
 
