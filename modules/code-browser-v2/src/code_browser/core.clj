@@ -97,22 +97,20 @@
                                         (remove (fn [[_k v]] (nil? v)))
                                         (remove (fn [[k _v]] (= k :uri/parent)))
                                         (into {})))]
-        ;; Transact project
-                (db-proto/transact! db [(clean-entity project)])
-        ;; Transact namespaces in batches
-                (doseq [ns-batch (partition-all 50 namespaces)]
-                       (db-proto/transact! db (mapv clean-entity ns-batch)))
-        ;; Transact symbols in batches
-                (doseq [sym-batch (partition-all 100 symbols)]
-                       (db-proto/transact! db (mapv clean-entity sym-batch)))
-        ;; Transact aliases in batches
-                (when (seq aliases)
-                  (doseq [alias-batch (partition-all 100 aliases)]
-                         (db-proto/transact! db (mapv clean-entity alias-batch))))
-        ;; Transact refers in batches
-                (when (seq refers)
-                  (doseq [refer-batch (partition-all 100 refers)]
-                         (db-proto/transact! db (mapv clean-entity refer-batch)))))
+        ;; All pod calls under db-lock to prevent deadlocks
+        ;; with concurrent file watcher rescans
+                (locking handlers/db-lock
+                         (db-proto/transact! db [(clean-entity project)])
+                         (doseq [ns-batch (partition-all 50 namespaces)]
+                                (db-proto/transact! db (mapv clean-entity ns-batch)))
+                         (doseq [sym-batch (partition-all 100 symbols)]
+                                (db-proto/transact! db (mapv clean-entity sym-batch)))
+                         (when (seq aliases)
+                           (doseq [alias-batch (partition-all 100 aliases)]
+                                  (db-proto/transact! db (mapv clean-entity alias-batch))))
+                         (when (seq refers)
+                           (doseq [refer-batch (partition-all 100 refers)]
+                                  (db-proto/transact! db (mapv clean-entity refer-batch))))))
               (log/log! {:level :info
                          :id ::scan-complete
                          :msg "Source scan and database population complete"
@@ -388,45 +386,48 @@
                                           :changed)
                                          event-type)]
                  (when-let [db (handlers/get-db)]
-                           (let [old-ns-names (into
-                                               (find-ns-names-for-file db abs-path project-name)
-                                               (find-ns-names-for-file db rel-path project-name))
-                                 entity-counts
-                                 (if (= actual-event-type :deleted)
-                                   (do
-                                    (retract-file-entities! db abs-path old-ns-names project-name)
-                                    (retract-file-entities! db rel-path old-ns-names project-name)
-                                    (log/log! {:level :info
-                                               :id ::rescan-file-deleted
-                                               :msg "Retracted entities for deleted file"
-                                               :data {:file rel-path
-                                                      :project project-name}})
-                                    {:retracted true})
-                                   (when-let [scan-result (dir-source/scan-file source file-path)]
-                                             (let [all-ns-names (into old-ns-names
-                                                                      (:affected-ns-names scan-result))]
-                                               (retract-file-entities! db abs-path all-ns-names project-name)
-                                               (retract-file-entities! db rel-path all-ns-names project-name)
-                                               (transact-file-entities! db scan-result)
-                                               {:namespaces (count (:namespaces scan-result))
-                                                :symbols (count (:symbols scan-result))
-                                                :aliases (count (:aliases scan-result))
-                                                :refers (count (:refers scan-result))})))]
-                             (refresh-browser-view!)
-                             (let [n (sente-server/broadcast-to-browsers!
-                                      [:code-browser-v2/invalidate
-                                       {:project project-name}])]
-                               (log/log! {:level :info
-                                          :id ::rescan-file-complete
-                                          :msg "File re-scan complete"
-                                          :data (merge
-                                                 {:file rel-path
-                                                  :event-type actual-event-type
-                                                  :project project-name
-                                                  :browsers-notified n
-                                                  :elapsed-ms (- (System/currentTimeMillis)
-                                                                 start-ms)}
-                                                 entity-counts)})))))))))
+                           ;; All pod calls serialized via db-lock to prevent
+                           ;; Datalevin pod deadlocks with concurrent events
+                           (locking handlers/db-lock
+                                    (let [old-ns-names (into
+                                                        (find-ns-names-for-file db abs-path project-name)
+                                                        (find-ns-names-for-file db rel-path project-name))
+                                          entity-counts
+                                          (if (= actual-event-type :deleted)
+                                            (do
+                                             (retract-file-entities! db abs-path old-ns-names project-name)
+                                             (retract-file-entities! db rel-path old-ns-names project-name)
+                                             (log/log! {:level :info
+                                                        :id ::rescan-file-deleted
+                                                        :msg "Retracted entities for deleted file"
+                                                        :data {:file rel-path
+                                                               :project project-name}})
+                                             {:retracted true})
+                                            (when-let [scan-result (dir-source/scan-file source file-path)]
+                                                      (let [all-ns-names (into old-ns-names
+                                                                               (:affected-ns-names scan-result))]
+                                                        (retract-file-entities! db abs-path all-ns-names project-name)
+                                                        (retract-file-entities! db rel-path all-ns-names project-name)
+                                                        (transact-file-entities! db scan-result)
+                                                        {:namespaces (count (:namespaces scan-result))
+                                                         :symbols (count (:symbols scan-result))
+                                                         :aliases (count (:aliases scan-result))
+                                                         :refers (count (:refers scan-result))})))]
+                                      (refresh-browser-view!)
+                                      (let [n (sente-server/broadcast-to-browsers!
+                                               [:code-browser-v2/invalidate
+                                                {:project project-name}])]
+                                        (log/log! {:level :info
+                                                   :id ::rescan-file-complete
+                                                   :msg "File re-scan complete"
+                                                   :data (merge
+                                                          {:file rel-path
+                                                           :event-type actual-event-type
+                                                           :project project-name
+                                                           :browsers-notified n
+                                                           :elapsed-ms (- (System/currentTimeMillis)
+                                                                          start-ms)}
+                                                          entity-counts)}))))))))))
 
 (defn rescan-project!
   "Re-scan a project source and update the database and browser view.

@@ -54,7 +54,7 @@
                   (let [status (dl/status nil)]
                     (is (= :disconnected (:status status)))
                     (is (string? (:db-path status)))
-                    (is (= "0.9.27" (:version status))))))
+                    (is (= "0.10.5" (:version status))))))
 
 ;; =============================================================================
 ;; Pod Loading Tests (require network access to download pod)
@@ -71,7 +71,7 @@
                   (let [start-result (dl/start nil {:db-path test-db-path})]
                     (is (map? start-result))
                     (is (string? (:db-path start-result)))
-                    (is (= "0.9.27" (:version start-result)))
+                    (is (= "0.10.5" (:version start-result)))
 
                     (testing "Connection is established after start"
                              (is (some? (dl/get-conn)))

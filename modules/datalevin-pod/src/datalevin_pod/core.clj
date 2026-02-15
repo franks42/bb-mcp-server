@@ -15,7 +15,7 @@
 ;; =============================================================================
 
 (def ^:private default-db-path "/var/db/datalevin/bb-mcp-server")
-(def ^:private datalevin-version "0.9.27")
+(def ^:private datalevin-version "0.10.5")
 
 (defn- db-path
   "Get database path from env var or use default."

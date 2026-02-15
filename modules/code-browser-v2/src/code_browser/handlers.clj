@@ -21,6 +21,13 @@
                 :sources {}
                 :fingerprints {}}))
 
+(defonce ^{:doc "Global lock for Datalevin pod access.
+  The Datalevin pod serializes all calls through a single message channel.
+  Concurrent pod calls from different threads cause deadlocks.
+  All code that calls db-proto/q or db-proto/transact! must hold this lock."}
+ db-lock
+         (Object.))
+
 (defn get-db
   "Get the current database instance."
   []
@@ -80,11 +87,12 @@
   "Query all projects from Datalevin, deduplicated by :uri/project name."
   [db]
   (when db
-    (let [results (db-proto/q db
-                              '[:find (pull ?e [*])
-                                :where [?e :uri/source _]
-                                (or [?e :project/root-path _]
-                                    [?e :project/nrepl-host _])])]
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (pull ?e [*])
+                                         :where [?e :uri/source _]
+                                         (or [?e :project/root-path _]
+                                             [?e :project/nrepl-host _])]))]
       (->> results
            (map first)
            (sort-by :uri/project)
@@ -100,12 +108,13 @@
    Matches by project name directly, making the query version-agnostic."
   [db project-name]
   (when (and db project-name)
-    (let [results (db-proto/q db
-                              '[:find (pull ?e [*])
-                                :in $ ?proj-name
-                                :where [?e :ns/name _]
-                                [?e :uri/project ?proj-name]]
-                              [project-name])]
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (pull ?e [*])
+                                         :in $ ?proj-name
+                                         :where [?e :ns/name _]
+                                         [?e :uri/project ?proj-name]]
+                                       [project-name]))]
       (->> results
            (map first)
            (sort-by :ns/name)
@@ -116,13 +125,14 @@
    Matches by project name and namespace name directly, version-agnostic."
   [db project-name ns-name]
   (when (and db project-name ns-name)
-    (let [results (db-proto/q db
-                              '[:find (pull ?e [*])
-                                :in $ ?proj-name ?ns-name
-                                :where [?e :symbol/name _]
-                                [?e :uri/project ?proj-name]
-                                [?e :uri/namespace ?ns-name]]
-                              [project-name ns-name])]
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (pull ?e [*])
+                                         :in $ ?proj-name ?ns-name
+                                         :where [?e :symbol/name _]
+                                         [?e :uri/project ?proj-name]
+                                         [?e :uri/namespace ?ns-name]]
+                                       [project-name ns-name]))]
       (->> results
            (map first)
            (sort-by (juxt :symbol/type :symbol/name))
@@ -132,11 +142,12 @@
   "Query aliases for a namespace from Datalevin."
   [db ns-name]
   (when (and db ns-name)
-    (let [results (db-proto/q db
-                              '[:find (pull ?a [:uri/string :alias/name :alias/to-ns])
-                                :in $ ?ns-name
-                                :where [?a :alias/from-ns ?ns-name]]
-                              [ns-name])]
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (pull ?a [:uri/string :alias/name :alias/to-ns])
+                                         :in $ ?ns-name
+                                         :where [?a :alias/from-ns ?ns-name]]
+                                       [ns-name]))]
       (->> results
            (map first)
            (sort-by :alias/name)
@@ -146,11 +157,12 @@
   "Query refers for a namespace from Datalevin."
   [db ns-name]
   (when (and db ns-name)
-    (let [results (db-proto/q db
-                              '[:find (pull ?r [:uri/string :refer/symbol :refer/from-ns-source])
-                                :in $ ?ns-name
-                                :where [?r :refer/from-ns ?ns-name]]
-                              [ns-name])]
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (pull ?r [:uri/string :refer/symbol :refer/from-ns-source])
+                                         :in $ ?ns-name
+                                         :where [?r :refer/from-ns ?ns-name]]
+                                       [ns-name]))]
       (->> results
            (map first)
            (sort-by :refer/symbol)
@@ -424,18 +436,15 @@
    (let [project-name (:project-name source)
          version (:version source)
          uri-base (:uri-base source)
-         ;; Query existing symbol entity IDs for this project+namespace
-         existing (db-proto/q db
-                              '[:find ?e
-                                :in $ ?proj-name ?ns-name
-                                :where [?e :symbol/name _]
-                                [?e :uri/project ?proj-name]
-                                [?e :uri/namespace ?ns-name]]
-                              [project-name ns-name])
-         retract-tx (mapv (fn [[eid]] [:db/retractEntity eid]) existing)
-         ;; Build new symbol entities from the fresh symbols data
-         new-symbols (mapv #(nrepl-source/build-symbol-entity
-                             % ns-name uri-base project-name version)
+         ;; Strip nil values — Datalevin pod can jam on nil attribute values
+         clean-entity (fn [e]
+                        (->> e
+                             (remove (fn [[_k v]] (nil? v)))
+                             (into {})))
+         ;; Build new symbol entities and clean nil values
+         new-symbols (mapv (comp clean-entity
+                                 #(nrepl-source/build-symbol-entity
+                                   % ns-name uri-base project-name version))
                            symbols)
          ;; Ensure namespace entity exists (upsert via :uri/string identity)
          ns-entity {:uri/string (str uri-base "/" ns-name)
@@ -444,31 +453,41 @@
                     :uri/version version
                     :uri/version-type :temporal
                     :uri/namespace ns-name
-                    :ns/name ns-name}
-         tx-data (into (vec (concat retract-tx [ns-entity])) new-symbols)]
-     (log/log! {:level :info
-                :id ::update-namespace-symbols
-                :msg "Targeted symbol update for namespace"
-                :data {:ns ns-name
-                       :retracted (count retract-tx)
-                       :new-count (count new-symbols)}})
-     ;; Single atomic transaction: retract old + insert new
-     (let [result (db-proto/transact! db tx-data)]
-       (if result
-         (do
-          (log/log! {:level :info
-                     :id ::update-namespace-symbols-ok
-                     :msg "Symbol update committed"
-                     :data {:ns ns-name
-                            :tx-count (count tx-data)}})
-          {:success true})
-         (do
-          (log/log! {:level :error
-                     :id ::update-namespace-symbols-nil
-                     :msg "Symbol update returned nil — transact! failed silently"
-                     :data {:ns ns-name
-                            :tx-count (count tx-data)}})
-          {:success false :error "transact! returned nil"}))))
+                    :ns/name ns-name}]
+     ;; All pod calls under db-lock: query + transact atomically
+     (locking db-lock
+              (let [existing (db-proto/q db
+                                         '[:find ?e
+                                           :in $ ?proj-name ?ns-name
+                                           :where [?e :symbol/name _]
+                                           [?e :uri/project ?proj-name]
+                                           [?e :uri/namespace ?ns-name]]
+                                         [project-name ns-name])
+                    retract-tx (mapv (fn [[eid]] [:db/retractEntity eid]) existing)
+                    tx-data (into (vec (concat retract-tx [ns-entity])) new-symbols)]
+                (log/log! {:level :info
+                           :id ::update-namespace-symbols
+                           :msg "Targeted symbol update for namespace"
+                           :data {:ns ns-name
+                                  :retracted (count retract-tx)
+                                  :new-count (count new-symbols)
+                                  :tx-data (pr-str tx-data)}})
+                (let [result (db-proto/transact! db tx-data)]
+                  (if result
+                    (do
+                     (log/log! {:level :info
+                                :id ::update-namespace-symbols-ok
+                                :msg "Symbol update committed"
+                                :data {:ns ns-name
+                                       :tx-count (count tx-data)}})
+                     {:success true})
+                    (do
+                     (log/log! {:level :error
+                                :id ::update-namespace-symbols-nil
+                                :msg "Symbol update returned nil — transact! failed silently"
+                                :data {:ns ns-name
+                                       :tx-count (count tx-data)}})
+                     {:success false :error "transact! returned nil"}))))))
    (catch Exception e
           (log/log! {:level :error
                      :id ::update-namespace-symbols-error
@@ -546,76 +565,78 @@
    Returns {:success true :added N :removed N} or {:success false :error msg}."
   [db project-name new-ns-names source]
   (try
-   (let [existing-ns (query-namespaces db project-name)
-         existing-names (set (map :ns/name existing-ns))
-         new-names (set new-ns-names)
-         added (set/difference new-names existing-names)
-         removed (set/difference existing-names new-names)
-         uri-base (:uri-base source)
-         version (:version source)]
-     (log/log! {:level :info
-                :id ::update-ns-list
-                :msg "Updating namespace list in Datalevin"
-                :data {:project project-name
-                       :existing (count existing-names)
-                       :new (count new-names)
-                       :added (count added)
-                       :removed (count removed)}})
-     ;; Build retract operations for removed namespaces and their symbols
-     (let [retract-tx
-           (when (seq removed)
-             (vec (mapcat
-                   (fn [ns-name]
-                     (let [sym-eids (db-proto/q db
-                                                '[:find ?e
-                                                  :in $ ?proj-name ?ns-name
-                                                  :where [?e :symbol/name _]
-                                                  [?e :uri/project ?proj-name]
-                                                  [?e :uri/namespace ?ns-name]]
-                                                [project-name ns-name])
-                           ns-eids (db-proto/q db
-                                               '[:find ?e
-                                                 :in $ ?proj-name ?ns-name
-                                                 :where [?e :ns/name ?ns-name]
-                                                 [?e :uri/project ?proj-name]]
-                                               [project-name ns-name])
-                           all-eids (concat (map first sym-eids)
-                                            (map first ns-eids))]
-                       (mapv (fn [eid] [:db/retractEntity eid]) all-eids)))
-                   removed)))
-           ;; Build insert operations for added namespaces
-           add-tx
-           (when (seq added)
-             (mapv (fn [ns-name]
-                     {:uri/string (str uri-base "/" ns-name)
-                      :uri/source :nrepl
-                      :uri/project project-name
-                      :uri/version version
-                      :uri/version-type :temporal
-                      :uri/namespace ns-name
-                      :ns/name ns-name})
-                   added))
-           ;; Single atomic transaction
-           all-tx (vec (concat retract-tx add-tx))]
-       (if (seq all-tx)
-         (let [result (db-proto/transact! db all-tx)]
-           (if result
-             (do
+   ;; All pod calls under db-lock for the entire read-modify-write cycle
+   (locking db-lock
+            (let [existing-ns (query-namespaces db project-name)
+                  existing-names (set (map :ns/name existing-ns))
+                  new-names (set new-ns-names)
+                  added (set/difference new-names existing-names)
+                  removed (set/difference existing-names new-names)
+                  uri-base (:uri-base source)
+                  version (:version source)]
               (log/log! {:level :info
-                         :id ::update-ns-list-ok
-                         :msg "Namespace list update committed"
+                         :id ::update-ns-list
+                         :msg "Updating namespace list in Datalevin"
                          :data {:project project-name
-                                :tx-count (count all-tx)}})
-              {:success true :added (count added) :removed (count removed)})
-             (do
-              (log/log! {:level :error
-                         :id ::update-ns-list-nil
-                         :msg "Namespace list update returned nil — transact! failed silently"
-                         :data {:project project-name
-                                :tx-count (count all-tx)}})
-              {:success false :error "transact! returned nil"})))
-         ;; No changes needed
-         {:success true :added 0 :removed 0})))
+                                :existing (count existing-names)
+                                :new (count new-names)
+                                :added (count added)
+                                :removed (count removed)}})
+              ;; Build retract operations for removed namespaces and their symbols
+              (let [retract-tx
+                    (when (seq removed)
+                      (vec (mapcat
+                            (fn [ns-name]
+                              (let [sym-eids (db-proto/q db
+                                                         '[:find ?e
+                                                           :in $ ?proj-name ?ns-name
+                                                           :where [?e :symbol/name _]
+                                                           [?e :uri/project ?proj-name]
+                                                           [?e :uri/namespace ?ns-name]]
+                                                         [project-name ns-name])
+                                    ns-eids (db-proto/q db
+                                                        '[:find ?e
+                                                          :in $ ?proj-name ?ns-name
+                                                          :where [?e :ns/name ?ns-name]
+                                                          [?e :uri/project ?proj-name]]
+                                                        [project-name ns-name])
+                                    all-eids (concat (map first sym-eids)
+                                                     (map first ns-eids))]
+                                (mapv (fn [eid] [:db/retractEntity eid]) all-eids)))
+                            removed)))
+                    ;; Build insert operations for added namespaces
+                    add-tx
+                    (when (seq added)
+                      (mapv (fn [ns-name]
+                              {:uri/string (str uri-base "/" ns-name)
+                               :uri/source :nrepl
+                               :uri/project project-name
+                               :uri/version version
+                               :uri/version-type :temporal
+                               :uri/namespace ns-name
+                               :ns/name ns-name})
+                            added))
+                    ;; Single atomic transaction
+                    all-tx (vec (concat retract-tx add-tx))]
+                (if (seq all-tx)
+                  (let [result (db-proto/transact! db all-tx)]
+                    (if result
+                      (do
+                       (log/log! {:level :info
+                                  :id ::update-ns-list-ok
+                                  :msg "Namespace list update committed"
+                                  :data {:project project-name
+                                         :tx-count (count all-tx)}})
+                       {:success true :added (count added) :removed (count removed)})
+                      (do
+                       (log/log! {:level :error
+                                  :id ::update-ns-list-nil
+                                  :msg "Namespace list update returned nil — transact! failed silently"
+                                  :data {:project project-name
+                                         :tx-count (count all-tx)}})
+                       {:success false :error "transact! returned nil"})))
+                  ;; No changes needed
+                  {:success true :added 0 :removed 0}))))
    (catch Exception e
           (log/log! {:level :error
                      :id ::update-ns-list-error
@@ -811,6 +832,8 @@
              :id ::dispatch-event
              :msg "Dispatching event"
              :data {:event-id event-id}})
+  ;; Pod-calling functions use (locking db-lock ...) internally.
+  ;; dispatch-event itself is NOT locked, to avoid blocking on nREPL calls.
   (case event-id
     :code-browser-v2/load-projects
     [:code-browser-v2/projects-loaded (handle-load-projects!)]
