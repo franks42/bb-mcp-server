@@ -28,7 +28,8 @@
      --timeout MS         Timeout in milliseconds (default: 30000)"
     (:require [bb-mcp-server.mcp-client :as client]
               [cheshire.core :as json]
-              [clojure.pprint :as pp]))
+              [clojure.pprint :as pp]
+              [clojure.string :as str]))
 
 ;; =============================================================================
 ;; Argument Parsing
@@ -209,7 +210,9 @@
 (defn cmd-eval
   "Evaluate Clojure code on an nREPL server."
   [{:keys [mcp connection positional output pprint timeout]}]
-  (let [code (first positional)]
+  (let [code (some-> (first positional)
+                     ;; Fix Claude Code Bash tool escaping ! to \! in single-quoted strings
+                     (str/replace "\\!" "!"))]
     (when-not code
       (println "Usage: bb nrepl eval <code> [--connection NAME] [--output MODE]")
       (System/exit 1))

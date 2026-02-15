@@ -10,7 +10,8 @@
 ;;   --pprint          Pretty-print the output
 
 (require '[bb-mcp-server.mcp-client :as client]
-         '[clojure.pprint :as pp])
+         '[clojure.pprint :as pp]
+         '[clojure.string :as str])
 
 (defn parse-args
   "Parse command line arguments into options map."
@@ -48,7 +49,9 @@
   "Main entry point for mcp-eval script."
   []
   (let [args (parse-args *command-line-args*)
-        code (:code args)
+        code (some-> (:code args)
+                     ;; Fix Claude Code Bash tool escaping ! to \! in single-quoted strings
+                     (str/replace "\\!" "!"))
         nickname (:nickname args)
         port (:port args)
         output-mode (:output args)

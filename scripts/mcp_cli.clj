@@ -19,7 +19,8 @@
      --pprint          Pretty-print output"
     (:require [bb-mcp-server.mcp-client :as client]
               [cheshire.core :as json]
-              [clojure.pprint :as pp]))
+              [clojure.pprint :as pp]
+              [clojure.string :as str]))
 
 ;; =============================================================================
 ;; Argument Parsing
@@ -160,7 +161,11 @@
   "Call a tool with JSON arguments."
   [{:keys [positional pprint args-file] :as opts}]
   (let [tool-name (first positional)
-        args-json-positional (second positional)
+        args-json-raw (second positional)
+        ;; Fix Claude Code Bash tool escaping ! to \! in single-quoted strings.
+        ;; JSON args may contain code with ! (e.g. {"code":"(swap! x inc)"})
+        args-json-positional (some-> args-json-raw
+                                     (str/replace "\\!" "!"))
         ;; args-file takes precedence, then positional arg
         args-json (cond
                     args-file (slurp args-file)
