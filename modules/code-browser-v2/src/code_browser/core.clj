@@ -439,7 +439,7 @@
                :msg "Re-scanning project after file change"
                :data {:project project-name}})
     (when-let [db (handlers/get-db)]
-              (retract-project-entities! db project-name)
+              (retract-project-entities! db (:project-name source))
               (scan-and-populate! db source)
               (refresh-browser-view!)
               ;; Broadcast invalidation to all browser widgets
