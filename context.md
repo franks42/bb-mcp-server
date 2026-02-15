@@ -4,16 +4,24 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-15
-**Version:** v1.31.2
-**Focus:** Datalevin pod hang ROOT CAUSE FOUND AND FIXED
+**Last Updated:** 2026-02-15 (evening)
+**Version:** v1.31.3
+**Focus:** Stable — Datalevin fix verified, MCP tools installed, ready for browser E2E
 
 ---
 
 ## Current State — STABLE
 
 All tests pass (80 tests, 631 assertions, 0 failures). Lint and format clean.
-Live E2E verified: INSERT (new namespace + 3 symbols), UPDATE (retract 3 + add 4), pod stays alive, graceful shutdown.
+
+**E2E drum roll test passed (2026-02-15):**
+- INSERT: Created `my-test-ns` with 3 symbols (greet, add, multiply) → stored in Datalevin
+- UPDATE: Added `divide` (with docstring) → fingerprint check detected change → retracted 3, inserted 4 → committed in <15ms
+- Pod stays alive after insert + update cycles
+- Server shuts down gracefully (no SIGKILL needed)
+- Database healthy: 3 projects, 93 nREPL namespaces, 225 bb-mcp-server namespaces
+
+**Not yet verified:** Visual confirmation in browser (needs Playwright/Chrome MCP — see below)
 
 ---
 
@@ -28,12 +36,47 @@ bb dev:cb-v2 status             # Check both processes
 
 # Two-process architecture:
 # Process 1: nREPL target on port 9876 (auto-managed by dev:cb-v2)
-# Process 2: Main server on port 7888 (introspects port 9876)
+# Process 2: Main server — fixed MCP port 54321, nREPL 7888
+# Browser:   http://localhost:8091
 
 # Testing:
 bb nrepl-direct eval "(+ 1 2)" -t cb-v2-test
 bb nrepl-direct eval "(ns my-test-ns) (defn greet [name] (str \"Hello, \" name))" --port 9876
 ```
+
+### MCP Servers Installed (user scope — all projects)
+
+| Server | Package | Purpose |
+|--------|---------|---------|
+| `playwright` | `@playwright/mcp@latest` | Browser automation via accessibility tree |
+| `chrome-devtools` | `chrome-devtools-mcp@latest` | Chrome DevTools (navigate, screenshot, evaluate JS) |
+| `bb-mcp-nrepl` | `mcp-remote → localhost:54321/mcp` | nREPL tools from running bb-mcp-server |
+| `memory` | `mcp-memory-service` (uv) | Persistent memory across sessions |
+
+**bb-mcp-nrepl requires `bb dev:cb-v2` running** — it connects to the fixed MCP port 54321.
+
+**To use Playwright/Chrome in a session:** Restart Claude Code after install. Use `browser_navigate`, `browser_snapshot`, `browser_take_screenshot`, `browser_click`, `browser_evaluate` etc.
+
+### Key Ports (fixed)
+
+| Port | Service |
+|------|---------|
+| 54321 | MCP HTTP endpoint (for Claude Code MCP client) |
+| 9876 | nREPL target (introspection subject) |
+| 7888 | nREPL server (main server) |
+| 8090 | Sente WebSocket |
+| 8091 | Browser bootstrap (open this in browser) |
+| 1667 | nREPL proxy |
+
+---
+
+## Fingerprint Polling — Known Behavior
+
+The fingerprint-based change detection requires **two calls** to detect a change after the initial scan:
+1. First call with no stored fingerprint → stores baseline, returns `changed? false`
+2. Second call → compares against stored baseline, detects actual changes
+
+When the browser polls automatically, this happens naturally. For manual testing, trigger the check twice or use `core/rescan-project!` for immediate effect.
 
 ---
 
@@ -41,71 +84,56 @@ bb nrepl-direct eval "(ns my-test-ns) (defn greet [name] (str \"Hello, \" name))
 
 ### Fixed: Datalevin Pod transact! Hang — ROOT CAUSE (2026-02-15)
 
-**Problem:** `transact!` hung permanently, pod stdin/stdout pipe jammed, all subsequent pod calls blocked forever.
-
 **Two root causes found and fixed:**
 
-1. **Nil values in tx-data (handlers.clj):** `update-namespace-symbols!` sent entity maps with nil-valued attributes (`:symbol/doc nil`, `:symbol/private? nil`, etc.) to the pod. The pod's transit serialization failed on nil values, and the pod's own exception handler also failed to serialize the `ex-data`, causing NO response to be written back — the babashka client blocked forever on the undelivered promise. **Fix:** Added `clean-entity` to strip nil values before transacting, matching the pattern already used in `core.clj`'s `scan-and-populate!`.
+1. **Nil values in tx-data (handlers.clj):** `update-namespace-symbols!` sent entity maps with nil-valued attributes. Pod's transit serialization failed on nils, exception handler also failed, no response written → client blocked forever. **Fix:** Added `clean-entity` to strip nil values.
 
-2. **`pod-call-with-timeout` future wrapper (datalevin.clj, uncommitted):** Wrapped every pod call in `(future ...)`, scattering pod I/O across random threads. When calls timed out, `future-cancel` didn't interrupt blocked I/O, leaving zombie threads on the pod's stdout that consumed responses meant for other callers, desynchronizing the bencode protocol. **Fix:** Removed the wrapper entirely, reverted to direct pod calls.
+2. **`pod-call-with-timeout` future wrapper (datalevin.clj):** Scattered pod I/O across random threads via `(future ...)`. Timed-out futures left zombie threads on pod stdout, desynchronizing bencode protocol. **Fix:** Removed wrapper, reverted to direct calls.
 
 **Research findings (for future reference):**
-- babashka/pods #60: Pod read errors cause hangs (fixed Dec 2022 in PR #62)
-- datalevin #274: Hangs on unknown attributes (nil → internal error → no response)
+- babashka/pods #60: Pod read errors cause hangs (fixed Dec 2022)
+- datalevin #274: Hangs on unknown attributes (nil → no response)
 - datalevin #331: Query threading in write tx (fixed v0.10.1)
-- Pod exception handler vulnerability: If `ex-data` contains non-transit-serializable objects, the error handler itself throws, no response written, client hangs forever
-- No runtime logging switch for datalevin pod (hardcoded `debug? false` in native image). Alternatives: bencode proxy, macOS `sample <pid>`, rebuild with debug=true
+- Pod exception handler: non-transit-serializable `ex-data` → no response → hang
+- No runtime logging for datalevin pod (hardcoded `debug? false`). Alternatives: bencode proxy, macOS `sample <pid>`
 
-### Fixed: Datalevin Version Upgrade 0.9.27 → 0.10.5 (2026-02-15)
+### Fixed: Datalevin 0.9.27 → 0.10.5 (2026-02-15)
 
-Updated across all files: `datalevin.clj`, `datalevin_pod/core.clj`, tests, scripts. Old databases deleted and recreated.
+Updated across all files. Old databases deleted and recreated.
 
-### Fixed: Datalevin Pod Deadlock Prevention — db-lock (2026-02-14–15)
+### Fixed: db-lock for Pod Serialization (2026-02-14–15)
 
-**Problem:** Babashka's Datalevin pod serializes ALL calls through a single stdin/stdout message channel. Concurrent pod calls from different threads deadlock the pod permanently.
+`(defonce db-lock (Object.))` in handlers.clj. All pod-calling functions use `(locking db-lock ...)`. `dispatch-event` itself NOT locked (nREPL evals can take 30s+).
 
-**What changed:**
-- Added `(defonce db-lock (Object.))` in `handlers.clj`
-- All pod-calling functions wrap `db-proto/q` or `db-proto/transact!` calls with `(locking db-lock ...)`
-- `core.clj`: `scan-and-populate!` and `rescan-file!` also hold `db-lock`
-- `dispatch-event` itself is NOT locked (nREPL eval calls can take 30s+)
-
-**Note:** `datalevin-pod` module's own functions do NOT use `db-lock` — potential concern if both modules share the same pod process.
+**Note:** `datalevin-pod` module's functions do NOT use `db-lock` — concern if sharing pod process.
 
 ### Fixed: Self-Introspection Deadlock (2026-02-14)
 
-**Problem:** Pod calls hang, server needs SIGKILL, widgets stuck loading.
-**Root Cause:** code-browser-v2 introspecting its own nREPL server deadlocks nREPL thread pool.
-**Fix:** External nREPL target on port 9876. `bb dev:cb-v2` manages both processes.
+External nREPL target on port 9876. `bb dev:cb-v2` manages both processes.
 
 ### Fixed: nrepl-direct Silent Error Swallowing (2026-02-14)
 
-**Problem:** All eval errors silently swallowed — no output, exit 0.
-**Fix:** Check `:ex`/`:root-ex` in response. v1.31.0.
-
-### Fixed: Datalevin Deadlock from Rescan Storm (2026-02-14)
-
-**Problem:** Fingerprints never stored → infinite rescan loop → concurrent rescans.
-**Fix:** Store initial fingerprints + `compare-and-set!` concurrency guard.
+Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ---
 
 ## Recent Commits
 
+- `b8a9d58` — Fix MCP port to 54321 for dev environment
+- `47cc2b8` — Clean up diagnostic scripts, bogus URL directories, empty .mcp.json
+- `2da6f71` — Fix Datalevin pod transact! hang — nil values + future wrapper
 - `9a81401` — Two-process dev env to prevent nREPL self-introspection deadlock
 - `6332a9d` — Fix nrepl-direct silent error swallowing
-- `0cd899a` — Check Datalevin tx results before telling browser data changed
-- `467e083` — Datalevin access statechart documentation
-- `06863c4` — Incremental per-namespace Datalevin updates
 
 ---
 
 ## Next Session Priorities
 
-1. **Full E2E "drum roll" test** — create namespace, see symbols, add function, see update in browser
-2. **Monitor server stability** — confirm polling works without hangs over extended period
-3. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access if sharing the pod process with code-browser-v2
+1. **Browser visual E2E test** — Use Playwright MCP to navigate to http://localhost:8091, verify projects/namespaces/symbols render correctly, take screenshots
+2. **Monitor server stability** — confirm fingerprint polling works without hangs over extended period
+3. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access if sharing pod process with code-browser-v2
+4. **Fingerprint first-check gap** — The first fingerprint baseline stores the current nREPL state, but if namespaces were added between initial scan and first fingerprint check, the DB is out of sync until the next change. Consider comparing baseline against DB during first check.
 
 ---
 
-*For detailed debugging history, see git log and claude-mem observations.*
+*For detailed debugging history, see git log.*
