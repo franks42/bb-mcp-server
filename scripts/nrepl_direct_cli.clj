@@ -265,14 +265,22 @@
 ;; Subcommand Handlers
 ;; =============================================================================
 
+(defn- unescape-bangs
+  "Fix shell-mangled exclamation marks in Clojure code.
+   Claude Code's Bash tool escapes ! to \\! in single-quoted strings.
+   Since \\! is never valid Clojure syntax, this is safe to reverse."
+  [code]
+  (str/replace code "\\!" "!"))
+
 (defn cmd-eval
   "Evaluate Clojure code."
   [opts]
   (let [arg (first (:positional opts))
         ;; Support stdin with "-"
-        code (if (= "-" arg)
-               (slurp *in*)
-               arg)
+        code (-> (if (= "-" arg)
+                   (slurp *in*)
+                   arg)
+                 unescape-bangs)
         port (resolve-port opts)]
     (when-not code
       (println "Usage: bb nrepl-direct eval <code> --port PORT")
