@@ -29,6 +29,7 @@
 (def ^:private browser-url "http://localhost:8091")
 (def ^:private ports-dir ".ports")
 (def ^:private catalog-dir "telemetry-catalogs")
+(def ^:private mcp-port 54321)
 (def ^:private target-port 9876)
 (def ^:private target-pid-file "/tmp/cb-v2-nrepl-target.pid")
 
@@ -155,7 +156,8 @@
   (println "  This scans sources and populates the database — may take 10-20 seconds.")
   (let [result @(p/process {:cmd ["bb" "server:start-wait"
                                   "--nickname" nickname
-                                  "--config" config]
+                                  "--config" config
+                                  "--port" (str mcp-port)]
                             :out :inherit
                             :err :inherit})]
     (when-not (zero? (:exit result))
