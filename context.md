@@ -4,24 +4,29 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-15 (late evening)
-**Version:** v1.31.4
-**Focus:** Stable — All CLI `!` escaping fixed, MCP tools installed, ready for browser E2E
+**Last Updated:** 2026-02-15 (late night)
+**Version:** v1.32.0
+**Focus:** MILESTONE — Stale namespace retraction fix verified end-to-end with Playwright
 
 ---
 
-## Current State — STABLE
+## Current State — STABLE + E2E VERIFIED
 
-All tests pass (163 tests, 503 assertions, 0 failures). Lint and format clean.
+All tests pass (10 module tests, 33 assertions, 0 failures). Lint and format clean.
 
-**E2E drum roll test passed (2026-02-15):**
-- INSERT: Created `my-test-ns` with 3 symbols (greet, add, multiply) → stored in Datalevin
-- UPDATE: Added `divide` (with docstring) → fingerprint check detected change → retracted 3, inserted 4 → committed in <15ms
-- Pod stays alive after insert + update cycles
-- Server shuts down gracefully (no SIGKILL needed)
-- Database healthy: 3 projects, 93 nREPL namespaces, 225 bb-mcp-server namespaces
+**Playwright E2E demo passed (2026-02-15):**
+- Created `demo.hello` (greet fn) → appeared in browser (94 ns)
+- Added `goodbye` fn → symbol list updated to 2 symbols
+- Updated `greet` docstring → reflected after rescan
+- Created `demo.math-utils` (add, multiply) → 95 ns in browser
+- Removed `demo.hello` via `remove-ns` → rescan retracted it → **gone from browser** (94 ns)
+- Confirmed bug reproduction: old code left stale ns with 0 symbols; fixed code removes it entirely
+- Screenshots saved as `demo-step[1-7]-*.png`
 
-**Not yet verified:** Visual confirmation in browser (needs Playwright/Chrome MCP — see below)
+**Previous E2E (2026-02-15):**
+- INSERT/UPDATE cycle with `my-test-ns` verified in Datalevin
+- Pod stays alive, server shuts down gracefully
+- Database healthy: 3 projects, 93+ nREPL namespaces
 
 ---
 
@@ -134,70 +139,30 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
+- `5b72686` — Demo: Playwright integration test of rescan-project! fix (7 screenshots)
+- `fc24a25` — Fix: Use source project-name for retraction in rescan-project!
 - `82934b3` — Fix: Auto-unescape `\!` in all MCP CLI scripts (nrepl, mcp-eval, mcp call)
 - `5d09b64` — Fix: Auto-unescape `\!` in nrepl-direct eval strings
 - `601f939` — Docs: Update context.md with E2E results, MCP setup, port reference
-- `b8a9d58` — Fix MCP port to 54321 for dev environment
-- `47cc2b8` — Clean up diagnostic scripts, bogus URL directories, empty .mcp.json
-- `2da6f71` — Fix Datalevin pod transact! hang — nil values + future wrapper
 
 ---
 
-## Next Session: Live Update Demo with Playwright
+### Fixed: Stale Namespace Retraction in rescan-project! (2026-02-15)
 
-**Priority #1:** Show the browser demo on screen using Playwright MCP tools.
+**Bug:** `rescan-project!` called `retract-project-entities!` with the caller-supplied URI string (e.g. `"nrepl://localhost:9876@..."`) but DB entities store `:uri/project` as the source's project-name (e.g. `"localhost:9876"`). Query found zero entities → nothing retracted → stale namespaces persisted.
 
-**Prerequisites (should already be running):**
-- `bb dev:cb-v2 status` — verify both processes are up
-- Browser at http://localhost:8091
-- nREPL target on port 9876
+**Fix:** Changed line 442 of `core.clj` to use `(:project-name source)` instead of `project-name`. Commit `fc24a25`.
 
-**Demo script — live namespace/symbol updates visible in browser:**
-
-```bash
-# Step 1: Take initial screenshot of browser at http://localhost:8091
-# Use Playwright MCP: browser_navigate to http://localhost:8091, then browser_snapshot/browser_screenshot
-
-# Step 2: Create a new namespace on the nREPL target (port 9876)
-bb nrepl-direct eval "(ns demo.live-test) (defn hello [name] (str \"Hi \" name))" --port 9876
-
-# Step 3: Trigger a rescan so the new namespace appears in the DB immediately
-bb nrepl-direct eval "(code-browser.core/rescan-project! \"nrepl-target-9876\" :manual)" -t cb-v2-test
-
-# Step 4: Take screenshot — new namespace should appear in browser
-
-# Step 5: Add a new function to the namespace
-bb nrepl-direct eval "(ns demo.live-test) (defn goodbye [name] (str \"Bye \" name))" --port 9876
-
-# Step 6: Trigger symbol fingerprint check to detect the change
-bb nrepl-direct eval "(code-browser.core/check-symbol-fingerprints! \"nrepl-target-9876\" \"demo.live-test\")" -t cb-v2-test
-
-# Step 7: Take screenshot — new function should appear in browser
-
-# Step 8: Modify an existing function (add docstring)
-bb nrepl-direct eval "(ns demo.live-test) (defn hello \"Greets someone warmly\" [name] (str \"Hello, dear \" name \"!\"))" --port 9876
-
-# Step 9: Trigger symbol fingerprint check again
-bb nrepl-direct eval "(code-browser.core/check-symbol-fingerprints! \"nrepl-target-9876\" \"demo.live-test\")" -t cb-v2-test
-
-# Step 10: Take final screenshot — updated function should reflect in browser
-```
-
-**Key Playwright MCP tools to use:**
-- `browser_navigate` — go to http://localhost:8091
-- `browser_snapshot` — get accessibility tree (text content)
-- `browser_screenshot` — visual screenshot
-- `browser_click` — click on namespace/symbol entries to expand them
-
-**If dev environment is not running:** Start with `bb dev:cb-v2 start --no-open`
+**Verified:** Playwright E2E demo confirmed namespace disappears from browser after `remove-ns` + rescan.
 
 ---
 
-## Other Priorities
+## Next Session Priorities
 
 1. **Monitor server stability** — confirm fingerprint polling works without hangs over extended period
 2. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access if sharing pod process with code-browser-v2
-3. **Fingerprint first-check gap** — The first fingerprint baseline stores the current nREPL state, but if namespaces were added between initial scan and first fingerprint check, the DB is out of sync until the next change. Consider comparing baseline against DB during first check.
+3. **Fingerprint first-check gap** — The first fingerprint baseline stores the current nREPL state, but if namespaces were added between initial scan and first fingerprint check, the DB is out of sync until the next change
+4. **WinBox z-index overlap** — toolbar buttons become unclickable when another widget overlaps (workaround: `dispatchEvent('click')` via JS)
 
 ---
 

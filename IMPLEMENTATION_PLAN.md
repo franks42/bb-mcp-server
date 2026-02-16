@@ -1,7 +1,7 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.31.1 (active)
-**Last Updated:** 2026-02-14
+**Status:** v1.32.0 (active)
+**Last Updated:** 2026-02-15
 
 ---
 
@@ -13,6 +13,7 @@ Production-ready MCP server with 33 modules, dynamic tool registry, dual transpo
 
 | Version | Tag | Description |
 |---------|-----|-------------|
+| v1.32.0 | `5b72686` | Stale ns retraction fix, Playwright E2E demo, all CLI `!` escaping |
 | v1.31.1 | — | Two-process dev env (external nREPL target), self-introspection fix |
 | v1.31.0 | `6332a9d` | Fix nrepl-direct silent error swallowing |
 | v1.30.0 | `f5e47e3` | Statechart Service/ManyStore adoption, FSM runtime introspection |
@@ -200,6 +201,9 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - ✅ `bb dev:cb-v2` manages both processes (start/stop/status)
 - ✅ Graceful shutdown restored (no more SIGKILL)
 - ✅ Widgets load correctly: projects (3), namespaces verified in browser
+- ✅ Stale namespace retraction fix — `rescan-project!` uses `(:project-name source)` for DB retraction
+- ✅ Playwright E2E demo — create/modify/remove namespaces verified visually in browser
+- ✅ All CLI `!` escaping fixed (nrepl-direct, nrepl, mcp-eval, mcp call)
 
 **Remaining work:** Incremental rescans (single-ns instead of all-ns), runtime-data-sync statechart integration.
 
@@ -314,6 +318,7 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 | 31 | File watcher robustness: thread-safe debounce, per-file locks, atomic write handling (v1.25.0) |
 | 32 | Runtime project addition: browser input, `bb add-project` CLI, sente warning fixes (v1.26.0) |
 | 33 | Live var value display: type-aware rendering, atom auto-deref, statechart detection (v1.29.0) |
+| 34 | Stale ns retraction fix, Playwright E2E demo, CLI `!` escaping (v1.32.0) |
 
 ---
 
@@ -333,4 +338,4 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 
 ---
 
-*Last Updated: 2026-02-11*
+*Last Updated: 2026-02-15*
