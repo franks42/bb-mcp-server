@@ -13,6 +13,7 @@
      bb nrepl-repl --port 9876
      bb nrepl-repl -t cb-v2-test --ns my-app.core --pprint"
     (:require [bb-mcp-server.nrepl-direct.client :as client]
+              [bencode.core :as bencode]
               [cheshire.core :as json]
               [clojure.edn :as edn]
               [clojure.pprint :as pp]
@@ -347,20 +348,39 @@
             :session nil
             :current-ns "user"}))
 
+(defn- bytes->str
+  "Convert byte array or string to string."
+  [obj]
+  (cond
+    (instance? (Class/forName "[B") obj) (String. ^bytes obj "UTF-8")
+    (string? obj) obj
+    :else (str obj)))
+
+(defn- decode-bencode-response
+  "Convert raw bencode response to keyword map, recursively stringifying bytes."
+  [obj]
+  (cond
+    (map? obj) (into {} (map (fn [[k v]] [(keyword (bytes->str k)) (decode-bencode-response v)]) obj))
+    (vector? obj) (mapv decode-bencode-response obj)
+    (seq? obj) (map decode-bencode-response obj)
+    :else (bytes->str obj)))
+
 (defn- nrepl-completions
-  "Fetch completions from nREPL server using cider-nrepl's 'complete' op."
+  "Fetch completions from nREPL server using babashka's 'completions' op.
+   Reads raw bencode response because client/send-message's merge-responses
+   drops the :completions key (it only keeps eval-related fields)."
   [prefix ns-str]
   (let [{:keys [conn session]} @repl-state]
     (when (and conn session)
       (try
-       (let [result (client/send-message conn
-                                         {:op "complete"
-                                          :prefix prefix
-                                          :ns ns-str
-                                          :session session}
-                                         :timeout-ms 2000)]
-         (when (= "success" (:status result))
-           (:completions result)))
+       (let [out (:out conn)
+             in (:in conn)
+             msg (cond-> {:op "completions" :prefix prefix :session session}
+                         ns-str (assoc :ns ns-str))]
+         (bencode/write-bencode out msg)
+         (.flush out)
+         (let [resp (decode-bencode-response (bencode/read-bencode in))]
+           (:completions resp)))
        (catch Exception _e nil)))))
 
 (defn- make-completer
