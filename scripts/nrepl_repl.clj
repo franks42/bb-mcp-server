@@ -329,6 +329,18 @@
 ;; Tab Completion via nREPL
 ;; =============================================================================
 
+;; SCI (babashka's interpreter) blocks direct method calls like (.word parsed-line)
+;; on JLine's internal classes (LineReaderImpl$3). We invoke via the ParsedLine
+;; interface using reflection to bypass the class allowlist.
+(def ^:private ^java.lang.reflect.Method parsed-line-word-method
+     "Reflected Method for ParsedLine.word() — works around SCI class restrictions."
+     (.getMethod org.jline.reader.ParsedLine "word" (into-array Class [])))
+
+(defn- parsed-line-word
+  "Get word from a ParsedLine via reflection (SCI-safe)."
+  [parsed-line]
+  (.invoke parsed-line-word-method parsed-line (object-array 0)))
+
 (def ^:private repl-state
      "Shared mutable state for the REPL, accessible from Completer."
      (atom {:conn nil
@@ -356,7 +368,7 @@
   []
   (reify Completer
          (complete [_this _reader line candidates]
-                   (let [word (.word line)
+                   (let [word (parsed-line-word line)
                          ns-str (:current-ns @repl-state)]
                      (when (and (seq word) (>= (count word) 2))
                        (when-let [completions (nrepl-completions word ns-str)]
