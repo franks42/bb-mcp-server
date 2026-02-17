@@ -172,13 +172,14 @@
   []
   (reify Parser
          (parse [_this line cursor context]
-                (let [parsed (proxy [ParsedLine] []
-                                    (word [] (str line))
-                                    (wordCursor [] cursor)
-                                    (wordIndex [] 0)
-                                    (words [] [line])
-                                    (line [] (str line))
-                                    (cursor [] cursor))]
+                (let [line-str (str line)
+                      parsed (reify ParsedLine
+                                    (word [_] line-str)
+                                    (wordCursor [_] cursor)
+                                    (wordIndex [_] 0)
+                                    (words [_] (java.util.ArrayList. [line-str]))
+                                    (line [_] line-str)
+                                    (cursor [_] cursor))]
                   (when (and (= context Parser$ParseContext/ACCEPT_LINE)
                              (not @force-accept?))
                     (let [text (str line)]
