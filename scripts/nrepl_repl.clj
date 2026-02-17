@@ -168,27 +168,62 @@
      "Volatile flag to force accepting incomplete input."
      (volatile! false))
 
+(defn- word-at-cursor
+  "Extract the Clojure word at cursor position.
+   Returns [word word-start] or nil if no word found."
+  [^String line ^long cursor]
+  (when (and line (pos? (count line)) (pos? cursor))
+    (let [c (min cursor (count line))
+          start (loop [i (dec c)]
+                      (if (or (neg? i)
+                              (let [ch (.charAt line i)]
+                                (or (Character/isWhitespace ch)
+                                    (contains? #{\( \) \[ \] \{ \} \' \` \~ \@ \^ \\} ch))))
+                        (inc i)
+                        (recur (dec i))))]
+      (when (< start c)
+        [(subs line start c) start]))))
+
 (defn- make-clojure-parser
-  "Create a JLine Parser that detects incomplete Clojure forms."
+  "Create a JLine Parser that detects incomplete Clojure forms.
+   Handles COMPLETE context with word-at-cursor for tab completion."
   []
   (reify Parser
-         (parse [_this line cursor context]
-                (let [line-str (str line)
-                      parsed (reify ParsedLine
-                                    (word [_] line-str)
-                                    (wordCursor [_] cursor)
-                                    (wordIndex [_] 0)
-                                    (words [_] (java.util.ArrayList. [line-str]))
-                                    (line [_] line-str)
-                                    (cursor [_] cursor))]
-                  (when (and (= context Parser$ParseContext/ACCEPT_LINE)
-                             (not @force-accept?))
-                    (let [text (str line)]
-                      (when (and (seq (str/trim text))
-                                 (incomplete-form? text))
-                        (throw (EOFError. -1 -1 "Incomplete Clojure form" nil)))))
-                  (vreset! force-accept? false)
-                  parsed))))
+         (^ParsedLine parse [_this ^String line ^int cursor ^Parser$ParseContext context]
+                            (let [line-str (str line)]
+                              (if (identical? context Parser$ParseContext/COMPLETE)
+              ;; For tab completion: return ParsedLine with word info at cursor
+                                (if-let [[word word-start] (word-at-cursor line-str cursor)]
+                                        (let [word-cursor (- cursor (int word-start))]
+                                          (reify ParsedLine
+                                                 (word [_] word)
+                                                 (wordCursor [_] word-cursor)
+                                                 (wordIndex [_] 0)
+                                                 (words [_] [word])
+                                                 (line [_] line-str)
+                                                 (cursor [_] cursor)))
+                                        (reify ParsedLine
+                                               (word [_] "")
+                                               (wordCursor [_] 0)
+                                               (wordIndex [_] 0)
+                                               (words [_] [])
+                                               (line [_] line-str)
+                                               (cursor [_] cursor)))
+              ;; For ACCEPT_LINE: check if form is complete
+                                (do
+                                 (when (and (identical? context Parser$ParseContext/ACCEPT_LINE)
+                                            (not @force-accept?))
+                                   (when (and (seq (str/trim line-str))
+                                              (incomplete-form? line-str))
+                                     (throw (EOFError. -1 -1 "Incomplete Clojure form" nil))))
+                                 (vreset! force-accept? false)
+                                 (reify ParsedLine
+                                        (word [_] "")
+                                        (wordCursor [_] 0)
+                                        (wordIndex [_] 0)
+                                        (words [_] [])
+                                        (line [_] line-str)
+                                        (cursor [_] cursor))))))))
 
 ;; =============================================================================
 ;; Syntax Highlighter
@@ -330,18 +365,6 @@
 ;; Tab Completion via nREPL
 ;; =============================================================================
 
-;; SCI (babashka's interpreter) blocks direct method calls like (.word parsed-line)
-;; on JLine's internal classes (LineReaderImpl$3). We invoke via the ParsedLine
-;; interface using reflection to bypass the class allowlist.
-(def ^:private ^java.lang.reflect.Method parsed-line-word-method
-     "Reflected Method for ParsedLine.word() — works around SCI class restrictions."
-     (.getMethod org.jline.reader.ParsedLine "word" (into-array Class [])))
-
-(defn- parsed-line-word
-  "Get word from a ParsedLine via reflection (SCI-safe)."
-  [parsed-line]
-  (.invoke parsed-line-word-method parsed-line (object-array 0)))
-
 (def ^:private repl-state
      "Shared mutable state for the REPL, accessible from Completer."
      (atom {:conn nil
@@ -387,23 +410,21 @@
   "Create a JLine Completer backed by nREPL completions."
   []
   (reify Completer
-         (complete [_this _reader line candidates]
-                   (let [word (parsed-line-word line)
+         (complete [_this _reader parsed-line candidates]
+                   (let [word (.word ^ParsedLine parsed-line)
                          ns-str (:current-ns @repl-state)]
-                     (when (and (seq word) (>= (count word) 2))
+                     (when (and word (pos? (count word)))
                        (when-let [completions (nrepl-completions word ns-str)]
                                  (doseq [c completions]
-                                        (let [candidate-str (if (map? c) (or (:candidate c) (str c)) (str c))
-                                              ns-part (when (map? c) (:ns c))
-                                              type-part (when (map? c) (:type c))]
-                                          (.add candidates
-                                                (Candidate. candidate-str   ;; value
-                                                            candidate-str   ;; display
-                                                            (or ns-part "")  ;; group
-                                                            nil              ;; descr
-                                                            nil              ;; suffix
-                                                            nil              ;; key
-                                                            (boolean (and type-part (= type-part "namespace")))))))))))))
+                                        (let [candidate-str (if (map? c) (or (:candidate c) (str c)) (str c))]
+                                          (.add ^java.util.List candidates
+                                                (Candidate. candidate-str
+                                                            candidate-str
+                                                            nil
+                                                            (when (map? c) (:ns c))
+                                                            nil
+                                                            nil
+                                                            false))))))))))
 
 ;; =============================================================================
 ;; REPL Loop
