@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 
 (ns rebel-nrepl-client
-  "Open iTerm2 with rebel-readline connected to an nREPL server.
+    "Open iTerm2 with rebel-readline connected to an nREPL server.
 
    Usage: bb rebel-nrepl-client [port]
      port - nREPL port (default: 7888)
@@ -34,6 +34,12 @@
 (defn -main
   "Entry point for rebel-nrepl-client script."
   []
+  (binding [*out* *err*]
+           (println "")
+           (println "DEPRECATED: Use 'bb nrepl-repl' instead (pure bb, instant startup)")
+           (println "  Example: bb nrepl-repl -t cb-v2-test")
+           (println "  Example: bb nrepl-repl --port 7888")
+           (println ""))
   (let [args *command-line-args*
         port (if (seq args)
                (first args)

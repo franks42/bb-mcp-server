@@ -304,7 +304,11 @@
   pprint {:doc "Pretty-print EDN from stdin or file"
           :task (load-file "scripts/pprint.clj")}
 
-  rebel-nrepl-client {:doc "Open iTerm2 with rebel-readline connected to nREPL [port]"
+  nrepl-repl {:doc "Interactive nREPL REPL with JLine3 (multi-line, history, completion)"
+              :depends [-bootstrap]
+              :task (load-file "scripts/nrepl_repl.clj")}
+
+  rebel-nrepl-client {:doc "[DEPRECATED] Use: bb nrepl-repl — Open iTerm2 with rebel-readline [port]"
                       :task (load-file "scripts/rebel_nrepl_client.clj")}
 
   ;; ==========================================================================
