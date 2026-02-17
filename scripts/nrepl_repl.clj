@@ -188,42 +188,41 @@
   "Create a JLine Parser that detects incomplete Clojure forms.
    Handles COMPLETE context with word-at-cursor for tab completion."
   []
-  (reify Parser
-         (^ParsedLine parse [_this ^String line ^int cursor ^Parser$ParseContext context]
-                            (let [line-str (str line)]
-                              (if (identical? context Parser$ParseContext/COMPLETE)
-              ;; For tab completion: return ParsedLine with word info at cursor
-                                (if-let [[word word-start] (word-at-cursor line-str cursor)]
-                                        (let [word-cursor (- cursor (int word-start))]
-                                          (reify ParsedLine
-                                                 (word [_] word)
-                                                 (wordCursor [_] word-cursor)
-                                                 (wordIndex [_] 0)
-                                                 (words [_] [word])
-                                                 (line [_] line-str)
-                                                 (cursor [_] cursor)))
-                                        (reify ParsedLine
-                                               (word [_] "")
-                                               (wordCursor [_] 0)
-                                               (wordIndex [_] 0)
-                                               (words [_] [])
-                                               (line [_] line-str)
-                                               (cursor [_] cursor)))
-              ;; For ACCEPT_LINE: check if form is complete
-                                (do
-                                 (when (and (identical? context Parser$ParseContext/ACCEPT_LINE)
-                                            (not @force-accept?))
-                                   (when (and (seq (str/trim line-str))
-                                              (incomplete-form? line-str))
-                                     (throw (EOFError. -1 -1 "Incomplete Clojure form" nil))))
-                                 (vreset! force-accept? false)
-                                 (reify ParsedLine
-                                        (word [_] "")
-                                        (wordCursor [_] 0)
-                                        (wordIndex [_] 0)
-                                        (words [_] [])
-                                        (line [_] line-str)
-                                        (cursor [_] cursor))))))))
+  (let [empty-parsed (fn [line-str cursor]
+                       (reify ParsedLine
+                              (word [_] "")
+                              (wordCursor [_] 0)
+                              (wordIndex [_] 0)
+                              (words [_] [])
+                              (line [_] line-str)
+                              (cursor [_] cursor)))]
+    (reify Parser
+           (^ParsedLine parse [_this ^String line ^int cursor ^Parser$ParseContext context]
+                              (let [line-str (str line)]
+                                (cond
+                                  (identical? context Parser$ParseContext/COMPLETE)
+                                  (if-let [[word word-start] (word-at-cursor line-str cursor)]
+                                          (let [word-cursor (- cursor (int word-start))]
+                                            (reify ParsedLine
+                                                   (word [_] word)
+                                                   (wordCursor [_] word-cursor)
+                                                   (wordIndex [_] 0)
+                                                   (words [_] [word])
+                                                   (line [_] line-str)
+                                                   (cursor [_] cursor)))
+                                          (empty-parsed line-str cursor))
+
+                                  (identical? context Parser$ParseContext/ACCEPT_LINE)
+                                  (do
+                                   (when (not @force-accept?)
+                                     (when (and (seq (str/trim line-str))
+                                                (incomplete-form? line-str))
+                                       (throw (EOFError. -1 -1 "Incomplete Clojure form" nil))))
+                                   (vreset! force-accept? false)
+                                   (empty-parsed line-str cursor))
+
+                                  :else
+                                  (empty-parsed line-str cursor)))))))
 
 ;; =============================================================================
 ;; Syntax Highlighter
@@ -394,11 +393,12 @@
    drops the :completions key (it only keeps eval-related fields)."
   [prefix ns-str]
   (let [{:keys [conn session]} @repl-state]
-    (when (and conn session)
+    (when conn
       (try
        (let [out (:out conn)
              in (:in conn)
-             msg (cond-> {:op "completions" :prefix prefix :session session}
+             msg (cond-> {:op "completions" :prefix prefix}
+                         session (assoc :session session)
                          ns-str (assoc :ns ns-str))]
          (bencode/write-bencode out msg)
          (.flush out)
