@@ -4,9 +4,9 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-15 (late night)
+**Last Updated:** 2026-02-17
 **Version:** v1.32.0
-**Focus:** MILESTONE — Stale namespace retraction fix verified end-to-end with Playwright
+**Focus:** JLine3-based nREPL REPL client (`bb nrepl-repl`) — fully working
 
 ---
 
@@ -139,11 +139,14 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
+- `8c9f6fd` — Fix: Make nREPL session optional for tab completions
+- `e8a0d14` — Fix: Proper JLine3 Parser/Completer with type hints and word-at-cursor
+- `95e5f2a` — Fix: Use 'completions' op and raw bencode for nrepl-repl tab completion
+- `26cb554` — Fix: Use reflection for ParsedLine.word() in nrepl-repl completer
+- `2ba48ae` — Fix: Use reify instead of proxy for ParsedLine in nrepl-repl
+- `ea3c75d` — Feat: Add JLine3-based nREPL REPL client for Babashka
 - `5b72686` — Demo: Playwright integration test of rescan-project! fix (7 screenshots)
 - `fc24a25` — Fix: Use source project-name for retraction in rescan-project!
-- `82934b3` — Fix: Auto-unescape `\!` in all MCP CLI scripts (nrepl, mcp-eval, mcp call)
-- `5d09b64` — Fix: Auto-unescape `\!` in nrepl-direct eval strings
-- `601f939` — Docs: Update context.md with E2E results, MCP setup, port reference
 
 ---
 
@@ -157,12 +160,49 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ---
 
+## nREPL REPL — `bb nrepl-repl` (2026-02-17)
+
+**Pure Babashka JLine3 REPL client** — replaces JVM-based `bb rebel-nrepl-client` (~50ms startup vs 2-5s).
+
+**File:** `scripts/nrepl_repl.clj` (~630 lines)
+
+**Features (all 3 phases implemented):**
+- Multi-line editing (edamame-based incomplete form detection)
+- Tab completion from nREPL server (`"completions"` op, raw bencode)
+- Syntax highlighting (parens, keywords, strings, special forms)
+- Persistent history (`~/.bb-nrepl-repl-history`)
+- Special commands: `:quit`, `:doc`, `:source`, `:ns`
+- Doc-at-point widget (Ctrl+X Ctrl+D)
+- Force-accept widget (Ctrl+X Ctrl+A) for submitting incomplete forms
+
+**Usage:**
+```bash
+bb nrepl-repl -t cb-v2-test          # Connect via target nickname
+bb nrepl-repl --port 9876            # Connect via explicit port
+bb nrepl-repl --host remote --port 9876  # Remote host
+```
+
+**Key lessons learned (Babashka + JLine3):**
+- **Type hints are MANDATORY** — `^ParsedLine`, `^String`, `^int`, `^Parser$ParseContext` on all reify methods; SCI can't resolve methods without them
+- **One interface per reify** — SCI/GraalVM limitation
+- **`reify` not `proxy`** — proxy doesn't work for ParsedLine in bb
+- **CompletingParsedLine NOT reifiable** from user bb scripts (only ParsedLine)
+- **Parser must handle `COMPLETE` context separately** — extract word-at-cursor for tab completion, not just ACCEPT_LINE for multi-line
+- **Babashka nREPL uses `"completions"` op** (not cider-nrepl's `"complete"`)
+- **Babashka nREPL doesn't support session cloning** — `clone-session` returns nil; session must be optional
+- **`client/send-message` → `merge-responses` drops `:completions`** — must read raw bencode directly
+
+**Deprecation:** `bb rebel-nrepl-client` now prints deprecation notice pointing to `bb nrepl-repl`.
+
+---
+
 ## Next Session Priorities
 
 1. **Monitor server stability** — confirm fingerprint polling works without hangs over extended period
 2. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access if sharing pod process with code-browser-v2
 3. **Fingerprint first-check gap** — The first fingerprint baseline stores the current nREPL state, but if namespaces were added between initial scan and first fingerprint check, the DB is out of sync until the next change
 4. **WinBox z-index overlap** — toolbar buttons become unclickable when another widget overlaps (workaround: `dispatchEvent('click')` via JS)
+5. **nrepl-repl polish** — Consider: interrupt during eval (SIGINT → `client/interrupt`), pprint flag, startup banner with server info
 
 ---
 
