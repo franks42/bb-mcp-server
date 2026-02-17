@@ -248,6 +248,14 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - tools.trace integration
 - ~~FSM runtime state introspection~~ ✅ v1.30.0 — Service pattern (`local_nrepl_server.clj`), ManyStore pattern (`sente_browser/server.clj`), protocol-based detection in var-value widgets, browser rendering for Service/Store types
 
+### Terminal Code Browser (charm.clj TUI)
+- Multi-panel terminal UI for code browsing using charm.clj (Elm architecture, bb-compatible since 1.12.215)
+- Namespace list, symbol list, docstrings/source in bordered panels — like lazygit but for Clojure introspection
+- Same Datalevin queries and nREPL introspection as browser, different renderer (ANSI instead of DOM)
+- Advantages: ~50ms startup, works over SSH, no browser needed
+- Depends on charm.clj layout maturity for multi-panel resizable dashboards
+- **Status:** Idea — no implementation planned yet
+
 ### Symbol-at-Point
 - Click any symbol in CM6 source viewer → navigate to definition
 - LSP hover integration
