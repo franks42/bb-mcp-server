@@ -130,22 +130,36 @@ bb lint-fix <file>          # Lint, auto-fix parens if needed, re-lint
 
 ---
 
-## Required Reading for AI Assistants
+## Session Startup — Memory-First Workflow
 
-**MUST read at start of every new session:**
+**CLAUDE.md** (this file) is always loaded into the system prompt. Everything else comes from **memory queries first, files as fallback.**
 
-1. **CLAUDE.md** (this file) - Project instructions and workflow
-2. **context.md** - Current session state, recent changes, active work
-3. **docs/CLOJURE_EXPERT_CONTEXT.md** - Clojure development standards, honesty requirements, verification workflow
-4. **docs/AI_TELEMETRY_GUIDE.md** - Telemetry patterns (all I/O and business logic must have telemetry)
-5. **IMPLEMENTATION_PLAN.md** - Task tracking and pending work
+**MUST do at start of every new session (in this order):**
 
-**Reference when needed:**
-- **docs/bb-tasks-reference.md** - All bb tasks and CLI commands (CHECK BEFORE WRITING CURL/BASH!)
-- **docs/agent-delegation-guide.md** - Subagent workflow for multi-file tasks
+1. **Query memory for current project state:**
+   ```
+   mcp__memory__retrieve_memory query="bb-mcp-server current project state and recent work" n_results=5
+   mcp__memory__search_by_tag tags=["current-state", "bb-mcp-server"]
+   ```
+2. **Query memory for critical rules and constraints:**
+   ```
+   mcp__memory__search_by_tag tags=["critical", "rule", "architecture"]
+   ```
+3. **Query memory for task-relevant context** (based on what user asks):
+   ```
+   mcp__memory__retrieve_memory query="<topic user is asking about>" n_results=5
+   ```
+4. **Only read files if memory is insufficient** — fall back to:
+   - `context.md` — if memory has no recent project state
+   - Specific docs — if memory has no relevant patterns
+   - Note: `IMPLEMENTATION_PLAN.md` is archived — status lives in memory
 
-**When working on Scittle browser development:**
-- **docs/SCITTLE_DEV_ENVIRONMENT.md** - Step-by-step setup guide (REQUIRED before any Scittle work!)
+**Reference docs (query memory first, read file as fallback):**
+- Clojure standards → `mcp__memory__search_by_tag tags=["clojure", "standards"]` → fallback: `docs/CLOJURE_EXPERT_CONTEXT.md`
+- Telemetry patterns → `mcp__memory__search_by_tag tags=["telemetry", "logging"]` → fallback: `docs/AI_TELEMETRY_GUIDE.md`
+- BB tasks/CLI → `mcp__memory__search_by_tag tags=["bb-tasks", "cli"]` → fallback: `docs/bb-tasks-reference.md`
+- Subagent guide → `mcp__memory__search_by_tag tags=["subagent", "delegation"]` → fallback: `docs/agent-delegation-guide.md`
+- Scittle dev → `mcp__memory__search_by_tag tags=["scittle", "setup"]` → fallback: `docs/SCITTLE_DEV_ENVIRONMENT.md`
 
 ---
 
@@ -183,62 +197,120 @@ When looking up the latest version of any library:
 
 ## Planning & Task Tracking
 
-**IMPORTANT:** Use `IMPLEMENTATION_PLAN.md` as the **single source of truth** for:
-- Project phases and milestones
-- Task status and progress
-- Implementation decisions
-- Architecture changes
+**MCP memory is the single source of truth** for project status, phases, and decisions.
 
-Do NOT create or update alternative plan documents (e.g., in `docs/design/` or module subdirectories). All planning updates go in `IMPLEMENTATION_PLAN.md`.
+- **Phase status:** `mcp__memory__search_by_tag tags=["phase-status", "bb-mcp-server"]`
+- **Architecture:** `mcp__memory__search_by_tag tags=["architecture", "bb-mcp-server"]`
+- **Decisions:** `mcp__memory__search_by_tag tags=["decision", "bb-mcp-server"]`
+- **Priorities:** `mcp__memory__search_by_tag tags=["priorities", "bb-mcp-server"]`
+
+When phases change status or decisions are made, **store a memory** — don't update files.
+
+When the user wants a project overview, **query memory and render** a formatted table/summary.
+
+`IMPLEMENTATION_PLAN.md` is archived (frozen 2026-02-18). Do NOT update it.
 
 ---
 
-## Context Checkpoints in Todos
+## Context Checkpoints — Memory-Native
 
-**Purpose:** Prevent context loss after auto-compaction by making checkpoints part of every task plan.
+**Purpose:** Prevent context loss after auto-compaction by storing checkpoints in the memory DB.
 
 **When creating todos for a phase, include checkpoint tasks:**
 
 ```
 Phase X: [Feature Name]
 ─────────────────────────
-- [ ] Checkpoint: Document starting state in context.md
+- [ ] Checkpoint: Store starting state in memory
 - [ ] Task 1: Research/explore
 - [ ] Task 2: Implement core logic
-- [ ] Checkpoint: Update context.md before multi-file changes
+- [ ] Checkpoint: Store approach and progress in memory
 - [ ] Task 3: Integration/wiring
 - [ ] Task 4: Tests + verification
-- [ ] Checkpoint: Final state + learnings in context.md
+- [ ] Checkpoint: Store final state + learnings in memory
 ```
 
-**Checkpoint timing:**
-1. **Start of phase** - Capture what exists, what we're changing, why
-2. **Before multi-file changes** - Point of no return; document approach
-3. **End of phase** - Results, decisions made, session notes for next time
+**How to store checkpoints:**
+```
+mcp__memory__store_memory
+  content: "<what's happening, what files are changing, key decisions>"
+  metadata: {tags: ["current-state", "bb-mcp-server", "<feature-tag>"], type: "checkpoint"}
+```
 
-**What to capture in context.md:**
+**What to capture in each checkpoint:**
 - Current working branch/state
-- Files being modified
+- Files being modified and why
 - Key decisions made
 - Blockers or open questions
 - Test status
 
-This makes checkpointing structural (visible, accountable) rather than memory-dependent.
+**Advantages over context.md:**
+- Survives compaction (query memory to recover context)
+- History preserved (old checkpoints stay, new ones added)
+- Selective retrieval (get only checkpoints relevant to current work)
+- No file to forget to update (store_memory is the update)
 
 ---
 
-## Session Health & Compaction Awareness
+## Session Health & Compaction Recovery
 
-After auto-compaction, I lose context and may become less effective. If you notice me:
+After auto-compaction, context is lost. **First recovery step: query memory.**
+
+```
+mcp__memory__retrieve_memory query="bb-mcp-server current state and recent work" n_results=5
+mcp__memory__search_by_tag tags=["current-state", "bb-mcp-server"]
+```
+
+If you notice yourself:
 - Forgetting which files to update (e.g., using wrong plan file)
 - Missing verification steps (lint/format/test)
 - Being corrected for things already discussed
 - Asking questions I should know the answer to
 - Repeating earlier mistakes
 
+**First:** Query memory to recover context. **If still degraded after memory recovery:**
 **Tell the user:** "I may be degraded from context compaction. Consider starting a fresh Claude session."
 
 Rule of thumb: After 2-3 auto-compacts on complex work, a fresh session is more productive than continuing.
+
+---
+
+## Memory Storage Habits
+
+**After completing a task or phase:**
+```
+mcp__memory__store_memory
+  content: "Completed <what>. Key changes: <files>. Decisions: <why>. Gotchas: <surprises>."
+  metadata: {tags: ["current-state", "bb-mcp-server", "<topic>"], type: "checkpoint"}
+```
+
+**After hitting a non-obvious bug:**
+```
+mcp__memory__store_memory
+  content: "Bug: <symptom>. Root cause: <cause>. Fix: <solution>."
+  metadata: {tags: ["bug-fix", "bb-mcp-server", "<area>"], type: "fix"}
+```
+
+**After a design decision:**
+```
+mcp__memory__store_memory
+  content: "Decision: <what was decided>. Alternatives considered: <options>. Rationale: <why>."
+  metadata: {tags: ["decision", "bb-mcp-server", "<topic>"], type: "decision"}
+```
+
+**After learning a new pattern or technique:**
+```
+mcp__memory__store_memory
+  content: "Pattern: <description>. Usage: <when/how>. Example: <code snippet>."
+  metadata: {tags: ["pattern", "bb-mcp-server", "<topic>"], type: "pattern"}
+```
+
+**Before ending a session (or when user says goodbye):**
+```
+mcp__memory__store_memory
+  content: "Session end state: <what we worked on>. Status: <done/in-progress>. Next steps: <what's pending>."
+  metadata: {tags: ["current-state", "bb-mcp-server", "session-end"], type: "checkpoint"}
+```
 
 ---
 
@@ -260,4 +332,4 @@ When working with Clojure/ClojureScript namespaces, remember that namespace refe
 
 ---
 
-*Last Updated: 2026-02-04*
+*Last Updated: 2026-02-18*

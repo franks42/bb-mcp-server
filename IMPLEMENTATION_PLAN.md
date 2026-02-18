@@ -1,7 +1,12 @@
 # bb-mcp-server Implementation Plan
 
-**Status:** v1.32.0 (active)
-**Last Updated:** 2026-02-15
+> **ARCHIVED (2026-02-18)** — Project status, phase tracking, and task management are now maintained in **MCP memory** (ChromaDB). This file is frozen as a historical reference. Do not update it.
+>
+> To query current status: `mcp__memory__search_by_tag tags=["phase-status", "bb-mcp-server"]`
+> To query architecture: `mcp__memory__search_by_tag tags=["architecture", "bb-mcp-server"]`
+
+**Status:** v1.32.0 (archived)
+**Last Updated:** 2026-02-15 (frozen)
 
 ---
 
