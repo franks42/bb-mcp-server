@@ -4,9 +4,9 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-17
+**Last Updated:** 2026-02-17 (evening)
 **Version:** v1.32.0
-**Focus:** JLine3-based nREPL REPL client (`bb nrepl-repl`) — fully working
+**Focus:** nrepl-repl complete; future work planning (durable atoms, type/purity introspection, TUI)
 
 ---
 
@@ -139,14 +139,14 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
+- `a2574d2` — Docs: Add terminal code browser (charm.clj TUI) idea to future work
+- `c31d514` — Docs: Update context.md with nrepl-repl work and JLine3 lessons
 - `8c9f6fd` — Fix: Make nREPL session optional for tab completions
 - `e8a0d14` — Fix: Proper JLine3 Parser/Completer with type hints and word-at-cursor
 - `95e5f2a` — Fix: Use 'completions' op and raw bencode for nrepl-repl tab completion
 - `26cb554` — Fix: Use reflection for ParsedLine.word() in nrepl-repl completer
 - `2ba48ae` — Fix: Use reify instead of proxy for ParsedLine in nrepl-repl
 - `ea3c75d` — Feat: Add JLine3-based nREPL REPL client for Babashka
-- `5b72686` — Demo: Playwright integration test of rescan-project! fix (7 screenshots)
-- `fc24a25` — Fix: Use source project-name for retraction in rescan-project!
 
 ---
 
@@ -195,6 +195,15 @@ bb nrepl-repl --host remote --port 9876  # Remote host
 **Deprecation:** `bb rebel-nrepl-client` now prints deprecation notice pointing to `bb nrepl-repl`.
 
 ---
+
+## Future Ideas Discussed (2026-02-17)
+
+Detailed notes added to `IMPLEMENTATION_PLAN.md` under Future Work:
+
+- **Terminal Code Browser (charm.clj TUI)** — Multi-panel terminal UI using charm.clj Elm architecture. Works over SSH, ~50ms startup. Depends on charm.clj layout maturity.
+- **Durable Atoms (sqlatom / editscript / Datalevin)** — Persistent atoms backed by SQLite or Datalevin. Key insight: schema is the optimization boundary (with schema → efficient deltas, without → opaque blob). Immediate use case: telemetry event persistence. Related libs: `sqlatom` (SQLite CAS), `editscript` (diff/patch Clojure data).
+- **Type & Purity Introspection** — Layered type inference (declared schemas → clj-kondo → type hints → LLM-inferred) + purity analysis (pure / read-only / effectful). Store in Datalevin, display in code browser. Related tools: Spectrum, type-infer, Typed Clojure.
+- **Markdown rendering** — `glow` CLI installed for terminal markdown rendering (charmbracelet).
 
 ## Next Session Priorities
 

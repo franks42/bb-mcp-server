@@ -256,6 +256,67 @@ URI-centric design: `<source>://<project>@<version>/<ns>/<symbol>`
 - Depends on charm.clj layout maturity for multi-panel resizable dashboards
 - **Status:** Idea — no implementation planned yet
 
+### Durable Atoms (sqlatom / editscript / Datalevin)
+- Explore persistent atoms backed by SQLite or Datalevin for server state (telemetry events, config, session data)
+- **sqlatom** (`github.com/filipesilva/sqlatom`): Durable atoms via SQLite with cross-process CAS safety. Simple but writes entire value as EDN blob on every `swap!` — prohibitive for large collections (e.g. 10k telemetry events)
+- **editscript** (`github.com/juji-io/editscript`): Diff/patch Clojure data structures. Could optimize durable atoms by persisting only deltas instead of full values. Essentially event sourcing with Clojure data.
+- **Datalevin-backed atoms**: Map operations (`assoc`/`dissoc`/`update`) translate naturally to Datalevin transactions (`:db/add`, retractions). Deltas are free. But requires schema — flat keyword maps with consistent value types. Nested/dynamic structures don't map cleanly.
+- **Key insight**: The schema is the optimization boundary. With schema → efficient column-per-key deltas, queryable. Without schema → opaque blob, sqlatom-style. Same atom API either way.
+- **Immediate use case**: Telemetry event persistence — currently in-memory atom (10k entries, lost on restart). Events have a stable schema (`:log/id`, `:log/level`, `:log/ns`, `:log/msg`, `:log/timestamp`), so either SQLite rows or Datalevin entities would work well.
+- **Status:** Idea — exploring trade-offs, no implementation planned yet
+
+### Type & Purity Introspection for Code Browser
+- Surface type information and purity analysis alongside functions in the code browser
+- **Goal**: For any function, show input/output types and whether it's pure, has side effects, or performs I/O — without requiring the developer to annotate anything
+
+#### Layered Type Inference (by priority and confidence)
+
+| Priority | Source | Confidence | How |
+|----------|--------|------------|-----|
+| 1 | Declared malli/spec schemas | High | Runtime introspection via nREPL — `:malli/schema` metadata, `fdef`s |
+| 2 | clj-kondo analysis | Medium | Already in our analysis pipeline — return types, type-mismatch data |
+| 3 | Type hints in source | Medium | Already in var metadata — `^String`, `^long`, etc. |
+| 4 | LLM-inferred | Variable | Feed fn source + docstring + arglists to LLM, get back schema. Batch process, cache in Datalevin with `:inferred` confidence tag |
+
+- Sources 1-3 are essentially free — the data already flows through the system, just not stored/displayed
+- Source 4 could run as an offline batch job over the codebase, results cached in Datalevin
+- **Existing tools**: Spectrum (spec-based type propagation through AST, early/stalled), type-infer (exposes JVM compiler's own inference, JVM-only), Typed Clojure (semi-automated annotation generation)
+
+#### Purity Analysis
+
+Equally important to type inference — knowing whether a function is **pure** (no side effects, deterministic) enables:
+- **Memoization safety** — browser can suggest/auto-apply memoization for pure fns
+- **Parallelization** — pure fns are safe to run concurrently
+- **Testing confidence** — pure fns are trivially testable (input → output, no setup)
+- **Refactoring safety** — pure fns can be moved, inlined, reordered without risk
+- **Visual indication** — color-code or badge pure vs. effectful fns in the browser
+
+**Deduction signals for purity:**
+- No calls to `swap!`, `reset!`, `alter`, `send`, `println`, `spit`, I/O fns → likely pure
+- No use of `def`, `atom`, `ref`, `agent`, `volatile!` → no state mutation
+- All called functions are themselves pure → transitively pure
+- clj-kondo analysis already tracks var usage — could flag side-effectful calls
+- Type hints and return types can corroborate (fns returning collections from collection inputs are often pure)
+- LLM analysis can assess purity from source + docstring with high accuracy
+
+**Purity levels:**
+- **Pure** — no side effects, deterministic, safe to memoize/parallelize
+- **Read-only** — reads external state (deref atoms, env vars) but doesn't mutate
+- **Effectful** — performs I/O, mutations, or non-deterministic operations
+
+#### Storage and Display
+
+- Store as Datalevin attributes on var entities: `:var/type-signature`, `:var/type-confidence`, `:var/purity`, `:var/purity-confidence`
+- Display optionally in the browser — badges, tooltips, or a dedicated "Type & Purity" tab in the symbol inspector
+- Queryable via Datalog: "show me all pure functions that take a map and return a vector"
+
+#### Pros/Cons
+
+- **Pros**: Richer browsing, type-aware filtering, purity-aware refactoring suggestions, bridges dynamic Clojure to typed understanding, incremental (start with what's available), Datalevin makes it queryable
+- **Cons**: Multiple type formats to normalize, schema design for polymorphic/union types, LLM inference adds cost/latency (mitigated by batch+cache), purity analysis can be conservative (false negatives for safe code that looks effectful), optional display adds UI complexity
+- **Babashka note**: Typed Clojure and type-infer are JVM-only; need to extract/cache annotations rather than depend at runtime
+- **Status:** Idea — no implementation planned yet
+
 ### Symbol-at-Point
 - Click any symbol in CM6 source viewer → navigate to definition
 - LSP hover integration
