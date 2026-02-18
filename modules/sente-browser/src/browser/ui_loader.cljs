@@ -1,5 +1,5 @@
 (ns ui-loader
-    "Loads Code Browser v2 UI files and mounts.
+    "Loads Pane Browser UI files and mounts.
    Replaces the inline JS loadCodeBrowserUI() function."
     (:require [taoensso.trove :as log]))
 
@@ -28,14 +28,12 @@
     (try
      (await (fetch-and-eval! "/browser/scittle_cm6.cljs" "scittle-cm6"))
      (await (fetch-and-eval! "/cljc/code_browser/uri.cljc" "URI module"))
-     (await (fetch-and-eval! "/cljc/statecharts/types.cljc" "statechart types"))
-     (await (fetch-and-eval! "/cljc/statecharts/machines/widget_lifecycle.cljc" "widget lifecycle"))
-     (await (fetch-and-eval! "/browser/code_browser_v2.cljs" "code-browser v2"))
+     (await (fetch-and-eval! "/browser/pane_browser.cljs" "pane-browser"))
      (set-status! "Mounting UI...")
-     (js/scittle.core.eval_string "(code-browser-v2/mount!)")
+     (js/scittle.core.eval_string "(pane-browser/mount!)")
      (set! (.. (js/document.getElementById "ui-loader") -style -display) "none")
-     (set-status! "Code Browser v2 loaded!")
-     (log/log! {:level :info :id ::ui-loaded :msg "Code Browser v2 loaded"})
+     (set-status! "Pane Browser loaded!")
+     (log/log! {:level :info :id ::ui-loaded :msg "Pane Browser loaded"})
      (catch js/Error e
             (js/console.error "[load-ui] Error:" e)
             (set-status! (str "Error: " (.-message e)))
