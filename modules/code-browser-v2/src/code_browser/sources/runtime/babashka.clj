@@ -47,13 +47,22 @@
                       :msg "Introspecting namespace"
                       :data {:ns ns-name}})
            (let [code (str "(vec (for [[sym v] (sort-by key (ns-publics '" ns-name "))"
-                           " :let [m (meta v)]]"
+                           " :let [m (meta v)"
+                           "       raw (try (deref v) (catch Exception _ nil))"
+                           "       type-hint (cond"
+                           "         (:macro m) :defmacro"
+                           "         (instance? clojure.lang.MultiFn raw) :defmulti"
+                           "         (:protocol m) :protocol-fn"
+                           "         (and (map? raw) (:on raw) (:on-interface raw)) :defprotocol"
+                           "         (:arglists m) :defn"
+                           "         :else :def)]]"
                            " {:name (str sym)"
                            " :arglists (when (:arglists m) (pr-str (:arglists m)))"
                            " :doc (:doc m)"
                            " :macro (:macro m)"
                            " :private (:private m)"
-                           " :dynamic (:dynamic m)}))")
+                           " :dynamic (:dynamic m)"
+                           " :type-hint type-hint}))")
                  result (eval-fn code)]
              (if (sequential? result) result [])))
 
@@ -409,13 +418,22 @@
                            " :let [ns-name (str n)"
                            "       ns-meta (meta n)"
                            "       vars (vec (for [[sym v] (sort-by key (ns-publics n))"
-                           "                       :let [m (meta v)]]"
+                           "                       :let [m (meta v)"
+                           "                             raw (try (deref v) (catch Exception _ nil))"
+                           "                             type-hint (cond"
+                           "                               (:macro m) :defmacro"
+                           "                               (instance? clojure.lang.MultiFn raw) :defmulti"
+                           "                               (:protocol m) :protocol-fn"
+                           "                               (and (map? raw) (:on raw) (:on-interface raw)) :defprotocol"
+                           "                               (:arglists m) :defn"
+                           "                               :else :def)]]"
                            "                      {:name (str sym)"
                            "                       :arglists (when (:arglists m) (pr-str (:arglists m)))"
                            "                       :doc (:doc m)"
                            "                       :macro (:macro m)"
                            "                       :private (:private m)"
-                           "                       :dynamic (:dynamic m)}))]]"
+                           "                       :dynamic (:dynamic m)"
+                           "                       :type-hint type-hint}))]]"
                            " {:name ns-name :doc (:doc ns-meta) :vars vars}))")
                  result (eval-fn code)
                  all-ns (if (sequential? result) result [])]

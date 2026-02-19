@@ -119,6 +119,11 @@
                         :db/cardinality :db.cardinality/many
                         :db/doc "Symbols that call/use this symbol"}
 
+   ;; === Top-Level Forms (non-defining) ===
+      :symbol/top-level?     {:db/doc "Is this a top-level non-defining form?"}
+      :symbol/top-level-kind {:db/valueType :db.type/keyword
+                              :db/doc "Kind: :comment :side-effect :config :require :load :in-ns :form"}
+
    ;; === Protocol/Multimethod Specifics ===
       :symbol/protocol      {:db/valueType :db.type/ref
                              :db/doc "For protocol methods: ref to protocol"}
@@ -149,7 +154,9 @@
 
       :symbols-for-namespace
       '[:find [(pull ?sym [:uri/string :symbol/name :symbol/type :symbol/line
-                           :symbol/doc :symbol/arglists :symbol/private?]) ...]
+                           :symbol/file :symbol/doc :symbol/arglists
+                           :symbol/private? :symbol/top-level?
+                           :symbol/top-level-kind]) ...]
         :in $ ?ns-uri
         :where [?ns :uri/string ?ns-uri]
         [?ns :ns/symbols ?sym]]

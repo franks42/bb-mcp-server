@@ -178,17 +178,27 @@
 ;;; ---------------------------------------------------------------------------
 
 (defn infer-symbol-type
-  "Infer symbol type from var metadata.
+  "Infer symbol type from var metadata and optional type-hint.
 
    Arguments:
-     var-meta - map with :macro, :arglists keys
+     var-meta - map with :macro, :arglists, :type-hint keys
 
-   Returns keyword: :defmacro, :defn, or :def"
-  [{:keys [macro arglists]}]
-  (cond
-    macro    :defmacro
-    arglists :defn
-    :else    :def))
+   Returns keyword: :defmacro, :defmulti, :defprotocol, :defn, or :def"
+  [{:keys [macro arglists type-hint]}]
+  (or (when type-hint
+        (case type-hint
+          :defmacro    :defmacro
+          :defmulti    :defmulti
+          :defprotocol :defprotocol
+          :protocol-fn :defn
+          :defn        :defn
+          :def         :def
+          nil))
+      ;; Fallback for older servers without type-hint
+      (cond
+        macro    :defmacro
+        arglists :defn
+        :else    :def)))
 
 (def default-exclude-patterns
      "Default namespace patterns to exclude from introspection."

@@ -215,6 +215,60 @@
        (into {})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Top-Level Form Extraction
+;;; ---------------------------------------------------------------------------
+
+(def ^:private top-level-form-names
+     "Non-defining top-level forms to extract in file-order view."
+     #{'comment 'println 'prn 'print 'set! 'require 'import 'use 'do 'when 'if 'let
+       'binding 'alter-var-root 'reset! 'swap!
+       'load 'load-file 'in-ns})
+
+(defn- top-level-kind
+  "Classify a top-level form name into a kind keyword."
+  [form-name]
+  (case form-name
+    comment :comment
+    (println prn print) :side-effect
+    (set! alter-var-root) :config
+    (require import use) :require
+    (load load-file) :load
+    in-ns :in-ns
+    :form))
+
+(defn- extract-top-level-forms
+  "Extract non-defining top-level forms from clj-kondo var-usages.
+
+   Only includes forms at column 1 (true top-level) with names in the allowlist.
+   Returns symbol entities with :symbol/top-level? true."
+  [var-usages ns-name uri-base project-name version]
+  (->> var-usages
+       (filter (fn [usage]
+                 (and (= 1 (:col usage))
+                      (= (str (:from usage)) ns-name)
+                      (contains? top-level-form-names (:name usage)))))
+       (map (fn [usage]
+              (let [form-name (str (:name usage))
+                    sym-name (str "(" form-name " ...)")
+                    line (:row usage)]
+                {:uri/string (str uri-base "/" ns-name "/" sym-name "#L" line)
+                 :uri/namespace ns-name
+                 :uri/symbol sym-name
+                 :uri/source :dir
+                 :uri/project project-name
+                 :uri/version version
+                 :uri/version-type :static
+                 :uri/parent [:uri/string (str uri-base "/" ns-name)]
+                 :symbol/name sym-name
+                 :symbol/type :top-level-form
+                 :symbol/file (:filename usage)
+                 :symbol/line line
+                 :symbol/end-line (:end-row usage)
+                 :symbol/col (:col usage)
+                 :symbol/top-level? true
+                 :symbol/top-level-kind (top-level-kind (:name usage))})))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Source Extraction
 ;;; ---------------------------------------------------------------------------
 
@@ -331,7 +385,15 @@
                                                                   :uri/project project-name
                                                                   :uri/version version
                                                                   :uri/version-type :static}))))
-                                         all-symbols (concat symbols-from-vars defmethods)
+            ;; Extract top-level non-defining forms
+                                         top-level-forms (mapcat
+                                                          (fn [ns-def]
+                                                            (extract-top-level-forms
+                                                             var-usages (str (:name ns-def))
+                                                             uri-base project-name version))
+                                                          ns-defs)
+                                         all-symbols (concat symbols-from-vars defmethods
+                                                             top-level-forms)
             ;; Populate symbol cache for fetch-source
                                          cache-entries (into {}
                                                              (map (fn [sym]
@@ -544,7 +606,15 @@
                                              :uri/project project-name
                                              :uri/version version
                                              :uri/version-type :static}))))
-                    all-symbols (concat symbols-from-vars defmethods)
+            ;; Extract top-level non-defining forms
+                    top-level-forms (mapcat
+                                     (fn [ns-def]
+                                       (extract-top-level-forms
+                                        var-usages (str (:name ns-def))
+                                        uri-base project-name version))
+                                     ns-defs)
+                    all-symbols (concat symbols-from-vars defmethods
+                                        top-level-forms)
             ;; Build cache entries for new symbols
                     new-cache (into {}
                                     (map (fn [sym]

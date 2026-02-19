@@ -90,6 +90,9 @@
                  :symbols :idle :inspector :idle}
    :filters {:projects "" :namespaces "" :sym-types "" :symbols ""}
    :active-tab :source
+   :sort-mode :alpha
+   :focused-pane nil
+   :highlight {:projects -1 :namespaces -1 :sym-types -1 :symbols -1}
    :pane-widths default-pane-widths
    :inspector-height default-inspector-height})
 
@@ -289,23 +292,33 @@
 
 (defn- derive-sym-types
   "Derive symbol type groups with counts from symbol data."
-  [symbols]
-  (->> symbols
-       (keep :symbol/type)
-       frequencies
-       (sort-by (comp str key))
-       (mapv (fn [[t cnt]] {:type t :count cnt}))))
+  [symbols sort-mode]
+  (let [syms (if (= sort-mode :file-order)
+               symbols
+               (remove :symbol/top-level? symbols))]
+    (->> syms
+         (keep :symbol/type)
+         frequencies
+         (sort-by (comp str key))
+         (mapv (fn [[t cnt]] {:type t :count cnt})))))
 
 (defn- filter-symbols
-  "Filter symbols by type and text."
-  [symbols sym-type text-filter]
-  (->> symbols
-       (filter (fn [s]
-                 (and (or (nil? sym-type)
-                          (= (:symbol/type s) sym-type))
-                      (matches-filter? (:symbol/name s) text-filter))))
-       (sort-by (juxt :symbol/type :symbol/name))
-       vec))
+  "Filter symbols by type, text, and sort mode."
+  [symbols sym-type text-filter sort-mode]
+  (let [syms (if (= sort-mode :file-order)
+               symbols
+               (remove :symbol/top-level? symbols))
+        filtered (->> syms
+                      (filter (fn [s]
+                                (and (or (nil? sym-type)
+                                         (= (:symbol/type s) sym-type))
+                                     (matches-filter? (:symbol/name s)
+                                                      text-filter)))))]
+    (if (= sort-mode :file-order)
+      (vec (sort-by (juxt (fn [s] (or (:symbol/file s) ""))
+                          (fn [s] (or (:symbol/line s) 0)))
+                    filtered))
+      (vec (sort-by (juxt :symbol/type :symbol/name) filtered)))))
 
 ;; =============================================================================
 ;; Event Response Handler
@@ -557,6 +570,97 @@
     (.addEventListener js/document "mouseup" @!up)))
 
 ;; =============================================================================
+;; Keyboard Navigation
+;; =============================================================================
+
+(def ^:private pane-order
+     "Pane navigation order for Tab cycling."
+     [:projects :namespaces :sym-types :symbols])
+
+(defn- get-pane-items
+  "Get the filtered item list for a pane."
+  [state pane]
+  (let [filter-text (get-in state [:filters pane])]
+    (case pane
+      :projects (filterv #(matches-filter?
+                           (or (:uri/project %) (:uri/string %))
+                           filter-text)
+                         (get-in state [:data :projects]))
+      :namespaces (filterv #(matches-filter? (:ns/name %) filter-text)
+                           (get-in state [:data :namespaces]))
+      :sym-types (let [sort-mode (:sort-mode state)
+                       sym-types (derive-sym-types
+                                  (get-in state [:data :symbols]) sort-mode)]
+                   (into [{:type nil :count (count
+                                             (if (= sort-mode :file-order)
+                                               (get-in state [:data :symbols])
+                                               (remove :symbol/top-level?
+                                                       (get-in state
+                                                               [:data :symbols]))))}]
+                         (filterv #(matches-filter? (name (:type %))
+                                                    filter-text)
+                                  sym-types)))
+      :symbols (filter-symbols (get-in state [:data :symbols])
+                               (get-in state [:selections :sym-type])
+                               filter-text
+                               (:sort-mode state))
+      [])))
+
+(defn- select-highlighted!
+  "Select the currently highlighted item in the focused pane."
+  [browser-id state pane idx]
+  (let [items (get-pane-items state pane)]
+    (when-let [item (get items idx)]
+              (case pane
+                :projects (select-project! browser-id (:uri/string item))
+                :namespaces (select-namespace! browser-id (:uri/string item))
+                :sym-types (select-sym-type! browser-id (:type item))
+                :symbols (select-symbol! browser-id (:uri/string item))
+                nil))))
+
+(defn- handle-browser-keydown!
+  "Handle keyboard events for pane navigation."
+  [browser-id !b e]
+  (let [key (.-key e)
+        state @!b
+        pane (:focused-pane state)]
+    (when pane
+      (case key
+        "ArrowDown"
+        (do (.preventDefault e)
+            (let [items (get-pane-items state pane)
+                  cur (get-in state [:highlight pane] -1)
+                  next-idx (min (dec (count items)) (inc cur))]
+              (swap! !b assoc-in [:highlight pane] next-idx)))
+
+        "ArrowUp"
+        (do (.preventDefault e)
+            (let [cur (get-in state [:highlight pane] 0)
+                  next-idx (max 0 (dec cur))]
+              (swap! !b assoc-in [:highlight pane] next-idx)))
+
+        "Enter"
+        (do (.preventDefault e)
+            (let [idx (get-in state [:highlight pane] -1)]
+              (when (>= idx 0)
+                (select-highlighted! browser-id state pane idx))))
+
+        "Tab"
+        (do (.preventDefault e)
+            (let [cur-idx (.indexOf pane-order pane)
+                  next-idx (if (.-shiftKey e)
+                             (mod (dec cur-idx) (count pane-order))
+                             (mod (inc cur-idx) (count pane-order)))
+                  next-pane (nth pane-order next-idx)]
+              (swap! !b assoc :focused-pane next-pane)))
+
+        "Escape"
+        (swap! !b assoc :focused-pane nil)
+
+        ;; Default: don't handle
+        nil))))
+
+;; =============================================================================
 ;; Pane Components
 ;; =============================================================================
 
@@ -590,12 +694,16 @@
         pane-state (get-in state [:pane-states :projects])
         filter-text (get-in state [:filters :projects])
         selected (get-in state [:selections :project])
-        filtered (filter #(matches-filter?
-                           (or (:uri/project %) (:uri/string %))
-                           filter-text)
-                         projects)]
+        focused? (= (:focused-pane state) :projects)
+        highlight-idx (get-in state [:highlight :projects] -1)
+        filtered (filterv #(matches-filter?
+                            (or (:uri/project %) (:uri/string %))
+                            filter-text)
+                          projects)]
     [:div.pane-column
-     {:style {:flex (str (nth (:pane-widths state) 0))}}
+     {:class (when focused? "pane-focused")
+      :style {:flex (str (nth (:pane-widths state) 0))}
+      :on-click #(swap! !b assoc :focused-pane :projects)}
      [:div.pane-column-header "Projects"]
      [:input.pane-filter
       {:type "text" :placeholder "Filter..."
@@ -606,12 +714,15 @@
        :loading [pane-loading]
        [:div.pane-list
         (doall
-         (for [p filtered]
-              ^{:key (:uri/string p)}
-              [:div.pane-item
-               {:class (when (= (:uri/string p) selected) "selected")
-                :on-click #(select-project! browser-id (:uri/string p))}
-               (or (:uri/project p) (:uri/string p))]))])
+         (map-indexed
+          (fn [i p]
+            ^{:key (:uri/string p)}
+            [:div.pane-item
+             {:class (str (when (= (:uri/string p) selected) "selected")
+                          (when (and focused? (= i highlight-idx)) " highlighted"))
+              :on-click #(select-project! browser-id (:uri/string p))}
+             (or (:uri/project p) (:uri/string p))])
+          filtered))])
      ;; Add project input
      (let [{:keys [path error loading?]} @!add-project-state]
        [:div.pane-add-project
@@ -644,10 +755,14 @@
         pane-state (get-in state [:pane-states :namespaces])
         filter-text (get-in state [:filters :namespaces])
         selected (get-in state [:selections :namespace])
-        filtered (filter #(matches-filter? (:ns/name %) filter-text)
-                         namespaces)]
+        focused? (= (:focused-pane state) :namespaces)
+        highlight-idx (get-in state [:highlight :namespaces] -1)
+        filtered (filterv #(matches-filter? (:ns/name %) filter-text)
+                          namespaces)]
     [:div.pane-column
-     {:style {:flex (str (nth (:pane-widths state) 1))}}
+     {:class (when focused? "pane-focused")
+      :style {:flex (str (nth (:pane-widths state) 1))}
+      :on-click #(swap! !b assoc :focused-pane :namespaces)}
      [:div.pane-column-header "Namespaces"]
      [:input.pane-filter
       {:type "text" :placeholder "Filter..."
@@ -659,17 +774,20 @@
        :idle [pane-idle-hint "Select a project"]
        [:div.pane-list
         (doall
-         (for [ns-entity filtered]
-              ^{:key (:uri/string ns-entity)}
-              [:div.pane-item
-               {:class (when (= (:uri/string ns-entity) selected) "selected")
-                :on-click #(select-namespace! browser-id
-                                              (:uri/string ns-entity))}
-               (:ns/name ns-entity)
-               (when (> (count (or (:ns/files ns-entity) [])) 1)
-                 [:span {:style {:font-size "10px" :color "#888"
-                                 :margin-left "4px"}}
-                  (str "(" (count (:ns/files ns-entity)) ")")])]))])
+         (map-indexed
+          (fn [i ns-entity]
+            ^{:key (:uri/string ns-entity)}
+            [:div.pane-item
+             {:class (str (when (= (:uri/string ns-entity) selected) "selected")
+                          (when (and focused? (= i highlight-idx)) " highlighted"))
+              :on-click #(select-namespace! browser-id
+                                            (:uri/string ns-entity))}
+             (:ns/name ns-entity)
+             (when (> (count (or (:ns/files ns-entity) [])) 1)
+               [:span {:style {:font-size "10px" :color "#888"
+                               :margin-left "4px"}}
+                (str "(" (count (:ns/files ns-entity)) ")")])])
+          filtered))])
      [:div.pane-footer (str (count filtered) " namespaces")]]))
 
 (defn- sym-types-pane
@@ -680,12 +798,20 @@
         pane-state (get-in state [:pane-states :symbols])
         filter-text (get-in state [:filters :sym-types])
         selected-type (get-in state [:selections :sym-type])
-        sym-types (derive-sym-types symbols)
-        all-count (count symbols)
-        filtered (filter #(matches-filter? (name (:type %)) filter-text)
-                         sym-types)]
+        sort-mode (:sort-mode state)
+        sym-types (derive-sym-types symbols sort-mode)
+        all-count (count (if (= sort-mode :file-order)
+                           symbols
+                           (remove :symbol/top-level? symbols)))
+        filtered (filterv #(matches-filter? (when (:type %) (name (:type %)))
+                                            filter-text)
+                          sym-types)
+        focused? (= (:focused-pane state) :sym-types)
+        highlight-idx (get-in state [:highlight :sym-types] -1)]
     [:div.pane-column
-     {:style {:flex (str (nth (:pane-widths state) 2))}}
+     {:class (when focused? "pane-focused")
+      :style {:flex (str (nth (:pane-widths state) 2))}
+      :on-click #(swap! !b assoc :focused-pane :sym-types)}
      [:div.pane-column-header "Types"]
      [:input.pane-filter
       {:type "text" :placeholder "Filter..."
@@ -696,20 +822,25 @@
        :loading [pane-loading]
        :idle [pane-idle-hint "Select a namespace"]
        [:div.pane-list
-        ;; "All" entry
+        ;; "All" entry (index 0)
         [:div.pane-item
-         {:class (when (nil? selected-type) "selected")
+         {:class (str (when (nil? selected-type) "selected")
+                      (when (and focused? (= 0 highlight-idx)) " highlighted"))
           :on-click #(select-sym-type! browser-id nil)}
          "All"
          [:span.type-count (str " [" all-count "]")]]
         (doall
-         (for [{:keys [type count]} filtered]
-              ^{:key (str type)}
-              [:div.pane-item
-               {:class (when (= type selected-type) "selected")
-                :on-click #(select-sym-type! browser-id type)}
-               (if type (name type) "unknown")
-               [:span.type-count (str " [" count "]")]]))])
+         (map-indexed
+          (fn [i {:keys [type count]}]
+            ^{:key (str type)}
+            [:div.pane-item
+             {:class (str (when (= type selected-type) "selected")
+                          (when (and focused? (= (inc i) highlight-idx))
+                            " highlighted"))
+              :on-click #(select-sym-type! browser-id type)}
+             (if type (name type) "unknown")
+             [:span.type-count (str " [" count "]")]])
+          filtered))])
      [:div.pane-footer
       (str (count sym-types) " types")]]))
 
@@ -722,10 +853,25 @@
         sym-type (get-in state [:selections :sym-type])
         filter-text (get-in state [:filters :symbols])
         selected (get-in state [:selections :symbol])
-        filtered (filter-symbols symbols sym-type filter-text)]
+        sort-mode (:sort-mode state)
+        filtered (filter-symbols symbols sym-type filter-text sort-mode)
+        focused? (= (:focused-pane state) :symbols)
+        highlight-idx (get-in state [:highlight :symbols] -1)]
     [:div.pane-column
-     {:style {:flex (str (nth (:pane-widths state) 3))}}
-     [:div.pane-column-header "Symbols"]
+     {:class (when focused? "pane-focused")
+      :style {:flex (str (nth (:pane-widths state) 3))}
+      :on-click #(swap! !b assoc :focused-pane :symbols)}
+     [:div.pane-column-header
+      [:span "Symbols"]
+      [:button.sort-mode-btn
+       {:title (if (= sort-mode :alpha)
+                 "Switch to file order (shows top-level forms)"
+                 "Switch to alphabetical order")
+        :on-click (fn [e]
+                    (.stopPropagation e)
+                    (swap! !b update :sort-mode
+                           (fn [m] (if (= m :alpha) :file-order :alpha))))}
+       (if (= sort-mode :alpha) "A\u2193Z" "\u2193#")]]
      [:input.pane-filter
       {:type "text" :placeholder "Filter..."
        :value filter-text
@@ -736,14 +882,19 @@
        :idle [pane-idle-hint "Select a namespace"]
        [:div.pane-list
         (doall
-         (for [sym filtered]
-              ^{:key (:uri/string sym)}
-              [:div.pane-item
-               {:class (when (= (:uri/string sym) selected) "selected")
-                :on-click #(select-symbol! browser-id (:uri/string sym))}
-               [:span (:symbol/name sym)]
-               (when-let [kind (:symbol/type sym)]
-                         [:span.sym-kind (name kind)])]))])
+         (map-indexed
+          (fn [i sym]
+            ^{:key (:uri/string sym)}
+            [:div.pane-item
+             {:class (str (when (= (:uri/string sym) selected) "selected")
+                          (when (:symbol/top-level? sym) " top-level")
+                          (when (and focused? (= i highlight-idx))
+                            " highlighted"))
+              :on-click #(select-symbol! browser-id (:uri/string sym))}
+             [:span (:symbol/name sym)]
+             (when-let [kind (:symbol/type sym)]
+                       [:span.sym-kind (name kind)])])
+          filtered))])
      [:div.pane-footer (str (count filtered) " symbols")]]))
 
 ;; =============================================================================
@@ -944,6 +1095,8 @@
       (let [state @!b
             columns-flex (str (- 1.0 (:inspector-height state)))]
         [:div.pane-browser
+         {:tab-index 0
+          :on-key-down #(handle-browser-keydown! browser-id !b %)}
          ;; 4-column pane area
          [:div.pane-columns {:style {:flex columns-flex}}
           [projects-pane browser-id !b]
