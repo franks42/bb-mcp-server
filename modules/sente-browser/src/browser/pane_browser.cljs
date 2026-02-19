@@ -190,6 +190,21 @@
 
 (declare fetch-inspector-tab!)
 
+(defn- update-browser-title!
+  "Update WinBox title to show the deepest selected URI."
+  [browser-id]
+  (when-let [!b (get-browser-atom browser-id)]
+    (when-let [wb (get @!winbox-instances browser-id)]
+      (let [sel (:selections @!b)
+            fqn (or (:symbol sel) (:namespace sel) (:project sel))
+            parsed (when fqn (uri/parse fqn))
+            pname (or (:uri/project parsed) "Browser")
+            live? (and (:project sel)
+                       (str/starts-with? (:project sel) "nrepl://"))]
+        (.setTitle wb (str "Code Browser \u2014 " (or fqn "Browser")
+                           (when live? " - (Live)")))
+        (.setBackground wb (project-color pname))))))
+
 (defn- select-project!
   "Select a project. Clears namespace/type/symbol, fetches namespaces."
   [browser-id project-uri]
@@ -209,12 +224,7 @@
                             (assoc :active-tab :source)
                             ensure-valid-tab)))
             (fetch-for-pane! browser-id :namespaces project-uri :ns-list)
-            ;; Update WinBox title and color
-            (when-let [wb (get @!winbox-instances browser-id)]
-                      (let [parsed (uri/parse project-uri)
-                            pname (or (:uri/project parsed) "Browser")]
-                        (.setTitle wb (str "Code Browser \u2014 " pname))
-                        (.setBackground wb (project-color pname))))))
+            (update-browser-title! browser-id)))
 
 (defn- select-namespace!
   "Select a namespace. Clears type/symbol, fetches symbols."
@@ -230,7 +240,8 @@
                             (assoc-in [:pane-states :symbols] :loading)
                             (assoc-in [:pane-states :inspector] :idle)
                             ensure-valid-tab)))
-            (fetch-for-pane! browser-id :symbols ns-uri :symbol-list)))
+            (fetch-for-pane! browser-id :symbols ns-uri :symbol-list)
+            (update-browser-title! browser-id)))
 
 (defn- select-sym-type!
   "Select a symbol type filter. Client-side only, no fetch."
@@ -255,7 +266,8 @@
                             (assoc-in [:pane-states :inspector] :loading)
                             (assoc :active-tab :source)
                             ensure-valid-tab)))
-            (fetch-inspector-tab! browser-id)))
+            (fetch-inspector-tab! browser-id)
+            (update-browser-title! browser-id)))
 
 (defn- fetch-inspector-tab!
   "Fetch data for the browser's currently active inspector tab."
