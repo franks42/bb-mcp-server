@@ -20,8 +20,10 @@
 {:modules ["mcp-local-eval"
            "mcp-nrepl"
            "nrepl-server"
+           "http-core"          ;; Required by mcp-http
            "mcp-http"
            "clojure-lsp"
+           "telemetry-db"       ;; Required by sente-browser
            "directory-browser"  ;; Phase 1.5E.16: Required by sente-browser
            "sente-browser"
            "nrepl-proxy-server"]

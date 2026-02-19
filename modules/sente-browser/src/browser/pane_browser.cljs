@@ -303,16 +303,20 @@
      :tab (:active-tab state)}))
 
 (defn- push-nav-history!
-  "Save current location to history, truncating any forward entries."
+  "Save current location to history, truncating any forward entries.
+   Deduplicates: won't push if current location matches the entry at nav-index."
   [!b]
   (swap! !b (fn [s]
               (let [loc (current-location s)
                     idx (:nav-index s)
-                    ;; Truncate forward entries (browser-like behavior)
-                    history (subvec (:nav-history s) 0 (max 0 (inc idx)))]
-                (-> s
-                    (assoc :nav-history (conj history loc))
-                    (assoc :nav-index (count history)))))))
+                    current-entry (when (>= idx 0)
+                                    (get (:nav-history s) idx))]
+                (if (= loc current-entry)
+                  s ;; Already at this location in history, no-op
+                  (let [history (subvec (:nav-history s) 0 (max 0 (inc idx)))]
+                    (-> s
+                        (assoc :nav-history (conj history loc))
+                        (assoc :nav-index (count history)))))))))
 
 (defn- restore-location!
   "Restore a history entry by cascading selections with setTimeout delays."
@@ -399,12 +403,16 @@
                      (cond
                        ;; Same namespace — just select the symbol
                        same-ns?
-                       (select-symbol! browser-id symbol-uri)
+                       (do (select-symbol! browser-id symbol-uri)
+                           (push-nav-history! !b))
                        ;; Same project — select namespace then symbol
                        same-proj?
                        (do (select-namespace! browser-id ns-uri)
                            (js/setTimeout
-                            #(select-symbol! browser-id symbol-uri) 300))
+                            (fn []
+                              (select-symbol! browser-id symbol-uri)
+                              (push-nav-history! !b))
+                            300))
                        ;; Different project — cascade all three
                        :else
                        (do (select-project! browser-id proj-uri)
@@ -412,7 +420,10 @@
                             (fn []
                               (select-namespace! browser-id ns-uri)
                               (js/setTimeout
-                               #(select-symbol! browser-id symbol-uri) 300))
+                               (fn []
+                                 (select-symbol! browser-id symbol-uri)
+                                 (push-nav-history! !b))
+                               300))
                             300))))))))))
 
 ;; =============================================================================
