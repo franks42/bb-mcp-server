@@ -968,6 +968,12 @@
                            :font-style "italic" :font-size "12px"}}
    text])
 
+(defn- scroll-selected-into-view
+  "Ref callback: scrolls the selected element into view (nearest edge only)."
+  [el]
+  (when el
+    (.scrollIntoView el #js {:block "nearest"})))
+
 (defn- submit-add-project!
   "Submit an add-project request to the server."
   []
@@ -1008,9 +1014,11 @@
           (fn [i p]
             ^{:key (:uri/string p)}
             [:div.pane-item
-             {:class (str (when (= (:uri/string p) selected) "selected")
-                          (when (and focused? (= i highlight-idx)) " highlighted"))
-              :on-click #(select-project! browser-id (:uri/string p))}
+             (cond-> {:class (str (when (= (:uri/string p) selected) "selected")
+                                  (when (and focused? (= i highlight-idx)) " highlighted"))
+                      :on-click #(select-project! browser-id (:uri/string p))}
+                     (= (:uri/string p) selected)
+                     (assoc :ref scroll-selected-into-view))
              (or (:uri/project p) (:uri/string p))])
           filtered))])
      ;; Add project input
@@ -1068,10 +1076,12 @@
           (fn [i ns-entity]
             ^{:key (:uri/string ns-entity)}
             [:div.pane-item
-             {:class (str (when (= (:uri/string ns-entity) selected) "selected")
-                          (when (and focused? (= i highlight-idx)) " highlighted"))
-              :on-click #(select-namespace! browser-id
-                                            (:uri/string ns-entity))}
+             (cond-> {:class (str (when (= (:uri/string ns-entity) selected) "selected")
+                                  (when (and focused? (= i highlight-idx)) " highlighted"))
+                      :on-click #(select-namespace! browser-id
+                                                    (:uri/string ns-entity))}
+                     (= (:uri/string ns-entity) selected)
+                     (assoc :ref scroll-selected-into-view))
              (:ns/name ns-entity)
              (when (> (count (or (:ns/files ns-entity) [])) 1)
                [:span {:style {:font-size "10px" :color "#888"
@@ -1176,13 +1186,15 @@
           (fn [i sym]
             ^{:key (:uri/string sym)}
             [:div.pane-item
-             {:class (str (when (= (:uri/string sym) selected) "selected")
-                          (when (:symbol/top-level? sym) " top-level")
-                          (when (and focused? (= i highlight-idx))
-                            " highlighted"))
-              :draggable true
-              :on-drag-start #(handle-drag-start! % (:uri/string sym))
-              :on-click #(select-symbol! browser-id (:uri/string sym))}
+             (cond-> {:class (str (when (= (:uri/string sym) selected) "selected")
+                                  (when (:symbol/top-level? sym) " top-level")
+                                  (when (and focused? (= i highlight-idx))
+                                    " highlighted"))
+                      :draggable true
+                      :on-drag-start #(handle-drag-start! % (:uri/string sym))
+                      :on-click #(select-symbol! browser-id (:uri/string sym))}
+                     (= (:uri/string sym) selected)
+                     (assoc :ref scroll-selected-into-view))
              [:span (:symbol/name sym)]
              (when-let [kind (:symbol/type sym)]
                        [:span.sym-kind (name kind)])])
