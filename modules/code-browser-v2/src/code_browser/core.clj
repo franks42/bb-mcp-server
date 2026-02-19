@@ -234,9 +234,9 @@
       {:success false :error (str "Project already loaded: " proj-name)}
       (if-let [db (handlers/get-db)]
               (let [stats (scan-and-populate! db source)]
-                ;; For :dir sources, also scan JAR dependencies
+                ;; For :dir sources, scan JAR dependencies async
                 (when (= :dir (:type (source-proto/source-info source)))
-                  (scan-project-jars! db (:root-path source)))
+                  (future (scan-project-jars! db (:root-path source))))
                 ;; Start file watching if supported
                 (when (:supports-watch? (source-proto/source-info source))
                   (let [watch-handle
@@ -613,9 +613,9 @@
              (let [source (create-source source-config)]
                (when auto-scan?
                  (scan-and-populate! db source)
-                 ;; For :dir sources, also scan JAR dependencies
+                 ;; For :dir sources, scan JAR dependencies async
                  (when (= :dir (:type source-config))
-                   (scan-project-jars! db (:path source-config))))
+                   (future (scan-project-jars! db (:path source-config)))))
                ;; Start file watching if supported
                (when (:supports-watch? (source-proto/source-info source))
                  (let [proj-name (:project-name source)
