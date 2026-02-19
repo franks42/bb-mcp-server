@@ -106,7 +106,8 @@
 
 (defn- query-namespaces
   "Query namespaces for a project from Datalevin.
-   Matches by project name directly, making the query version-agnostic."
+   Matches by project name directly, making the query version-agnostic.
+   Deduplicates by :ns/name (keeps last seen, i.e. latest version)."
   [db project-name]
   (when (and db project-name)
     (let [results (locking db-lock
@@ -119,11 +120,17 @@
       (->> results
            (map first)
            (sort-by :ns/name)
+           (reduce (fn [acc ns-entity]
+                     (if (= (:ns/name (peek acc)) (:ns/name ns-entity))
+                       acc
+                       (conj acc ns-entity)))
+                   [])
            vec))))
 
 (defn- query-symbols
   "Query symbols for a namespace from Datalevin.
-   Matches by project name and namespace name directly, version-agnostic."
+   Matches by project name and namespace name directly, version-agnostic.
+   Deduplicates by :symbol/name (keeps last seen, i.e. latest version)."
   [db project-name ns-name]
   (when (and db project-name ns-name)
     (let [results (locking db-lock
@@ -137,6 +144,11 @@
       (->> results
            (map first)
            (sort-by (juxt :symbol/type :symbol/name))
+           (reduce (fn [acc sym]
+                     (if (= (:symbol/name (peek acc)) (:symbol/name sym))
+                       acc
+                       (conj acc sym)))
+                   [])
            vec))))
 
 (defn- query-aliases
