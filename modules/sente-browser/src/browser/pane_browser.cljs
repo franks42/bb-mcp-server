@@ -313,12 +313,16 @@
                                 (and (or (nil? sym-type)
                                          (= (:symbol/type s) sym-type))
                                      (matches-filter? (:symbol/name s)
-                                                      text-filter)))))]
-    (if (= sort-mode :file-order)
-      (vec (sort-by (juxt (fn [s] (or (:symbol/file s) ""))
-                          (fn [s] (or (:symbol/line s) 0)))
-                    filtered))
-      (vec (sort-by (juxt :symbol/type :symbol/name) filtered)))))
+                                                      text-filter)))))
+        sorted (if (= sort-mode :file-order)
+                 (sort-by (juxt (fn [s] (or (:symbol/file s) ""))
+                                (fn [s] (or (:symbol/line s) 0)))
+                          filtered)
+                 (sort-by (juxt :symbol/type :symbol/name) filtered))
+        ;; ns symbols always first (like v1 code browser)
+        {ns-syms true other-syms false}
+        (group-by #(= :ns (:symbol/type %)) sorted)]
+    (vec (concat ns-syms other-syms))))
 
 ;; =============================================================================
 ;; Event Response Handler

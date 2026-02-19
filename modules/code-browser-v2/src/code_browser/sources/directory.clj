@@ -236,6 +236,32 @@
     in-ns :in-ns
     :form))
 
+(defn- extract-ns-symbols
+  "Create symbol entities for namespace definitions themselves.
+
+   Each (ns ...) form becomes a symbol with :symbol/type :ns,
+   displayed first in the symbol list (like v1 code browser).
+   Returns one symbol entity per namespace-definition."
+  [ns-defs uri-base project-name version]
+  (map (fn [ns-def]
+         (let [ns-name (str (:name ns-def))]
+           {:uri/string (str uri-base "/" ns-name "/" ns-name)
+            :uri/namespace ns-name
+            :uri/symbol ns-name
+            :uri/source :dir
+            :uri/project project-name
+            :uri/version version
+            :uri/version-type :static
+            :uri/parent [:uri/string (str uri-base "/" ns-name)]
+            :symbol/name ns-name
+            :symbol/type :ns
+            :symbol/file (:filename ns-def)
+            :symbol/line (:row ns-def)
+            :symbol/end-line (:end-row ns-def)
+            :symbol/col 1
+            :symbol/doc (:doc ns-def)}))
+       ns-defs))
+
 (defn- extract-top-level-forms
   "Extract non-defining top-level forms from clj-kondo var-usages.
 
@@ -385,6 +411,9 @@
                                                                   :uri/project project-name
                                                                   :uri/version version
                                                                   :uri/version-type :static}))))
+            ;; Extract namespace definition symbols
+                                         ns-symbols (extract-ns-symbols
+                                                     ns-defs uri-base project-name version)
             ;; Extract top-level non-defining forms
                                          top-level-forms (mapcat
                                                           (fn [ns-def]
@@ -392,8 +421,8 @@
                                                              var-usages (str (:name ns-def))
                                                              uri-base project-name version))
                                                           ns-defs)
-                                         all-symbols (concat symbols-from-vars defmethods
-                                                             top-level-forms)
+                                         all-symbols (concat ns-symbols symbols-from-vars
+                                                             defmethods top-level-forms)
             ;; Populate symbol cache for fetch-source
                                          cache-entries (into {}
                                                              (map (fn [sym]
@@ -606,6 +635,9 @@
                                              :uri/project project-name
                                              :uri/version version
                                              :uri/version-type :static}))))
+            ;; Extract namespace definition symbols
+                    ns-symbols (extract-ns-symbols
+                                ns-defs uri-base project-name version)
             ;; Extract top-level non-defining forms
                     top-level-forms (mapcat
                                      (fn [ns-def]
@@ -613,8 +645,8 @@
                                         var-usages (str (:name ns-def))
                                         uri-base project-name version))
                                      ns-defs)
-                    all-symbols (concat symbols-from-vars defmethods
-                                        top-level-forms)
+                    all-symbols (concat ns-symbols symbols-from-vars
+                                        defmethods top-level-forms)
             ;; Build cache entries for new symbols
                     new-cache (into {}
                                     (map (fn [sym]
