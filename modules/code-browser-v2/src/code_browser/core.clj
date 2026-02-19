@@ -22,6 +22,7 @@
               [code-browser.db.datalevin :as datalevin]
               [code-browser.sources.protocol :as source-proto]
               [code-browser.sources.directory :as dir-source]
+              [code-browser.sources.jar :as jar-source]
               [code-browser.sources.nrepl :as nrepl-source]
               [sente-browser.server :as sente-server]
               [babashka.fs :as fs]
@@ -75,6 +76,8 @@
              :data source-config})
   (case type
     :dir (dir-source/create-directory-source path)
+    :jar (jar-source/create-jar-source
+          path (select-keys source-config [:project-name :version]))
     :nrepl (nrepl-source/create-nrepl-source
             (:host source-config) (:port source-config)
             (select-keys source-config [:project-name :exclude-patterns]))
@@ -131,6 +134,80 @@
                :refers (count refers)
                :deps (count deps-tx)})))
 
+;;; ---------------------------------------------------------------------------
+;;; JAR Dependency Scanning
+;;; ---------------------------------------------------------------------------
+
+(defn- jar-project-exists?
+  "Check if a JAR project already exists in the database (cache hit).
+   Returns true if jar://project-name@version entities exist."
+  [db project-name version]
+  (seq (locking handlers/db-lock
+                (db-proto/q db
+                            '[:find ?e
+                              :in $ ?proj ?ver
+                              :where
+                              [?e :uri/project ?proj]
+                              [?e :uri/version ?ver]
+                              [?e :uri/source :jar]]
+                            [project-name version]))))
+
+(defn- scan-project-jars!
+  "Discover and scan JAR dependencies for a directory project.
+   Uses the DB as a cache: skips JARs whose project@version already exists.
+   Only runs for projects with deps.edn (requires `clojure -Spath`)."
+  [db project-root-path]
+  (when (fs/exists? (fs/path project-root-path "deps.edn"))
+    (log/log! {:level :info
+               :id ::scan-project-jars
+               :msg "Discovering JAR dependencies"
+               :data {:project-root project-root-path}})
+    (when-let [jars (jar-source/resolve-project-jars project-root-path)]
+              (let [total (count jars)
+                    start-ms (System/currentTimeMillis)]
+                (log/log! {:level :info
+                           :id ::jar-discovery-complete
+                           :msg "Found JAR dependencies"
+                           :data {:total total}})
+                (doseq [[idx jar-info] (map-indexed vector jars)]
+                       (let [{:keys [project-name version jar-path]} jar-info
+                             n (inc idx)]
+                         (if (jar-project-exists? db project-name version)
+                           (log/log! {:level :debug
+                                      :id ::jar-cache-hit
+                                      :msg (str "Skipping JAR " n "/" total
+                                                " (cached)")
+                                      :data {:project project-name
+                                             :version version}})
+                           (do
+                            (log/log! {:level :info
+                                       :id ::jar-cache-miss
+                                       :msg (str "Scanning JAR " n "/" total
+                                                 " (cache miss)")
+                                       :data {:project project-name
+                                              :version version
+                                              :jar-path jar-path}})
+                            (try
+                             (let [source (jar-source/create-jar-source
+                                           jar-path
+                                           {:project-name project-name
+                                            :version version})]
+                               (scan-and-populate! db source))
+                             (catch Exception e
+                                    (log/log!
+                                     {:level :warn
+                                      :id ::jar-scan-error
+                                      :msg "Failed to scan JAR"
+                                      :data {:project project-name
+                                             :version version
+                                             :error (ex-message e)}})))))))
+                (log/log! {:level :info
+                           :id ::jar-scanning-complete
+                           :msg "JAR dependency scanning complete"
+                           :data {:total total
+                                  :elapsed-ms (- (System/currentTimeMillis)
+                                                 start-ms)}})))))
+
 (defn- validate-dir-source
   "Validate a directory source config. Returns error string or nil."
   [{:keys [path]}]
@@ -157,6 +234,9 @@
       {:success false :error (str "Project already loaded: " proj-name)}
       (if-let [db (handlers/get-db)]
               (let [stats (scan-and-populate! db source)]
+                ;; For :dir sources, also scan JAR dependencies
+                (when (= :dir (:type (source-proto/source-info source)))
+                  (scan-project-jars! db (:root-path source)))
                 ;; Start file watching if supported
                 (when (:supports-watch? (source-proto/source-info source))
                   (let [watch-handle
@@ -532,7 +612,10 @@
       (doseq [source-config sources]
              (let [source (create-source source-config)]
                (when auto-scan?
-                 (scan-and-populate! db source))
+                 (scan-and-populate! db source)
+                 ;; For :dir sources, also scan JAR dependencies
+                 (when (= :dir (:type source-config))
+                   (scan-project-jars! db (:path source-config))))
                ;; Start file watching if supported
                (when (:supports-watch? (source-proto/source-info source))
                  (let [proj-name (:project-name source)

@@ -93,6 +93,7 @@
                                        '[:find (pull ?e [*])
                                          :where [?e :uri/source _]
                                          (or [?e :project/root-path _]
+                                             [?e :project/jar-path _]
                                              [?e :project/nrepl-host _])]))]
       (->> results
            (map first)
@@ -448,6 +449,8 @@
    3. Refers: Symbol referred into current namespace
    4. Fully-qualified (clojure.string/join): Treat qualifier as namespace name
    5. Cross-namespace: Search all namespaces in same project for the symbol
+   6. Cross-project JAR: Resolve alias/qualifier → full ns → search :jar projects
+      For bare symbols (map, filter), checks clojure.core in jar projects
 
    Returns {:success true :uri \"...\"} or {:success false :error \"...\"}."
   [db project-name ns-name symbol-text]
@@ -514,7 +517,47 @@
        (when-let [sym (first (map first results))]
                  {:success true :uri (:uri/string sym)}))
 
-     ;; 6. Not found
+     ;; 6. Cross-project JAR lookup: resolve alias/qualifier → full ns → search :jar projects
+     (let [;; Determine the target namespace name
+           target-ns (when qualified?
+                       (or
+                        ;; Try alias resolution first
+                        (let [aliases (query-aliases db ns-name)]
+                          (:alias/to-ns
+                           (->> aliases
+                                (filter #(= (:alias/name %) qualifier))
+                                first)))
+                        ;; Otherwise treat qualifier as full namespace name
+                        qualifier))
+           sym-name (or bare-name symbol-text)]
+       (when-let [result
+                  (locking db-lock
+                           (if target-ns
+                             ;; Qualified: search for symbol in target ns across jar projects
+                             (first
+                              (map first
+                                   (db-proto/q db
+                                               '[:find (pull ?s [:uri/string])
+                                                 :in $ ?ns-name ?sym-name
+                                                 :where
+                                                 [?s :uri/namespace ?ns-name]
+                                                 [?s :symbol/name ?sym-name]
+                                                 [?s :uri/source :jar]]
+                                               [target-ns sym-name])))
+                             ;; Bare symbol: check clojure.core in jar projects
+                             (first
+                              (map first
+                                   (db-proto/q db
+                                               '[:find (pull ?s [:uri/string])
+                                                 :in $ ?sym-name
+                                                 :where
+                                                 [?s :uri/namespace "clojure.core"]
+                                                 [?s :symbol/name ?sym-name]
+                                                 [?s :uri/source :jar]]
+                                               [sym-name])))))]
+                 {:success true :uri (:uri/string result)}))
+
+     ;; 7. Not found
      {:success false :error (str "Symbol not found: " symbol-text)})))
 
 (defn- handle-resolve-symbol

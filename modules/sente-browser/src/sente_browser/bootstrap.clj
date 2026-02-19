@@ -438,6 +438,8 @@
     .pane-add-project { border-top: 1px solid #eee; flex-shrink: 0; }
     .pane-item .type-count { font-size: 10px; color: #888; margin-left: 4px; }
     .pane-item.selected .type-count { color: rgba(255,255,255,0.7); }
+    .pane-item .source-badge { font-size: 9px; color: #666; background: #e8e8e8; padding: 0 3px; border-radius: 2px; margin-left: 4px; }
+    .pane-item.selected .source-badge { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.2); }
     .pane-item .sym-kind { font-size: 10px; color: #888; margin-left: auto; padding-left: 8px; }
     .pane-item.selected .sym-kind { color: rgba(255,255,255,0.7); }
     .pane-loading { display: flex; align-items: center; justify-content: center; padding: 2rem; color: #888; flex: 1; }

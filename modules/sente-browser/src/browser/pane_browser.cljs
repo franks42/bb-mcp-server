@@ -1019,7 +1019,9 @@
                       :on-click #(select-project! browser-id (:uri/string p))}
                      (= (:uri/string p) selected)
                      (assoc :ref scroll-selected-into-view))
-             (or (:uri/project p) (:uri/string p))])
+             (or (:uri/project p) (:uri/string p))
+             (when (= :jar (:uri/source p))
+               [:span.source-badge "JAR"])])
           filtered))])
      ;; Add project input
      (let [{:keys [path error loading?]} @!add-project-state]
