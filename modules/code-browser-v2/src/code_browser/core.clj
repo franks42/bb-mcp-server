@@ -86,7 +86,7 @@
   (log/log! {:level :info
              :id ::scan-and-populate
              :msg "Scanning source and populating database"})
-  (when-let [{:keys [project namespaces symbols aliases refers]}
+  (when-let [{:keys [project namespaces symbols aliases refers deps-tx]}
              (source-proto/scan-project source)]
             (let [project-uri (:uri/string project)]
       ;; Register source for fetch-source
@@ -110,7 +110,11 @@
                                   (db-proto/transact! db (mapv clean-entity alias-batch))))
                          (when (seq refers)
                            (doseq [refer-batch (partition-all 100 refers)]
-                                  (db-proto/transact! db (mapv clean-entity refer-batch))))))
+                                  (db-proto/transact! db (mapv clean-entity refer-batch))))
+                         ;; Second pass: deps (after all symbols exist)
+                         (when (seq deps-tx)
+                           (doseq [deps-batch (partition-all 100 deps-tx)]
+                                  (db-proto/transact! db (vec deps-batch))))))
               (log/log! {:level :info
                          :id ::scan-complete
                          :msg "Source scan and database population complete"
@@ -118,12 +122,14 @@
                                 :namespaces (count namespaces)
                                 :symbols (count symbols)
                                 :aliases (count aliases)
-                                :refers (count refers)}})
+                                :refers (count refers)
+                                :deps (count deps-tx)}})
               {:project project-uri
                :namespaces (count namespaces)
                :symbols (count symbols)
                :aliases (count aliases)
-               :refers (count refers)})))
+               :refers (count refers)
+               :deps (count deps-tx)})))
 
 (defn- validate-dir-source
   "Validate a directory source config. Returns error string or nil."

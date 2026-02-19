@@ -295,6 +295,40 @@
                  :symbol/top-level-kind (top-level-kind (:name usage))})))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Dependency Extraction from var-usages
+;;; ---------------------------------------------------------------------------
+
+(defn build-deps-tx
+  "Build Datalevin transactions for :symbol/deps from clj-kondo var-usages.
+
+   Each var-usage has:
+     :from     - caller namespace
+     :from-var - caller var name
+     :to       - dependency namespace
+     :name     - dependency var name
+
+   Only stores in-project deps where both caller and dep URIs exist as symbols.
+   Returns a vector of [:db/add caller-uri :symbol/deps dep-lookup-ref] transactions."
+  [var-usages uri-base all-symbol-uris]
+  (let [uri-set (set all-symbol-uris)]
+    (->> var-usages
+         (keep (fn [usage]
+                 (let [from-ns (str (:from usage))
+                       from-var (str (:from-var usage))
+                       to-ns (str (:to usage))
+                       to-name (str (:name usage))
+                       caller-uri (str uri-base "/" from-ns "/" from-var)
+                       dep-uri (str uri-base "/" to-ns "/" to-name)]
+                   ;; Only include when both exist in project and are different
+                   (when (and (contains? uri-set caller-uri)
+                              (contains? uri-set dep-uri)
+                              (not= caller-uri dep-uri))
+                     [:db/add [:uri/string caller-uri]
+                      :symbol/deps [:uri/string dep-uri]]))))
+         (distinct)
+         vec)))
+
+;;; ---------------------------------------------------------------------------
 ;;; Source Extraction
 ;;; ---------------------------------------------------------------------------
 
@@ -430,7 +464,11 @@
                                                                      {:file (:symbol/file sym)
                                                                       :line (:symbol/line sym)
                                                                       :end-line (:symbol/end-line sym)}])
-                                                                  all-symbols))]
+                                                                  all-symbols))
+            ;; Build deps transactions (second pass)
+                                         all-symbol-uris (mapv :uri/string all-symbols)
+                                         deps-tx (build-deps-tx var-usages uri-base
+                                                                all-symbol-uris)]
                                      (reset! symbol-cache cache-entries)
                                      (log/log! {:level :info
                                                 :id ::scan-complete
@@ -440,12 +478,14 @@
                                                        :symbol-count (count all-symbols)
                                                        :alias-count (count aliases)
                                                        :refer-count (count refers)
+                                                       :deps-tx-count (count deps-tx)
                                                        :cache-size (count cache-entries)}})
                                      {:project project
                                       :namespaces (vec namespaces)
                                       :symbols (vec all-symbols)
                                       :aliases (vec aliases)
-                                      :refers (vec refers)})))
+                                      :refers (vec refers)
+                                      :deps-tx deps-tx})))
 
            (fetch-source [_this uri-string]
                          (log/log! {:level :debug

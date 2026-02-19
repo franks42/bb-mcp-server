@@ -207,6 +207,9 @@
     .cm-editor { height: 100%; font-family: 'Fira Code', monospace !important; }
     .cm-editor .cm-content { font-family: 'Fira Code', monospace !important; }
     .cm-editor .cm-gutters { font-family: 'Fira Code', monospace !important; }
+    /* Cmd+Click navigation cursor */
+    .cm-editor.cm-cmd-hover .cm-content { cursor: pointer; }
+    .cm-editor.cm-cmd-hover .cm-line { text-decoration-color: #1976D2; }
     /* Phase 1.5E.12: Line highlighting for protocol impls/methods */
     .cm-editor .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.25); }
     .cm-editor.cm-focused .cm-highlighted-line { background-color: rgba(255, 220, 0, 0.35); }
@@ -461,6 +464,13 @@
     .pane-item.highlighted { background: #e8f0fe; outline: 1px solid #bbdefb; }
     .pane-item.highlighted.selected { background: #1565C0; outline: 1px solid #0d47a1; }
     .pane-browser:focus { outline: none; }
+    /* Dep/Caller open-in-new-window icon */
+    .dep-open-new { margin-left: auto; padding: 0 4px; cursor: pointer; color: #999; font-size: 12px; }
+    .dep-open-new:hover { color: #1976D2; }
+    /* Navigation buttons */
+    .nav-btn { font-size: 11px; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fafafa; cursor: pointer; line-height: 1; color: #555; margin-right: 2px; }
+    .nav-btn:hover:not(:disabled) { background: #e3f2fd; border-color: #90caf9; }
+    .nav-btn:disabled { opacity: 0.3; cursor: default; }
     /* Sort mode toggle */
     .pane-column-header { display: flex; align-items: center; justify-content: space-between; }
     .sort-mode-btn { font-size: 10px; padding: 1px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fafafa; cursor: pointer; line-height: 1.2; color: #555; }
@@ -469,6 +479,15 @@
     .pane-item.top-level { font-style: italic; color: #888; border-left: 2px solid #ffb74d; }
     .pane-item.top-level:hover { background: #fff8e1; }
     .pane-item.top-level.selected { color: white; border-left-color: #ffa726; }
+    /* Copy feedback */
+    .copy-fqn-btn.nav-btn:not(:disabled) { color: #1976D2; }
+    /* Drop target highlight */
+    .pane-browser.drop-target { outline: 2px dashed #1976D2; outline-offset: -2px; }
+    /* Draggable items */
+    .pane-item[draggable=true] { cursor: grab; }
+    .pane-item[draggable=true]:active { cursor: grabbing; }
+    .dep-item[draggable=true] { cursor: grab; }
+    .dep-item[draggable=true]:active { cursor: grabbing; }
     /* Browser toolbar */
     .browser-toolbar { display: flex; gap: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-bottom: 1px solid #ddd; }
     .new-browser-btn { font-size: 12px; padding: 4px 12px; border: 1px solid #ccc; border-radius: 3px; background: white; cursor: pointer; }

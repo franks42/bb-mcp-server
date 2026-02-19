@@ -4,6 +4,7 @@
    Handles browser requests by querying Datalevin and updating synced state.
    Uses the IProjectSource protocol for source fetching."
     (:require [clojure.set :as set]
+              [clojure.string :as str]
               [code-browser.sync :as sync]
               [code-browser.db.protocol :as db-proto]
               [code-browser.sources.protocol :as source-proto]
@@ -382,12 +383,20 @@
 
                :deps
                (if (and parsed symbol-name)
-                 {:success true :data []}
+                 (let [results (locking db-lock
+                                        (db-proto/q db
+                                                    (:symbol-deps db-proto/queries)
+                                                    [base]))]
+                   {:success true :data (vec (or results []))})
                  {:success false :error "deps requires a symbol-level URI"})
 
                :callers
                (if (and parsed symbol-name)
-                 {:success true :data []}
+                 (let [results (locking db-lock
+                                        (db-proto/q db
+                                                    (:symbol-callers db-proto/queries)
+                                                    [base]))]
+                   {:success true :data (vec (or results []))})
                  {:success false :error "callers requires a symbol-level URI"})
 
                :var-value
@@ -413,6 +422,109 @@
                      :msg "Fetch failed"
                      :data {:uri uri :property property :error (ex-message e)}})
           {:success false :error (ex-message e)})))
+
+;;; ---------------------------------------------------------------------------
+;;; Symbol Resolution
+;;; ---------------------------------------------------------------------------
+
+(defn- resolve-symbol-in-context
+  "Resolve a symbol name to a URI within a project/namespace context.
+
+   Resolution strategy (in order):
+   1. Alias-qualified (str/join): Look up alias → namespace → find symbol
+   2. Local: Symbol defined in current namespace
+   3. Refers: Symbol referred into current namespace
+   4. Fully-qualified (clojure.string/join): Treat qualifier as namespace name
+   5. Cross-namespace: Search all namespaces in same project for the symbol
+
+   Returns {:success true :uri \"...\"} or {:success false :error \"...\"}."
+  [db project-name ns-name symbol-text]
+  (log/log! {:level :info
+             :id ::resolve-symbol
+             :msg "Resolving symbol"
+             :data {:project project-name :ns ns-name :symbol symbol-text}})
+  (let [;; Check if symbol is qualified (contains /)
+        slash-idx (str/index-of symbol-text "/")
+        qualified? (some? slash-idx)
+        qualifier (when qualified? (subs symbol-text 0 slash-idx))
+        bare-name (if qualified? (subs symbol-text (inc slash-idx)) symbol-text)]
+    (or
+     ;; 1. Alias-qualified: str/join → look up alias "str" → clojure.string → find join
+     (when (and qualified? qualifier)
+       (let [aliases (query-aliases db ns-name)]
+         (when-let [alias-match (->> aliases
+                                     (filter #(= (:alias/name %) qualifier))
+                                     first)]
+                   (let [target-ns (:alias/to-ns alias-match)
+                         syms (query-symbols db project-name target-ns)]
+                     (when-let [sym (->> syms
+                                         (filter #(= (:symbol/name %) bare-name))
+                                         first)]
+                               {:success true :uri (:uri/string sym)})))))
+
+     ;; 2. Local: Symbol defined in current namespace
+     (let [local-syms (query-symbols db project-name ns-name)]
+       (when-let [sym (->> local-syms
+                           (filter #(= (:symbol/name %) symbol-text))
+                           first)]
+                 {:success true :uri (:uri/string sym)}))
+
+     ;; 3. Refers: Symbol referred into current namespace
+     (let [refers (query-refers db ns-name)]
+       (when-let [refer-match (->> refers
+                                   (filter #(= (:refer/symbol %) symbol-text))
+                                   first)]
+                 ;; Look up the symbol in its source namespace
+                 (let [from-ns (:refer/from-ns-source refer-match)
+                       syms (query-symbols db project-name from-ns)]
+                   (when-let [sym (->> syms
+                                       (filter #(= (:symbol/name %) symbol-text))
+                                       first)]
+                             {:success true :uri (:uri/string sym)}))))
+
+     ;; 4. Fully-qualified: clojure.string/join → qualifier is namespace name
+     (when (and qualified? qualifier)
+       (let [syms (query-symbols db project-name qualifier)]
+         (when-let [sym (->> syms
+                             (filter #(= (:symbol/name %) bare-name))
+                             first)]
+                   {:success true :uri (:uri/string sym)})))
+
+     ;; 5. Cross-namespace: Search all namespaces in same project
+     (let [results (locking db-lock
+                            (db-proto/q db
+                                        '[:find (pull ?s [:uri/string :symbol/name
+                                                          :uri/namespace])
+                                          :in $ ?proj-name ?sym-name
+                                          :where [?s :symbol/name ?sym-name]
+                                          [?s :uri/project ?proj-name]]
+                                        [project-name (or bare-name symbol-text)]))]
+       (when-let [sym (first (map first results))]
+                 {:success true :uri (:uri/string sym)}))
+
+     ;; 6. Not found
+     {:success false :error (str "Symbol not found: " symbol-text)})))
+
+(defn- handle-resolve-symbol
+  "Handle a symbol resolution request from the browser.
+   Input: {:project-name :ns-name :symbol-text :widget-id :new-window?}
+   Output: {:success bool :uri string :widget-id keyword :new-window? bool}"
+  [data]
+  (let [{:keys [project-name ns-name symbol-text widget-id new-window?]} data]
+    (if-let [db (get-db)]
+            (let [parsed-ns (when ns-name (uri/parse ns-name))
+                  proj-name (or project-name
+                                (:uri/project parsed-ns))
+                  namespace (or (when parsed-ns (:uri/namespace parsed-ns))
+                                ns-name)]
+              (locking db-lock
+                       (let [result (resolve-symbol-in-context
+                                     db proj-name namespace symbol-text)]
+                         (assoc result
+                                :widget-id widget-id
+                                :new-window? new-window?))))
+            {:success false :error "No database configured"
+             :widget-id widget-id})))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Incremental Datalevin Updates
@@ -895,6 +1007,9 @@
         [:code-browser-v2/add-project-result (add-fn data)]
         [:code-browser-v2/add-project-result
          {:success false :error "Not initialized"}]))
+
+    :code-browser-v2/resolve-symbol
+    [:code-browser-v2/resolve-symbol-result (handle-resolve-symbol data)]
 
     ;; Unknown event
     (do

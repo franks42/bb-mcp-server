@@ -94,7 +94,10 @@
    :focused-pane nil
    :highlight {:projects -1 :namespaces -1 :sym-types -1 :symbols -1}
    :pane-widths default-pane-widths
-   :inspector-height default-inspector-height})
+   :inspector-height default-inspector-height
+   ;; Navigation history (browser-style back/forward)
+   :nav-history []   ;; vector of {:project :namespace :symbol :tab}
+   :nav-index -1})
 
 ;; =============================================================================
 ;; Helpers
@@ -287,6 +290,239 @@
                 (fetch-inspector-tab! browser-id)))))
 
 ;; =============================================================================
+;; Navigation History
+;; =============================================================================
+
+(defn- current-location
+  "Capture the current selection state as a history entry."
+  [state]
+  (let [sel (:selections state)]
+    {:project (:project sel)
+     :namespace (:namespace sel)
+     :symbol (:symbol sel)
+     :tab (:active-tab state)}))
+
+(defn- push-nav-history!
+  "Save current location to history, truncating any forward entries."
+  [!b]
+  (swap! !b (fn [s]
+              (let [loc (current-location s)
+                    idx (:nav-index s)
+                    ;; Truncate forward entries (browser-like behavior)
+                    history (subvec (:nav-history s) 0 (max 0 (inc idx)))]
+                (-> s
+                    (assoc :nav-history (conj history loc))
+                    (assoc :nav-index (count history)))))))
+
+(defn- restore-location!
+  "Restore a history entry by cascading selections with setTimeout delays."
+  [browser-id loc]
+  (let [{:keys [project namespace symbol tab]} loc]
+    (if project
+      (do (select-project! browser-id project)
+          (when namespace
+            (js/setTimeout
+             (fn []
+               (select-namespace! browser-id namespace)
+               (when symbol
+                 (js/setTimeout
+                  (fn []
+                    (select-symbol! browser-id symbol)
+                    (when tab
+                      (js/setTimeout
+                       #(switch-tab! browser-id tab) 200)))
+                  300)))
+             300)))
+      ;; No project — just clear selections
+      (when-let [!b (get-browser-atom browser-id)]
+                (swap! !b assoc :selections
+                       {:project nil :namespace nil
+                        :sym-type nil :symbol nil})))))
+
+(defn- navigate-back!
+  "Move back in navigation history."
+  [browser-id]
+  (when-let [!b (get-browser-atom browser-id)]
+            (let [state @!b
+                  idx (:nav-index state)]
+              (when (> idx 0)
+                (let [new-idx (dec idx)
+                      loc (get (:nav-history state) new-idx)]
+                  (swap! !b assoc :nav-index new-idx)
+                  (restore-location! browser-id loc))))))
+
+(defn- navigate-forward!
+  "Move forward in navigation history."
+  [browser-id]
+  (when-let [!b (get-browser-atom browser-id)]
+            (let [state @!b
+                  idx (:nav-index state)
+                  history (:nav-history state)]
+              (when (< idx (dec (count history)))
+                (let [new-idx (inc idx)
+                      loc (get history new-idx)]
+                  (swap! !b assoc :nav-index new-idx)
+                  (restore-location! browser-id loc))))))
+
+(declare open-browser!)
+
+(defn navigate-to-symbol!
+  "Navigate to a symbol by URI. Pushes current location to history.
+   Options:
+     :new-window? - Open in a new WinBox window instead of same window
+     :project-uri - Override project URI (otherwise extracted from symbol-uri)
+     :ns-uri      - Override namespace URI (otherwise extracted from symbol-uri)"
+  ([browser-id symbol-uri]
+   (navigate-to-symbol! browser-id symbol-uri {}))
+  ([browser-id symbol-uri opts]
+   (when-let [!b (get-browser-atom browser-id)]
+             (let [parsed (uri/parse symbol-uri)]
+               (when parsed
+                 (if (:new-window? opts)
+                   ;; Open in a new WinBox window
+                   (let [proj-uri (or (:project-uri opts) (uri/project-uri parsed))
+                         ns-uri (or (:ns-uri opts) (uri/namespace-uri parsed))]
+                     (open-browser!
+                      {:project-uri proj-uri
+                       :auto-nav {:ns-uri ns-uri
+                                  :symbol-uri symbol-uri}}))
+                   ;; Navigate in same window
+                   (let [state @!b
+                         sel (:selections state)
+                         proj-uri (or (:project-uri opts) (uri/project-uri parsed))
+                         ns-uri (or (:ns-uri opts) (uri/namespace-uri parsed))
+                         same-proj? (= (:project sel) proj-uri)
+                         same-ns? (and same-proj?
+                                       (= (:namespace sel) ns-uri))]
+                     ;; Push current location before navigating
+                     (push-nav-history! !b)
+                     (cond
+                       ;; Same namespace — just select the symbol
+                       same-ns?
+                       (select-symbol! browser-id symbol-uri)
+                       ;; Same project — select namespace then symbol
+                       same-proj?
+                       (do (select-namespace! browser-id ns-uri)
+                           (js/setTimeout
+                            #(select-symbol! browser-id symbol-uri) 300))
+                       ;; Different project — cascade all three
+                       :else
+                       (do (select-project! browser-id proj-uri)
+                           (js/setTimeout
+                            (fn []
+                              (select-namespace! browser-id ns-uri)
+                              (js/setTimeout
+                               #(select-symbol! browser-id symbol-uri) 300))
+                            300))))))))))
+
+;; =============================================================================
+;; Clipboard & Drag-and-Drop
+;; =============================================================================
+
+(defn- symbol-fqn
+  "Build a fully-qualified name from a symbol's URI.
+   Returns ns/name or just name if namespace is unavailable."
+  [symbol-uri]
+  (when symbol-uri
+    (let [parsed (uri/parse symbol-uri)]
+      (if (:uri/namespace parsed)
+        (str (:uri/namespace parsed) "/" (:uri/symbol parsed))
+        (:uri/symbol parsed)))))
+
+(defn- copy-symbol-fqn!
+  "Copy the currently selected symbol's FQN to clipboard.
+   Shows brief visual feedback."
+  [browser-id]
+  (when-let [!b (get-browser-atom browser-id)]
+            (let [sym-uri (get-in @!b [:selections :symbol])]
+              (when sym-uri
+                (let [fqn (symbol-fqn sym-uri)]
+                  (-> (js/navigator.clipboard.writeText fqn)
+                      (.then (fn []
+                               (swap! !b assoc :copy-feedback fqn)
+                               (js/setTimeout
+                                #(swap! !b dissoc :copy-feedback)
+                                1500)))))))))
+
+(defn- paste-navigate!
+  "Read clipboard text and navigate to it as a symbol FQN.
+   Accepts ns/name or full URI."
+  [browser-id]
+  (-> (js/navigator.clipboard.readText)
+      (.then (fn [text]
+               (let [text (str/trim text)]
+                 (when (not (str/blank? text))
+                   (if (or (str/starts-with? text "dir://")
+                           (str/starts-with? text "nrepl://"))
+                     ;; Full URI — navigate directly
+                     (navigate-to-symbol! browser-id text)
+                     ;; Qualified name — resolve via server
+                     (when-let [!b (get-browser-atom browser-id)]
+                               (let [state @!b
+                                     sel (:selections state)
+                                     ns-uri (:namespace sel)
+                                     parsed (when ns-uri (uri/parse ns-uri))
+                                     proj-name (:uri/project parsed)]
+                                 (send-event!
+                                  :code-browser-v2/resolve-symbol
+                                  {:project-name proj-name
+                                   :ns-name ns-uri
+                                   :symbol-text text
+                                   :widget-id (make-request-id
+                                               browser-id :resolve)}))))))))))
+
+(defn- make-drag-data
+  "Build drag event data for a symbol URI."
+  [sym-uri]
+  {:uri sym-uri
+   :fqn (symbol-fqn sym-uri)})
+
+(defn- handle-drag-start!
+  "Set up drag data for a symbol."
+  [e sym-uri]
+  (let [dt (.-dataTransfer e)
+        data (make-drag-data sym-uri)]
+    (.setData dt "text/plain" (:fqn data))
+    (.setData dt "application/x-cb-uri" sym-uri)
+    (set! (.-effectAllowed dt) "copyMove")))
+
+(defn- handle-browser-drop!
+  "Handle drop on a browser window — navigate to the dropped symbol."
+  [browser-id e]
+  (.preventDefault e)
+  (let [dt (.-dataTransfer e)
+        cb-uri (.getData dt "application/x-cb-uri")
+        text (.getData dt "text/plain")]
+    ;; Remove drop-target highlight
+    (when-let [!b (get-browser-atom browser-id)]
+              (swap! !b dissoc :drop-target?))
+    (cond
+      ;; Prefer internal URI
+      (not (str/blank? cb-uri))
+      (navigate-to-symbol! browser-id cb-uri)
+
+      ;; Fall back to text (FQN or URI)
+      (not (str/blank? text))
+      (let [text (str/trim text)]
+        (if (or (str/starts-with? text "dir://")
+                (str/starts-with? text "nrepl://"))
+          (navigate-to-symbol! browser-id text)
+          ;; Try to resolve as FQN
+          (when-let [!b (get-browser-atom browser-id)]
+                    (let [state @!b
+                          sel (:selections state)
+                          ns-uri (:namespace sel)
+                          parsed (when ns-uri (uri/parse ns-uri))
+                          proj-name (:uri/project parsed)]
+                      (send-event!
+                       :code-browser-v2/resolve-symbol
+                       {:project-name proj-name
+                        :ns-name ns-uri
+                        :symbol-text text
+                        :widget-id (make-request-id
+                                    browser-id :resolve)}))))))))
+
+;; =============================================================================
 ;; Derived Data
 ;; =============================================================================
 
@@ -450,6 +686,21 @@
     (swap! !add-project-state assoc :loading? false
            :error (:error data))))
 
+(defn- handle-resolve-symbol-result!
+  "Handle resolve-symbol response. Navigate to the resolved symbol."
+  [data]
+  (let [{:keys [success uri widget-id error new-window?]} data]
+    (when-let [parsed (parse-request-id (keyword (str (name widget-id))))]
+              (let [{:keys [browser-id]} parsed]
+                (if (and success uri)
+                  (navigate-to-symbol! browser-id uri
+                                       (when new-window?
+                                         {:new-window? true}))
+                  (log/log! {:level :warn :id ::resolve-failed
+                             :msg "Symbol resolution failed"
+                             :data {:error error
+                                    :browser-id browser-id}}))))))
+
 ;; Register event handler for all code-browser-v2 events
 (bootstrap/register-event-handler!
  :code-browser-v2
@@ -472,6 +723,9 @@
 
      :code-browser-v2/symbol-list-fingerprint-result
      (handle-symbol-list-fingerprint-result! data)
+
+     :code-browser-v2/resolve-symbol-result
+     (handle-resolve-symbol-result! data)
 
      ;; Ignore other events
      nil)))
@@ -628,7 +882,28 @@
   (let [key (.-key e)
         state @!b
         pane (:focused-pane state)]
-    (when pane
+    ;; Global shortcuts (work regardless of focused pane)
+    (cond
+      ;; Alt+Left → navigate back
+      (and (= key "ArrowLeft") (.-altKey e))
+      (do (.preventDefault e) (navigate-back! browser-id))
+
+      ;; Alt+Right → navigate forward
+      (and (= key "ArrowRight") (.-altKey e))
+      (do (.preventDefault e) (navigate-forward! browser-id))
+
+      ;; Cmd+C → copy selected symbol FQN (when no text selection)
+      (and (= key "c") (.-metaKey e)
+           (str/blank? (str (.getSelection js/window))))
+      (do (.preventDefault e) (copy-symbol-fqn! browser-id))
+
+      ;; Cmd+V → paste FQN to navigate (when no text input focused)
+      (and (= key "v") (.-metaKey e)
+           (not (#{"INPUT" "TEXTAREA"} (.-tagName (.-activeElement js/document)))))
+      (do (.preventDefault e) (paste-navigate! browser-id))
+
+      ;; Pane-specific shortcuts
+      pane
       (case key
         "ArrowDown"
         (do (.preventDefault e)
@@ -894,6 +1169,8 @@
                           (when (:symbol/top-level? sym) " top-level")
                           (when (and focused? (= i highlight-idx))
                             " highlighted"))
+              :draggable true
+              :on-drag-start #(handle-drag-start! % (:uri/string sym))
               :on-click #(select-symbol! browser-id (:uri/string sym))}
              [:span (:symbol/name sym)]
              (when-let [kind (:symbol/type sym)]
@@ -906,19 +1183,35 @@
 ;; =============================================================================
 
 (defn- source-inspector
-  "Render source code in CM6 editor."
-  [data]
+  "Render source code in CM6 editor with Cmd+Click navigation."
+  [browser-id data]
   (if data
-    [:div.source-view
-     [cm6/editor {:value (:content data)
-                  :language :clojure
-                  :read-only true}]
-     (when (:file data)
-       [:div.source-info
-        [:span (str (:file data)
-                    (when (:start-line data)
-                      (str " lines " (:start-line data)
-                           "-" (:end-line data))))]])]
+    (let [on-navigate (fn [{:keys [symbol-text shift?]}]
+                        (when-let [!b (get-browser-atom browser-id)]
+                                  (let [state @!b
+                                        sel (:selections state)
+                                        ns-uri (:namespace sel)
+                                        parsed (when ns-uri (uri/parse ns-uri))
+                                        proj-name (:uri/project parsed)]
+                                    (send-event!
+                                     :code-browser-v2/resolve-symbol
+                                     {:project-name proj-name
+                                      :ns-name ns-uri
+                                      :symbol-text symbol-text
+                                      :new-window? shift?
+                                      :widget-id (make-request-id
+                                                  browser-id :resolve)}))))]
+      [:div.source-view
+       [cm6/editor {:value (:content data)
+                    :language :clojure
+                    :read-only true
+                    :on-navigate on-navigate}]
+       (when (:file data)
+         [:div.source-info
+          [:span (str (:file data)
+                      (when (:start-line data)
+                        (str " lines " (:start-line data)
+                             "-" (:end-line data))))]])])
     [:div.inspector-empty "No source available"]))
 
 (defn- doc-inspector
@@ -1037,15 +1330,77 @@
              (str " (from " (:refer/from-ns-source r) ")")]]))]
     [:div.inspector-empty "No refers"]))
 
+(defn- dep-caller-item
+  "Render a single dep or caller item. Clickable to navigate."
+  [browser-id entry]
+  (let [sym-name (:symbol/name entry)
+        sym-type (:symbol/type entry)
+        ns-name (:uri/namespace entry)
+        sym-uri (:uri/string entry)]
+    [:div.dep-item
+     {:draggable (boolean sym-uri)
+      :on-drag-start #(when sym-uri (handle-drag-start! % sym-uri))
+      :on-click #(when sym-uri
+                   (navigate-to-symbol! browser-id sym-uri))}
+     [:span.dep-name sym-name]
+     (when sym-type
+       [:span.sym-kind (name sym-type)])
+     (when ns-name
+       [:span.dep-ns (str "(" ns-name ")")])
+     [:span.dep-open-new
+      {:title "Open in new window"
+       :on-click (fn [e]
+                   (.stopPropagation e)
+                   (when sym-uri
+                     (navigate-to-symbol! browser-id sym-uri
+                                          {:new-window? true})))}
+      "\u2197"]]))
+
 (defn- deps-inspector
-  "Render symbol dependencies (placeholder)."
-  [_data]
-  [:div.inspector-empty "Dependencies view coming soon"])
+  "Render symbol dependencies as clickable list."
+  [browser-id data]
+  (let [state (when-let [!b (get-browser-atom browser-id)]
+                        @!b)
+        is-nrepl? (and state
+                       (some-> (get-in state [:selections :project])
+                               (str/starts-with? "nrepl://")))]
+    (cond
+      is-nrepl?
+      [:div.inspector-empty "Not available for runtime sources"]
+
+      (seq data)
+      [:div {:style {:padding "0.5rem" :overflow "auto"}}
+       [:div.deps-header (str (count data) " dependencies")]
+       (doall
+        (for [entry data]
+             ^{:key (or (:uri/string entry) (:symbol/name entry))}
+             [dep-caller-item browser-id entry]))]
+
+      :else
+      [:div.inspector-empty "No dependencies"])))
 
 (defn- callers-inspector
-  "Render symbol callers (placeholder)."
-  [_data]
-  [:div.inspector-empty "Callers view coming soon"])
+  "Render symbol callers as clickable list."
+  [browser-id data]
+  (let [state (when-let [!b (get-browser-atom browser-id)]
+                        @!b)
+        is-nrepl? (and state
+                       (some-> (get-in state [:selections :project])
+                               (str/starts-with? "nrepl://")))]
+    (cond
+      is-nrepl?
+      [:div.inspector-empty "Not available for runtime sources"]
+
+      (seq data)
+      [:div {:style {:padding "0.5rem" :overflow "auto"}}
+       [:div.deps-header (str (count data) " callers")]
+       (doall
+        (for [entry data]
+             ^{:key (or (:uri/string entry) (:symbol/name entry))}
+             [dep-caller-item browser-id entry]))]
+
+      :else
+      [:div.inspector-empty "No callers"])))
 
 ;; =============================================================================
 ;; Inspector Panel
@@ -1058,11 +1413,34 @@
         tabs (available-tabs state)
         active (:active-tab state)
         pane-state (get-in state [:pane-states :inspector])
-        data (get-in state [:data :inspector active])]
+        data (get-in state [:data :inspector active])
+        nav-idx (:nav-index state)
+        nav-history (:nav-history state)
+        can-back? (> nav-idx 0)
+        can-fwd? (< nav-idx (dec (count nav-history)))
+        has-symbol? (some? (get-in state [:selections :symbol]))
+        copy-feedback (:copy-feedback state)]
     [:div.pane-inspector
      {:style {:flex (str (:inspector-height state))}}
-     ;; Tab bar
+     ;; Tab bar with back/forward buttons
      [:div.inspector-tabs
+      ;; Back/Forward navigation buttons
+      [:button.nav-btn
+       {:disabled (not can-back?)
+        :title "Back (Alt+Left)"
+        :on-click #(navigate-back! browser-id)}
+       "\u25C0"]
+      [:button.nav-btn
+       {:disabled (not can-fwd?)
+        :title "Forward (Alt+Right)"
+        :on-click #(navigate-forward! browser-id)}
+       "\u25B6"]
+      ;; Copy FQN button
+      [:button.nav-btn.copy-fqn-btn
+       {:disabled (not has-symbol?)
+        :title "Copy symbol FQN (Cmd+C)"
+        :on-click #(copy-symbol-fqn! browser-id)}
+       (if copy-feedback "\u2713" "\u2398")]
       (doall
        (for [tab tabs]
             ^{:key tab}
@@ -1077,13 +1455,13 @@
         (case pane-state
           :loading [:div.pane-loading [:div.mini-spinner] [:span "Loading..."]]
           (case active
-            :source [source-inspector data]
+            :source [source-inspector browser-id data]
             :doc [doc-inspector data]
             :var-value [var-value-inspector data]
             :aliases [aliases-inspector data]
             :refers [refers-inspector data]
-            :deps [deps-inspector data]
-            :callers [callers-inspector data]
+            :deps [deps-inspector browser-id data]
+            :callers [callers-inspector browser-id data]
             [:div.inspector-empty "Unknown tab"])))]]))
 
 ;; =============================================================================
@@ -1097,10 +1475,22 @@
   (let [!b (get-browser-atom browser-id)]
     (when !b
       (let [state @!b
-            columns-flex (str (- 1.0 (:inspector-height state)))]
+            columns-flex (str (- 1.0 (:inspector-height state)))
+            drop-target? (:drop-target? state)]
         [:div.pane-browser
          {:tab-index 0
-          :on-key-down #(handle-browser-keydown! browser-id !b %)}
+          :class (when drop-target? "drop-target")
+          :on-key-down #(handle-browser-keydown! browser-id !b %)
+          :on-drag-over (fn [e]
+                          (.preventDefault e)
+                          (set! (.-dropEffect (.-dataTransfer e)) "copy")
+                          (swap! !b assoc :drop-target? true))
+          :on-drag-leave (fn [e]
+                           ;; Only clear when leaving the browser root
+                           (when-not (.contains (.-currentTarget e)
+                                                (.-relatedTarget e))
+                             (swap! !b dissoc :drop-target?)))
+          :on-drop #(handle-browser-drop! browser-id %)}
          ;; 4-column pane area
          [:div.pane-columns {:style {:flex columns-flex}}
           [projects-pane browser-id !b]
@@ -1131,8 +1521,12 @@
 (declare close-browser!)
 
 (defn open-browser!
-  "Open a new pane browser instance in a WinBox window."
-  [{:keys [title project-uri]}]
+  "Open a new pane browser instance in a WinBox window.
+   Options:
+     :title        - Window title
+     :project-uri  - Auto-select this project
+     :auto-nav     - {:ns-uri :symbol-uri} to auto-navigate after opening"
+  [{:keys [title project-uri auto-nav]}]
   (let [bid (next-browser-id)
         !b (r/atom (make-browser-state bid))
         vw (.-innerWidth js/window)
@@ -1162,10 +1556,24 @@
     (rdom/render [browser-layout bid] (.-body wb))
     ;; Fetch initial project list
     (fetch-for-pane! bid :projects nil :project-list)
-    ;; Auto-select project if provided
-    (when project-uri
-      ;; Delay to let project list load first
-      (js/setTimeout #(select-project! bid project-uri) 500))
+    ;; Auto-select project and optionally auto-navigate to symbol
+    (let [p-uri (or project-uri
+                    (when auto-nav
+                      (when-let [parsed (uri/parse (:symbol-uri auto-nav))]
+                                (uri/project-uri parsed))))]
+      (when p-uri
+        (js/setTimeout
+         (fn []
+           (select-project! bid p-uri)
+           (when auto-nav
+             (js/setTimeout
+              (fn []
+                (select-namespace! bid (:ns-uri auto-nav))
+                (js/setTimeout
+                 #(select-symbol! bid (:symbol-uri auto-nav))
+                 300))
+              300)))
+         500)))
     (log/log! {:level :info :id ::browser-opened
                :msg "Pane browser opened"
                :data {:browser-id bid}})

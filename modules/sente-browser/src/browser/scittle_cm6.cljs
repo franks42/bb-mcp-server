@@ -92,9 +92,68 @@
                             (.from (.-decorations EditorView) field))})]
         highlight-field))))
 
+(defn- word-at-pos
+  "Extract the Clojure symbol word at a given document position.
+   Returns the word string or nil if position is not on a word."
+  [doc pos]
+  (let [line (.lineAt doc pos)
+        line-text (.-text line)
+        line-start (.-from line)
+        col (- pos line-start)
+        ;; Clojure symbol chars: alphanumeric, -, !, ?, *, ., /, _, >, <, =, +
+        sym-re #"[a-zA-Z0-9\-\!\?\*\.\/\_\>\<\=\+]"]
+    (when (and (>= col 0) (< col (count line-text)))
+      (let [ch (str (nth line-text col))]
+        (when (re-matches sym-re ch)
+          ;; Scan left
+          (let [start (loop [i col]
+                            (if (and (> i 0)
+                                     (re-matches sym-re (str (nth line-text (dec i)))))
+                              (recur (dec i))
+                              i))
+                ;; Scan right
+                end (loop [i col]
+                          (if (and (< i (dec (count line-text)))
+                                   (re-matches sym-re (str (nth line-text (inc i)))))
+                            (recur (inc i))
+                            (inc i)))]
+            (subs line-text start end)))))))
+
+(defn- create-cmd-click-extension
+  "Create a CM6 extension for Cmd+Click navigation on symbols.
+   on-navigate is called with {:symbol-text word :shift? bool}."
+  [on-navigate]
+  (let [cm (get-cm)]
+    (when (and cm on-navigate)
+      (.domEventHandlers
+       (.-EditorView cm)
+       #js {:click
+            (fn [e view]
+              (when (.-metaKey e)
+                (let [pos (.posAtCoords view #js {:x (.-clientX e) :y (.-clientY e)})]
+                  (when (and pos (>= pos 0))
+                    (let [doc (.-doc (.-state view))
+                          word (word-at-pos doc pos)]
+                      (when (and word (not= word ""))
+                        (.preventDefault e)
+                        (on-navigate {:symbol-text word
+                                      :shift? (.-shiftKey e)}))))))
+              js/undefined)
+            :mousemove
+            (fn [e view]
+              (let [dom (.-dom view)]
+                (if (.-metaKey e)
+                  (.add (.-classList dom) "cm-cmd-hover")
+                  (.remove (.-classList dom) "cm-cmd-hover")))
+              js/undefined)
+            :keyup
+            (fn [_e view]
+              (.remove (.-classList (.-dom view)) "cm-cmd-hover")
+              js/undefined)}))))
+
 (defn- create-extensions
   "Create CM6 extensions based on options."
-  [{:keys [language read-only on-change highlight-line highlight-end-line]}]
+  [{:keys [language read-only on-change on-navigate highlight-line highlight-end-line]}]
   (let [cm (get-cm)]
     (when cm
       (let [basic-setup (.-basicSetup cm)
@@ -112,6 +171,9 @@
                       (fn [update]
                         (when (.-docChanged update)
                           (on-change (.toString (.-doc (.-state update)))))))))
+        ;; Add Cmd+Click navigation extension
+        (when-let [nav-ext (create-cmd-click-extension on-navigate)]
+                  (.push extensions nav-ext))
         ;; Add line highlighting extension (Phase 1.5E.12)
         (when-let [highlight-ext (create-highlight-extension highlight-line highlight-end-line)]
                   (.push extensions highlight-ext))
@@ -175,11 +237,12 @@
    - :language           - Language mode (:clojure supported)
    - :read-only          - Make editor read-only (default false)
    - :on-change          - Callback fn called with new value on changes
+   - :on-navigate        - Callback for Cmd+Click, called with {:symbol-text :shift?}
    - :highlight-line     - Start line (1-based) to highlight (Phase 1.5E.12)
    - :highlight-end-line - End line for multi-line highlight (optional)
    - :class              - Additional CSS class for container
    - :style              - Inline styles for container"
-  [{:keys [id value language read-only on-change highlight-line highlight-end-line
+  [{:keys [id value language read-only on-change on-navigate highlight-line highlight-end-line
            _class _style]}]
   (let [editor-id (or id (str "cm6-" (uuidv7/uuidv7)))
         !view (atom nil)              ; mutable ref for EditorView
@@ -198,6 +261,7 @@
                                                 :language language
                                                 :read-only read-only
                                                 :on-change on-change
+                                                :on-navigate on-navigate
                                                 :highlight-line highlight-line
                                                 :highlight-end-line highlight-end-line})]
                       (reset! !view view)
@@ -233,6 +297,7 @@
                                                 :language language
                                                 :read-only read-only
                                                 :on-change on-change
+                                                :on-navigate on-navigate
                                                 :highlight-line highlight-line
                                                 :highlight-end-line highlight-end-line})]
                       (reset! !view view)
