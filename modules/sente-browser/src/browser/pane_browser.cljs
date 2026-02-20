@@ -1564,8 +1564,9 @@
 ;; =============================================================================
 
 (defn- ns-dep-chips
-  "Render a list of namespace names as compact chips."
-  [items color bg]
+  "Render a list of namespace names as compact clickable chips.
+   Clicking a chip navigates to that namespace within the same project."
+  [items color bg on-click]
   [:div {:style {:display "flex" :flex-wrap "wrap" :gap "4px"
                  :padding "4px 0"}}
    (doall
@@ -1573,17 +1574,31 @@
          ^{:key d}
          [:span {:style {:background bg :color color
                          :padding "2px 8px" :border-radius "12px"
-                         :font-size "11px"
-                         :font-family "'Fira Code', monospace"}}
+                         :font-size "11px" :cursor "pointer"
+                         :font-family "'Fira Code', monospace"}
+                 :on-click #(when on-click (on-click d))}
           d]))])
+
+(defn- navigate-to-ns-dep!
+  "Navigate to a dependency namespace by name within the same project.
+   Finds the matching URI from the loaded namespaces list."
+  [browser-id ns-name]
+  (when-let [!b (get-browser-atom browser-id)]
+    (let [namespaces (get-in @!b [:data :namespaces])
+          target (some #(when (= (:ns/name %) ns-name) (:uri/string %))
+                       namespaces)]
+      (when target
+        (push-nav-history! !b)
+        (select-namespace! browser-id target)))))
 
 (defn- ns-info-inspector
   "Render namespace-level information in the inspector panel."
-  [data]
+  [browser-id data]
   (if data
     (let [source-type (:source-type data)
           deps (:dependencies data)
-          dependents (:dependents data)]
+          dependents (:dependents data)
+          on-click (fn [ns-name] (navigate-to-ns-dep! browser-id ns-name))]
       [:div.project-info-content
        [info-section "Namespace"
         [info-row "Name" (:ns-name data)]
@@ -1599,10 +1614,10 @@
          [:div
           (when (seq deps)
             [info-section (str "Requires (" (count deps) ")")
-             [ns-dep-chips deps "#1565c0" "#e3f2fd"]])
+             [ns-dep-chips deps "#1565c0" "#e3f2fd" on-click]])
           (when (seq dependents)
             [info-section (str "Required By (" (count dependents) ")")
-             [ns-dep-chips dependents "#2e7d32" "#e8f5e9"]])])
+             [ns-dep-chips dependents "#2e7d32" "#e8f5e9" on-click]])])
        (when (= :nrepl source-type)
          [info-section "Note"
           [:div {:style {:color "#888" :font-style "italic" :padding "4px"}}
@@ -1670,7 +1685,7 @@
             :deps [deps-inspector browser-id data]
             :callers [callers-inspector browser-id data]
             :project-info [project-info-inspector data]
-            :ns-info [ns-info-inspector data]
+            :ns-info [ns-info-inspector browser-id data]
             [:div.inspector-empty "Unknown tab"])))]]))
 
 ;; =============================================================================

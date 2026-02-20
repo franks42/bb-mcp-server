@@ -4,9 +4,9 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-19 (evening)
-**Version:** v1.36.0
-**Focus:** Project-level inspector panel complete; MCP memory service upgraded
+**Last Updated:** 2026-02-20 (evening)
+**Version:** v1.37.0
+**Focus:** Namespace Info panel with clickable dependency navigation
 
 ---
 
@@ -14,7 +14,8 @@
 
 All tests pass (10 module tests, 33 assertions, 0 failures). Lint and format clean.
 
-**Recent feature work (v1.33.0–v1.36.0):**
+**Recent feature work (v1.33.0–v1.37.0):**
+- **v1.37.0** — Namespace Info panel: doc, file, symbol count, clickable requires/required-by navigation
 - **v1.36.0** — Project-level inspector panel with runtime info (nREPL/dir/JAR)
 - **v1.35.0** — FQN URI in browser title bar, async JAR scanning, deduplication fixes
 - **v1.34.0** — Auto-scroll, navigation history, symbol-at-point (Cmd+Click), drag-drop
@@ -142,6 +143,8 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
+- `ee9a94f` — Test: Add ns-info inspector panel screenshot
+- `fad90b8` — Feat: Namespace Info panel in code browser inspector
 - `d38877e` — Feat: Project-level inspector panel with runtime info
 - `5b9bf0d` — Feat: Show FQN URI in browser title bar with Live indicator
 - `5e495ff` — Fix: Run JAR dependency scanning async to avoid blocking server startup
@@ -213,11 +216,12 @@ Detailed notes added to `IMPLEMENTATION_PLAN.md` under Future Work:
 
 ## Next Session Priorities
 
-1. ~~**Verify MCP memory v10.16.1** — confirmed working (2026-02-19): sqlite_vec backend, semantic search, tag filtering, store/retrieve/delete all pass~~
-2. **Runtime-aware browsing (Step 2)** — build on project-level inspector: live ns/var exploration via nREPL
-3. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access
-4. **Fingerprint first-check gap** — first baseline stores current state, but additions between scan and check are missed
-5. **Long-term: Datalevin MCP memory module** — replace Python memory service with pure Clojure (Datalevin 0.10.5 has vector search)
+1. ~~**Verify MCP memory v10.16.1** — confirmed working (2026-02-19)~~
+2. ~~**Namespace Info panel** — completed (v1.37.0): doc, deps, clickable navigation~~
+3. **Runtime-aware browsing (Step 2)** — build on project-level inspector: live ns/var exploration via nREPL
+4. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access
+5. **Fingerprint first-check gap** — first baseline stores current state, but additions between scan and check are missed
+6. **Long-term: Datalevin MCP memory module** — replace Python memory service with pure Clojure (Datalevin 0.10.5 has vector search)
 
 ---
 
