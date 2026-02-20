@@ -229,6 +229,137 @@
                     (is (= 1 (count (:data result)))
                         "Should deduplicate by :uri/project name"))))
 
+;;; ---------------------------------------------------------------------------
+;;; Namespace Info Tests
+;;; ---------------------------------------------------------------------------
+
+(deftest ns-info-basic-test
+         (testing "ns-info returns doc, file, symbol count, and source-type"
+                  (proto/transact! *test-db*
+                                   [v1-project
+                                    (assoc (make-ns-entity "abc111" "test-proj.core")
+                                           :ns/doc "Core namespace docstring")
+                                    (make-symbol-entity "abc111" "test-proj.core" "my-fn" :defn)
+                                    (make-symbol-entity "abc111" "test-proj.core" "my-var" :def)])
+                  (let [result (handlers/handle-fetch
+                                {:uri "dir://test-proj@abc111/test-proj.core"
+                                 :property :ns-info})]
+                    (is (:success result))
+                    (let [data (:data result)]
+                      (is (= :dir (:source-type data)))
+                      (is (= "test-proj.core" (:ns-name data)))
+                      (is (= "Core namespace docstring" (:doc data)))
+                      (is (= "src/test_proj/core.clj" (:file data)))
+                      (is (= 2 (:symbol-count data)))))))
+
+(deftest ns-info-dependencies-test
+         (testing "ns-info derives forward dependencies from aliases and refers (deduplicated)"
+                  (proto/transact! *test-db*
+                                   [v1-project
+                                    (make-ns-entity "abc111" "test-proj.core")
+                                    ;; Alias to clojure.string
+                                    {:uri/string "dir://test-proj@abc111/test-proj.core#alias:str"
+                                     :uri/project "test-proj"
+                                     :alias/from-ns "test-proj.core"
+                                     :alias/name "str"
+                                     :alias/to-ns "clojure.string"}
+                                    ;; Refer from clojure.set
+                                    {:uri/string "dir://test-proj@abc111/test-proj.core#refer:union"
+                                     :uri/project "test-proj"
+                                     :refer/from-ns "test-proj.core"
+                                     :refer/symbol "union"
+                                     :refer/from-ns-source "clojure.set"}
+                                    ;; Another refer from clojure.string (same as alias target)
+                                    {:uri/string "dir://test-proj@abc111/test-proj.core#refer:join"
+                                     :uri/project "test-proj"
+                                     :refer/from-ns "test-proj.core"
+                                     :refer/symbol "join"
+                                     :refer/from-ns-source "clojure.string"}])
+                  (let [result (handlers/handle-fetch
+                                {:uri "dir://test-proj@abc111/test-proj.core"
+                                 :property :ns-info})
+                        deps (get-in result [:data :dependencies])]
+                    (is (:success result))
+                    ;; clojure.string appears in both alias and refer — should be deduplicated
+                    (is (= ["clojure.set" "clojure.string"] deps)))))
+
+(deftest ns-info-dependents-test
+         (testing "ns-info finds reverse dependencies (who depends on this ns)"
+                  (proto/transact! *test-db*
+                                   [v1-project
+                                    (make-ns-entity "abc111" "test-proj.core")
+                                    (make-ns-entity "abc111" "test-proj.util")
+                                    (make-ns-entity "abc111" "test-proj.api")
+                                    ;; test-proj.util aliases test-proj.core
+                                    {:uri/string "dir://test-proj@abc111/test-proj.util#alias:core"
+                                     :uri/project "test-proj"
+                                     :alias/from-ns "test-proj.util"
+                                     :alias/name "core"
+                                     :alias/to-ns "test-proj.core"}
+                                    ;; test-proj.api refers from test-proj.core
+                                    {:uri/string "dir://test-proj@abc111/test-proj.api#refer:my-fn"
+                                     :uri/project "test-proj"
+                                     :refer/from-ns "test-proj.api"
+                                     :refer/symbol "my-fn"
+                                     :refer/from-ns-source "test-proj.core"}])
+                  (let [result (handlers/handle-fetch
+                                {:uri "dir://test-proj@abc111/test-proj.core"
+                                 :property :ns-info})
+                        dependents (get-in result [:data :dependents])]
+                    (is (:success result))
+                    (is (= ["test-proj.api" "test-proj.util"] dependents)))))
+
+(deftest ns-info-rejects-project-uri-test
+         (testing "ns-info requires a namespace-level URI"
+                  (proto/transact! *test-db* [v1-project])
+                  (let [result (handlers/handle-fetch
+                                {:uri "dir://test-proj@abc111"
+                                 :property :ns-info})]
+                    (is (not (:success result)))
+                    (is (= "ns-info requires a namespace-level URI"
+                           (:error result))))))
+
+(deftest ns-info-nrepl-no-deps-test
+         (testing "ns-info for nREPL source returns info without dependencies"
+                  (proto/transact! *test-db*
+                                   [{:uri/string "nrepl://nrepl-proj@t1"
+                                     :uri/source :nrepl
+                                     :uri/project "nrepl-proj"
+                                     :uri/version "t1"
+                                     :uri/version-type :temporal
+                                     :project/nrepl-host "localhost"}
+                                    {:uri/string "nrepl://nrepl-proj@t1/my.ns"
+                                     :uri/source :nrepl
+                                     :uri/project "nrepl-proj"
+                                     :uri/version "t1"
+                                     :uri/namespace "my.ns"
+                                     :ns/name "my.ns"
+                                     :ns/doc "An nREPL namespace"}
+                                    {:uri/string "nrepl://nrepl-proj@t1/my.ns/foo"
+                                     :uri/source :nrepl
+                                     :uri/project "nrepl-proj"
+                                     :uri/version "t1"
+                                     :uri/namespace "my.ns"
+                                     :uri/symbol "foo"
+                                     :symbol/name "foo"
+                                     :symbol/type :defn}])
+                  (let [result (handlers/handle-fetch
+                                {:uri "nrepl://nrepl-proj@t1/my.ns"
+                                 :property :ns-info})]
+                    (is (:success result))
+                    (let [data (:data result)]
+                      (is (= :nrepl (:source-type data)))
+                      (is (= "my.ns" (:ns-name data)))
+                      (is (= "An nREPL namespace" (:doc data)))
+                      (is (= 1 (:symbol-count data)))
+                      ;; nREPL sources should not have dependency data
+                      (is (nil? (:dependencies data)))
+                      (is (nil? (:dependents data)))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Error Handling Tests
+;;; ---------------------------------------------------------------------------
+
 (deftest handle-fetch-no-db-test
          (testing "Returns error when no database configured"
                   (handlers/set-db! nil)

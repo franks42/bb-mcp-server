@@ -46,7 +46,8 @@
      {:source "Source" :doc "Doc" :var-value "Value"
       :aliases "Aliases" :refers "Refers"
       :deps "Deps" :callers "Callers"
-      :project-info "Info"})
+      :project-info "Info"
+      :ns-info "Info"})
 
 ;; =============================================================================
 ;; State
@@ -137,7 +138,7 @@
               true (into [:aliases :refers :deps :callers]))
 
       namespace
-      [:aliases :refers]
+      [:ns-info :aliases :refers]
 
       project
       [:project-info]
@@ -244,8 +245,10 @@
                             (assoc-in [:data :inspector] {})
                             (assoc-in [:pane-states :symbols] :loading)
                             (assoc-in [:pane-states :inspector] :idle)
+                            (assoc :active-tab :ns-info)
                             ensure-valid-tab)))
             (fetch-for-pane! browser-id :symbols ns-uri :symbol-list)
+            (fetch-inspector-tab! browser-id)
             (update-browser-title! browser-id)))
 
 (defn- select-sym-type!
@@ -287,7 +290,7 @@
                        target-uri (case tab
                                     :project-info
                                     (:project sel)
-                                    (:aliases :refers)
+                                    (:aliases :refers :ns-info)
                                     (or (:namespace sel) (:symbol sel))
                                     ;; default: symbol-level
                                     (:symbol sel))]
@@ -1557,6 +1560,56 @@
     [:div.inspector-empty "Loading project info..."]))
 
 ;; =============================================================================
+;; Namespace Info Inspector
+;; =============================================================================
+
+(defn- ns-dep-chips
+  "Render a list of namespace names as compact chips."
+  [items color bg]
+  [:div {:style {:display "flex" :flex-wrap "wrap" :gap "4px"
+                 :padding "4px 0"}}
+   (doall
+    (for [d items]
+         ^{:key d}
+         [:span {:style {:background bg :color color
+                         :padding "2px 8px" :border-radius "12px"
+                         :font-size "11px"
+                         :font-family "'Fira Code', monospace"}}
+          d]))])
+
+(defn- ns-info-inspector
+  "Render namespace-level information in the inspector panel."
+  [data]
+  (if data
+    (let [source-type (:source-type data)
+          deps (:dependencies data)
+          dependents (:dependents data)]
+      [:div.project-info-content
+       [info-section "Namespace"
+        [info-row "Name" (:ns-name data)]
+        [info-row "Source" (when source-type (name source-type))]
+        [info-row "Symbols" (format-number (:symbol-count data))]]
+       (when (:doc data)
+         [info-section "Documentation"
+          [:pre.docstring (:doc data)]])
+       (when (:file data)
+         [info-section "File"
+          [info-row "Path" (:file data)]])
+       (when (#{:dir :jar} source-type)
+         [:div
+          (when (seq deps)
+            [info-section (str "Requires (" (count deps) ")")
+             [ns-dep-chips deps "#1565c0" "#e3f2fd"]])
+          (when (seq dependents)
+            [info-section (str "Required By (" (count dependents) ")")
+             [ns-dep-chips dependents "#2e7d32" "#e8f5e9"]])])
+       (when (= :nrepl source-type)
+         [info-section "Note"
+          [:div {:style {:color "#888" :font-style "italic" :padding "4px"}}
+           "Dependency data not available for runtime sources"]])])
+    [:div.inspector-empty "Loading namespace info..."]))
+
+;; =============================================================================
 ;; Inspector Panel
 ;; =============================================================================
 
@@ -1617,6 +1670,7 @@
             :deps [deps-inspector browser-id data]
             :callers [callers-inspector browser-id data]
             :project-info [project-info-inspector data]
+            :ns-info [ns-info-inspector data]
             [:div.inspector-empty "Unknown tab"])))]]))
 
 ;; =============================================================================

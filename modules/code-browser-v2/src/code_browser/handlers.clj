@@ -156,30 +156,32 @@
            vec))))
 
 (defn- query-aliases
-  "Query aliases for a namespace from Datalevin."
-  [db ns-name]
+  "Query aliases for a namespace from Datalevin, scoped to a project."
+  [db project-name ns-name]
   (when (and db ns-name)
     (let [results (locking db-lock
                            (db-proto/q db
                                        '[:find (pull ?a [:uri/string :alias/name :alias/to-ns])
-                                         :in $ ?ns-name
-                                         :where [?a :alias/from-ns ?ns-name]]
-                                       [ns-name]))]
+                                         :in $ ?proj-name ?ns-name
+                                         :where [?a :alias/from-ns ?ns-name]
+                                         [?a :uri/project ?proj-name]]
+                                       [project-name ns-name]))]
       (->> results
            (map first)
            (sort-by :alias/name)
            vec))))
 
 (defn- query-refers
-  "Query refers for a namespace from Datalevin."
-  [db ns-name]
+  "Query refers for a namespace from Datalevin, scoped to a project."
+  [db project-name ns-name]
   (when (and db ns-name)
     (let [results (locking db-lock
                            (db-proto/q db
                                        '[:find (pull ?r [:uri/string :refer/symbol :refer/from-ns-source])
-                                         :in $ ?ns-name
-                                         :where [?r :refer/from-ns ?ns-name]]
-                                       [ns-name]))]
+                                         :in $ ?proj-name ?ns-name
+                                         :where [?r :refer/from-ns ?ns-name]
+                                         [?r :uri/project ?proj-name]]
+                                       [project-name ns-name]))]
       (->> results
            (map first)
            (sort-by :refer/symbol)
@@ -334,6 +336,88 @@
                     (when jar-path (query-jar-project-info jar-path project-name)))
              nil))))
 
+(defn- query-ns-symbol-count
+  "Count symbols for a specific namespace within a project."
+  [db project-name ns-name]
+  (when (and db project-name ns-name)
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (count ?e)
+                                         :in $ ?proj-name ?ns-name
+                                         :where [?e :symbol/name _]
+                                         [?e :uri/project ?proj-name]
+                                         [?e :uri/namespace ?ns-name]]
+                                       [project-name ns-name]))]
+      (or (ffirst results) 0))))
+
+(defn- query-ns-dependencies
+  "Forward dependencies: namespaces this ns depends on (via aliases and refers)."
+  [db project-name ns-name]
+  (when (and db project-name ns-name)
+    (let [aliases (query-aliases db project-name ns-name)
+          refers (query-refers db project-name ns-name)
+          alias-deps (keep :alias/to-ns aliases)
+          refer-deps (keep :refer/from-ns-source refers)]
+      (->> (concat alias-deps refer-deps)
+           distinct
+           sort
+           vec))))
+
+(defn- query-ns-dependents
+  "Reverse dependencies: namespaces that depend on this ns (via aliases and refers)."
+  [db project-name ns-name]
+  (when (and db project-name ns-name)
+    (let [alias-dependents
+          (locking db-lock
+                   (db-proto/q db
+                               '[:find ?from-ns
+                                 :in $ ?proj-name ?to-ns
+                                 :where [?a :alias/to-ns ?to-ns]
+                                 [?a :alias/from-ns ?from-ns]
+                                 [?a :uri/project ?proj-name]]
+                               [project-name ns-name]))
+          refer-dependents
+          (locking db-lock
+                   (db-proto/q db
+                               '[:find ?from-ns
+                                 :in $ ?proj-name ?source-ns
+                                 :where [?r :refer/from-ns-source ?source-ns]
+                                 [?r :refer/from-ns ?from-ns]
+                                 [?r :uri/project ?proj-name]]
+                               [project-name ns-name]))]
+      (->> (concat (map first alias-dependents)
+                   (map first refer-dependents))
+           distinct
+           sort
+           vec))))
+
+(defn- query-ns-info
+  "Gather namespace-level info for the inspector panel.
+   Combines ns entity data, symbol count, and dependency relationships."
+  [db parsed]
+  (let [project-name (:uri/project parsed)
+        ns-name (:uri/namespace parsed)
+        source-type (:uri/source parsed)
+        ns-entities (locking db-lock
+                             (db-proto/q db
+                                         '[:find (pull ?e [:ns/name :ns/doc :ns/file])
+                                           :in $ ?proj-name ?ns-name
+                                           :where [?e :ns/name ?ns-name]
+                                           [?e :uri/project ?proj-name]]
+                                         [project-name ns-name]))
+        ns-entity (ffirst ns-entities)
+        sym-count (query-ns-symbol-count db project-name ns-name)
+        base-info {:source-type source-type
+                   :ns-name ns-name
+                   :doc (:ns/doc ns-entity)
+                   :file (:ns/file ns-entity)
+                   :symbol-count sym-count}]
+    (if (#{:dir :jar} source-type)
+      (assoc base-info
+             :dependencies (query-ns-dependencies db project-name ns-name)
+             :dependents (query-ns-dependents db project-name ns-name))
+      base-info)))
+
 (defn- fetch-source
   "Fetch source for a symbol using registered source adapters."
   [symbol-uri]
@@ -421,8 +505,8 @@
                  project-name (:uri/project parsed)
                  ns-name (:uri/namespace parsed)
                  symbols (query-symbols db project-name ns-name)
-                 aliases (when ns-name (query-aliases db ns-name))
-                 refers (when ns-name (query-refers db ns-name))]
+                 aliases (when ns-name (query-aliases db project-name ns-name))
+                 refers (when ns-name (query-refers db project-name ns-name))]
              (sync/select-namespace! ns-uri symbols aliases refers)
              {:success true
               :symbols (count symbols)
@@ -524,12 +608,12 @@
 
                :aliases
                (if (and parsed ns-name)
-                 {:success true :data (query-aliases db ns-name)}
+                 {:success true :data (query-aliases db project-name ns-name)}
                  {:success false :error "aliases requires a namespace-level URI"})
 
                :refers
                (if (and parsed ns-name)
-                 {:success true :data (query-refers db ns-name)}
+                 {:success true :data (query-refers db project-name ns-name)}
                  {:success false :error "refers requires a namespace-level URI"})
 
                :source
@@ -578,6 +662,11 @@
                  {:success false
                   :error "var-value requires a symbol-level URI"})
 
+               :ns-info
+               (if (and parsed ns-name)
+                 {:success true :data (query-ns-info db parsed)}
+                 {:success false :error "ns-info requires a namespace-level URI"})
+
                :project-info
                (if (and parsed (nil? ns-name))
                  {:success true :data (query-project-info db parsed)}
@@ -623,7 +712,7 @@
     (or
      ;; 1. Alias-qualified: str/join → look up alias "str" → clojure.string → find join
      (when (and qualified? qualifier)
-       (let [aliases (query-aliases db ns-name)]
+       (let [aliases (query-aliases db project-name ns-name)]
          (when-let [alias-match (->> aliases
                                      (filter #(= (:alias/name %) qualifier))
                                      first)]
@@ -642,7 +731,7 @@
                  {:success true :uri (:uri/string sym)}))
 
      ;; 3. Refers: Symbol referred into current namespace
-     (let [refers (query-refers db ns-name)]
+     (let [refers (query-refers db project-name ns-name)]
        (when-let [refer-match (->> refers
                                    (filter #(= (:refer/symbol %) symbol-text))
                                    first)]
@@ -679,7 +768,7 @@
            target-ns (when qualified?
                        (or
                         ;; Try alias resolution first
-                        (let [aliases (query-aliases db ns-name)]
+                        (let [aliases (query-aliases db project-name ns-name)]
                           (:alias/to-ns
                            (->> aliases
                                 (filter #(= (:alias/name %) qualifier))
