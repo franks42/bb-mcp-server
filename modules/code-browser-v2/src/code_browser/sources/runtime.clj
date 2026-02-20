@@ -221,7 +221,13 @@
       #"nrepl\..*"
       #"borkdude\..*"
       #"sci\..*"
-      #"edamame\..*"])
+      #"edamame\..*"
+      ;; JVM tooling namespaces (nREPL middleware, CIDER, etc.)
+      #"cider\..*"
+      #"compliment\..*"
+      #"orchard\..*"
+      #"refactor-nrepl\..*"
+      #"clojure\.tools\..*"])
 
 (defn excluded-ns?
   "Check if a namespace name matches any exclusion pattern.

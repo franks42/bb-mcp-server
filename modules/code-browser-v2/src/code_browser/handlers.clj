@@ -287,7 +287,8 @@
                                    (assoc :type "babashka"
                                           :version (:babashka-version runtime))
                                    (nil? (:babashka-version runtime))
-                                   (assoc :type "jvm-clojure"))))))
+                                   (assoc :type "jvm-clojure"
+                                          :version (:clojure-version runtime)))))))
 
 (defn- query-project-info
   "Gather project-level info for the inspector panel.

@@ -63,7 +63,21 @@
                   (is (runtime/excluded-ns? "clojure.spec.alpha" runtime/default-exclude-patterns))
                   (is (runtime/excluded-ns? "nrepl.middleware" runtime/default-exclude-patterns))
                   (is (not (runtime/excluded-ns? "my-app.core" runtime/default-exclude-patterns)))
-                  (is (not (runtime/excluded-ns? "clojure.core" runtime/default-exclude-patterns)))))
+                  (is (not (runtime/excluded-ns? "clojure.core" runtime/default-exclude-patterns))))
+         (testing "Matches JVM tooling namespace patterns"
+                  (is (runtime/excluded-ns? "cider.nrepl" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "cider.nrepl.middleware.info" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "compliment.core" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "orchard.java" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "refactor-nrepl.middleware" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "clojure.tools.nrepl" runtime/default-exclude-patterns))
+                  (is (runtime/excluded-ns? "clojure.tools.reader" runtime/default-exclude-patterns)))
+         (testing "Does not exclude user-facing namespaces"
+                  (is (not (runtime/excluded-ns? "clojure.string" runtime/default-exclude-patterns)))
+                  (is (not (runtime/excluded-ns? "clojure.set" runtime/default-exclude-patterns)))
+                  (is (not (runtime/excluded-ns? "clojure.pprint" runtime/default-exclude-patterns)))
+                  (is (not (runtime/excluded-ns? "clojure.java.io" runtime/default-exclude-patterns)))
+                  (is (not (runtime/excluded-ns? "clojure.data.json" runtime/default-exclude-patterns)))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; list-namespaces Tests (Babashka impl with mock eval)

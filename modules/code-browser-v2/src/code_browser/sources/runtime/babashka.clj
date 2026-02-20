@@ -118,7 +118,7 @@
                       :id ::fetch-var-source
                       :msg "Fetching var source"
                       :data {:ns ns-name :var var-name}})
-           (let [code (str "(clojure.repl/source-fn '" ns-name "/" var-name ")")
+           (let [code (str "(do (require 'clojure.repl) (clojure.repl/source-fn '" ns-name "/" var-name "))")
                  result (eval-fn code)]
              (when (and (string? result) (seq result))
                {:source result})))
@@ -138,7 +138,8 @@
 (def ^:private fetch-var-value-code
      "Remote eval code template for fetching a var's current value.
    The %s placeholders are replaced with ns-name and var-name."
-     "(let [v (resolve (symbol \"%s\" \"%s\"))]
+     "(do (require 'clojure.pprint)
+(let [v (resolve (symbol \"%s\" \"%s\"))]
   (when v
     (let [raw-val (deref v)
           is-atom? (instance? clojure.lang.IAtom raw-val)
@@ -298,7 +299,7 @@
        :count cnt
        :truncated? truncated?
        :var-id (System/identityHashCode raw-val)
-       :value-id (if is-atom? (System/identityHashCode val) (System/identityHashCode raw-val))})))")
+       :value-id (if is-atom? (System/identityHashCode val) (System/identityHashCode raw-val))}))))")
 
 (defmethod runtime/fetch-var-value :babashka
            [_runtime-type eval-fn ns-name var-name _opts]
