@@ -3,7 +3,10 @@
 
    Handles browser requests by querying Datalevin and updating synced state.
    Uses the IProjectSource protocol for source fetching."
-    (:require [clojure.set :as set]
+    (:require [babashka.fs :as fs]
+              [babashka.process :refer [shell]]
+              [clojure.edn :as edn]
+              [clojure.set :as set]
               [clojure.string :as str]
               [code-browser.sync :as sync]
               [code-browser.db.protocol :as db-proto]
@@ -181,6 +184,154 @@
            (map first)
            (sort-by :refer/symbol)
            vec))))
+
+(defn- query-namespace-count
+  "Count namespaces for a project from Datalevin."
+  [db project-name]
+  (when (and db project-name)
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (count ?e)
+                                         :in $ ?proj-name
+                                         :where [?e :ns/name _]
+                                         [?e :uri/project ?proj-name]]
+                                       [project-name]))]
+      (or (ffirst results) 0))))
+
+(defn- query-symbol-count
+  "Count symbols for a project from Datalevin."
+  [db project-name]
+  (when (and db project-name)
+    (let [results (locking db-lock
+                           (db-proto/q db
+                                       '[:find (count ?e)
+                                         :in $ ?proj-name
+                                         :where [?e :symbol/name _]
+                                         [?e :uri/project ?proj-name]]
+                                       [project-name]))]
+      (or (ffirst results) 0))))
+
+(defn- shell-quiet
+  "Run a shell command and return trimmed stdout, or nil on failure."
+  [& args]
+  (try
+   (let [result (apply shell (concat [{:out :string :err :string :continue true}]
+                                     args))]
+     (when (zero? (:exit result))
+       (str/trim (:out result))))
+   (catch Exception _ nil)))
+
+(defn- query-dir-project-info
+  "Gather project info for a directory source."
+  [root-path]
+  (let [git-branch (shell-quiet "git" "-C" root-path "rev-parse" "--abbrev-ref" "HEAD")
+        git-sha (shell-quiet "git" "-C" root-path "rev-parse" "--short" "HEAD")
+        git-remote (shell-quiet "git" "-C" root-path "remote" "get-url" "origin")
+        deps-edn-path (str root-path "/deps.edn")
+        bb-edn-path (str root-path "/bb.edn")
+        project-clj-path (str root-path "/project.clj")
+        has-deps? (fs/exists? deps-edn-path)
+        has-bb? (fs/exists? bb-edn-path)
+        has-lein? (fs/exists? project-clj-path)
+        build-tool (cond has-deps? "deps.edn" has-bb? "bb.edn" has-lein? "project.clj" :else nil)
+        dep-count (when has-deps?
+                    (try
+                     (let [deps (edn/read-string (slurp deps-edn-path))]
+                       (count (:deps deps)))
+                     (catch Exception _ nil)))]
+    (cond-> {:path root-path}
+            git-branch (assoc-in [:git :branch] git-branch)
+            git-sha (assoc-in [:git :sha] git-sha)
+            git-remote (assoc-in [:git :remote] git-remote)
+            build-tool (assoc :build-tool build-tool)
+            dep-count (assoc :dep-count dep-count))))
+
+(defn- query-jar-project-info
+  "Gather project info for a JAR source."
+  [jar-path _project-name]
+  (let [maven-match (re-matches #".*/\.m2/repository/(.+)/([^/]+)/([^/]+)/[^/]+\.jar$"
+                                (str jar-path))
+        file-size (when (and jar-path (fs/exists? jar-path))
+                    (let [bytes (fs/size jar-path)]
+                      (/ (double bytes) 1048576.0)))]
+    (cond-> {:jar-path (str jar-path)}
+            maven-match (assoc :maven {:group (str/replace (nth maven-match 1) "/" ".")
+                                       :artifact (nth maven-match 2)
+                                       :version (nth maven-match 3)})
+            file-size (assoc :jar-size-mb (Math/round (* file-size 10.0))))))
+
+(defn- query-nrepl-project-info
+  "Gather project info for an nREPL source."
+  [source]
+  (let [runtime (try (nrepl-source/get-runtime-info source)
+                     (catch Exception e
+                            (log/log! {:level :warn
+                                       :id ::runtime-info-error
+                                       :msg "Failed to get runtime info"
+                                       :data {:error (ex-message e)}})
+                            nil))
+        host (:host source)
+        port (:port source)]
+    (cond-> {:connection {:host (str host) :port port}}
+            runtime (assoc :runtime
+                           (cond-> {:clojure-version (:clojure-version runtime)
+                                    :java-version (:java-version runtime)
+                                    :java-vendor (:java-vendor runtime)
+                                    :os (:os runtime)
+                                    :processors (:processors runtime)
+                                    :max-memory-mb (:max-memory-mb runtime)
+                                    :free-memory-mb (:free-memory-mb runtime)
+                                    :loaded-lib-count (:loaded-lib-count runtime)
+                                    :namespace-count (:namespace-count runtime)}
+                                   (:babashka-version runtime)
+                                   (assoc :type "babashka"
+                                          :version (:babashka-version runtime))
+                                   (nil? (:babashka-version runtime))
+                                   (assoc :type "jvm-clojure"))))))
+
+(defn- query-project-info
+  "Gather project-level info for the inspector panel.
+   Combines DB entity data, namespace/symbol counts, and source-specific info."
+  [db parsed]
+  (let [project-name (:uri/project parsed)
+        source-type (:uri/source parsed)
+        ns-count (query-namespace-count db project-name)
+        sym-count (query-symbol-count db project-name)
+        ;; Get source adapter by matching project name and source type
+        sources (:sources @!module-state)
+        source (some (fn [[proj-uri src]]
+                       (let [p (uri/parse proj-uri)]
+                         (when (and p
+                                    (= (:uri/source p) source-type)
+                                    (= (:uri/project p) project-name))
+                           src)))
+                     sources)
+        base-info {:source-type source-type
+                   :project-name project-name
+                   :namespace-count ns-count
+                   :symbol-count sym-count}]
+    (merge base-info
+           (case source-type
+             :nrepl (when source (query-nrepl-project-info source))
+             :dir (let [projects (locking db-lock
+                                          (db-proto/q db
+                                                      '[:find (pull ?e [:project/root-path])
+                                                        :in $ ?proj-name
+                                                        :where [?e :uri/project ?proj-name]
+                                                        [?e :project/root-path _]]
+                                                      [project-name]))
+                        root-path (:project/root-path (ffirst projects))]
+                    (when root-path (query-dir-project-info root-path)))
+             :jar (let [projects (locking db-lock
+                                          (db-proto/q db
+                                                      '[:find (pull ?e [:project/jar-path])
+                                                        :in $ ?proj-name
+                                                        :where [?e :uri/project ?proj-name]
+                                                        [?e :project/jar-path _]]
+                                                      [project-name]))
+                        jar-path (:project/jar-path (ffirst projects))]
+                    (when jar-path (query-jar-project-info jar-path project-name)))
+             nil))))
 
 (defn- fetch-source
   "Fetch source for a symbol using registered source adapters."
@@ -425,6 +576,11 @@
                           :error "Value unavailable (nREPL sources only)"})
                  {:success false
                   :error "var-value requires a symbol-level URI"})
+
+               :project-info
+               (if (and parsed (nil? ns-name))
+                 {:success true :data (query-project-info db parsed)}
+                 {:success false :error "project-info requires a project-level URI"})
 
           ;; Unknown property
                {:success false :error (str "Unknown property: " property)}))

@@ -490,6 +490,14 @@
     .pane-item[draggable=true]:active { cursor: grabbing; }
     .dep-item[draggable=true] { cursor: grab; }
     .dep-item[draggable=true]:active { cursor: grabbing; }
+    /* Project info inspector */
+    .project-info-content { padding: 0.75rem; overflow: auto; }
+    .project-info-section { margin-bottom: 0.75rem; }
+    .info-section-heading { font-size: 11px; font-weight: 700; color: #1565C0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.35rem; padding-bottom: 0.2rem; border-bottom: 1px solid #e0e0e0; }
+    .info-section-body { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.75rem; }
+    .info-row { display: contents; }
+    .info-label { font-size: 12px; color: #666; white-space: nowrap; }
+    .info-value { font-size: 12px; color: #222; font-family: 'Fira Code', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Browser toolbar */
     .browser-toolbar { display: flex; gap: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-bottom: 1px solid #ddd; }
     .new-browser-btn { font-size: 12px; padding: 4px 12px; border: 1px solid #ccc; border-radius: 3px; background: white; cursor: pointer; }

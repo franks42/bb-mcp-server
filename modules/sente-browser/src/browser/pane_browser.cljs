@@ -45,7 +45,8 @@
 (def ^:private tab-labels
      {:source "Source" :doc "Doc" :var-value "Value"
       :aliases "Aliases" :refers "Refers"
-      :deps "Deps" :callers "Callers"})
+      :deps "Deps" :callers "Callers"
+      :project-info "Info"})
 
 ;; =============================================================================
 ;; State
@@ -138,6 +139,9 @@
       namespace
       [:aliases :refers]
 
+      project
+      [:project-info]
+
       :else [])))
 
 (defn- ensure-valid-tab
@@ -221,9 +225,10 @@
                             (assoc-in [:pane-states :namespaces] :loading)
                             (assoc-in [:pane-states :symbols] :idle)
                             (assoc-in [:pane-states :inspector] :idle)
-                            (assoc :active-tab :source)
+                            (assoc :active-tab :project-info)
                             ensure-valid-tab)))
             (fetch-for-pane! browser-id :namespaces project-uri :ns-list)
+            (fetch-inspector-tab! browser-id)
             (update-browser-title! browser-id)))
 
 (defn- select-namespace!
@@ -278,8 +283,10 @@
                    cached (get-in state [:data :inspector tab])]
                (when-not cached
                  (let [sel (:selections state)
-                       ;; Aliases/refers use namespace URI, others use symbol URI
+                       ;; Project-info uses project URI, aliases/refers use namespace URI, others use symbol URI
                        target-uri (case tab
+                                    :project-info
+                                    (:project sel)
                                     (:aliases :refers)
                                     (or (:namespace sel) (:symbol sel))
                                     ;; default: symbol-level
@@ -1440,6 +1447,116 @@
       [:div.inspector-empty "No callers"])))
 
 ;; =============================================================================
+;; Project Info Inspector
+;; =============================================================================
+
+(defn- format-number
+  "Format a number with comma separators."
+  [n]
+  (if (and n (number? n))
+    (let [s (str n)
+          parts (reverse (partition-all 3 (reverse s)))]
+      (str/join "," (map #(apply str %) parts)))
+    (str n)))
+
+(defn- info-row
+  "Render a label: value row."
+  [label value]
+  (when value
+    [:div.info-row
+     [:span.info-label label]
+     [:span.info-value (str value)]]))
+
+(defn- info-section
+  "Render a section with a heading and child rows."
+  [heading & children]
+  [:div.project-info-section
+   [:div.info-section-heading heading]
+   (into [:div.info-section-body] (remove nil? children))])
+
+(defn- project-info-nrepl
+  "Render project info for nREPL sources."
+  [data]
+  (let [rt (:runtime data)
+        conn (:connection data)]
+    [:div.project-info-content
+     (when rt
+       [info-section "Runtime"
+        [info-row "Type" (if (:version rt)
+                           (str (or (:type rt) "clojure") " " (:version rt))
+                           (:type rt))]
+        [info-row "Clojure" (:clojure-version rt)]
+        [info-row "Java" (str (:java-vendor rt) " " (:java-version rt))]
+        [info-row "OS" (:os rt)]])
+     (when conn
+       [info-section "Connection"
+        [info-row "Host" (str (:host conn) ":" (:port conn))]])
+     [info-section "Statistics"
+      [info-row "Namespaces" (format-number (:namespace-count data))]
+      [info-row "Symbols" (format-number (:symbol-count data))]
+      (when (:max-memory-mb rt)
+        [info-row "Memory"
+         (str (- (:max-memory-mb rt) (or (:free-memory-mb rt) 0))
+              "/" (:max-memory-mb rt) " MB")])
+      (when (:loaded-lib-count rt)
+        [info-row "Loaded libs" (format-number (:loaded-lib-count rt))])]]))
+
+(defn- project-info-dir
+  "Render project info for directory sources."
+  [data]
+  (let [git (:git data)]
+    [:div.project-info-content
+     [info-section "Project"
+      [info-row "Path" (:path data)]
+      (when (:build-tool data)
+        [info-row "Build" (:build-tool data)])
+      (when git
+        [info-row "Git" (str (:branch git)
+                              (when (:sha git) (str " @ " (:sha git))))])
+      (when (:remote git)
+        [info-row "Remote" (:remote git)])]
+     [info-section "Statistics"
+      [info-row "Namespaces" (format-number (:namespace-count data))]
+      [info-row "Symbols" (format-number (:symbol-count data))]
+      (when (:dep-count data)
+        [info-row "Dependencies" (:dep-count data)])]]))
+
+(defn- project-info-jar
+  "Render project info for JAR sources."
+  [data]
+  (let [mvn (:maven data)]
+    [:div.project-info-content
+     (when mvn
+       [info-section "Maven Artifact"
+        [info-row "Group" (:group mvn)]
+        [info-row "Artifact" (:artifact mvn)]
+        [info-row "Version" (:version mvn)]])
+     [info-section "JAR"
+      [info-row "Path" (:jar-path data)]
+      (when (:jar-size-mb data)
+        [info-row "Size" (str (/ (:jar-size-mb data) 10.0) " MB")])]
+     [info-section "Statistics"
+      [info-row "Namespaces" (format-number (:namespace-count data))]
+      [info-row "Symbols" (format-number (:symbol-count data))]]]))
+
+(defn- project-info-inspector
+  "Render project-level information in the inspector panel."
+  [data]
+  (if data
+    (case (:source-type data)
+      :nrepl [project-info-nrepl data]
+      :dir [project-info-dir data]
+      :jar [project-info-jar data]
+      ;; Fallback for unknown source types
+      [:div.project-info-content
+       [info-section "Project"
+        [info-row "Name" (:project-name data)]
+        [info-row "Type" (name (or (:source-type data) :unknown))]
+        [info-row "Namespaces" (format-number (:namespace-count data))]
+        [info-row "Symbols" (format-number (:symbol-count data))]]])
+    [:div.inspector-empty "Loading project info..."]))
+
+;; =============================================================================
 ;; Inspector Panel
 ;; =============================================================================
 
@@ -1499,6 +1616,7 @@
             :refers [refers-inspector data]
             :deps [deps-inspector browser-id data]
             :callers [callers-inspector browser-id data]
+            :project-info [project-info-inspector data]
             [:div.inspector-empty "Unknown tab"])))]]))
 
 ;; =============================================================================

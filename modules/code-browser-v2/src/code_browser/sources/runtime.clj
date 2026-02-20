@@ -45,6 +45,20 @@
 ;;; Multimethod Declarations
 ;;; ---------------------------------------------------------------------------
 
+(defmulti runtime-info
+          "Fetch extended runtime information.
+
+   Arguments:
+     runtime-type - keyword (:babashka, :jvm-clojure, etc.)
+     eval-fn      - (fn [code-string] -> parsed-result)
+     opts         - options map
+
+   Returns a map with runtime details:
+     :clojure-version, :java-version, :java-vendor, :os,
+     :processors, :max-memory-mb, :free-memory-mb,
+     :loaded-lib-count, :namespace-count, :babashka-version"
+          (fn [runtime-type _eval-fn _opts] runtime-type))
+
 (defmulti list-namespaces
           "List all namespaces in the runtime.
 

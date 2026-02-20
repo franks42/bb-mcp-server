@@ -176,6 +176,24 @@
                          :description (str "nREPL: " host ":" port)}))
 
 ;;; ---------------------------------------------------------------------------
+;;; Runtime Info
+;;; ---------------------------------------------------------------------------
+
+(defn get-runtime-info
+  "Fetch extended runtime information from an nREPL source.
+
+   Arguments:
+     source - NreplSource instance
+
+   Returns a map with :clojure-version, :java-version, :java-vendor, :os,
+   :processors, :max-memory-mb, :free-memory-mb, :loaded-lib-count,
+   :namespace-count, :babashka-version, or nil on failure."
+  [source]
+  (let [eval-fn (make-eval-fn (:conn source) (:host source) (:port source))
+        rt-type (:type @(:runtime-info source))]
+    (runtime/runtime-info (or rt-type :babashka) eval-fn {})))
+
+;;; ---------------------------------------------------------------------------
 ;;; Value Introspection
 ;;; ---------------------------------------------------------------------------
 

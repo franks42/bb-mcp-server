@@ -11,6 +11,40 @@
               [taoensso.trove :as log]))
 
 ;;; ---------------------------------------------------------------------------
+;;; runtime-info
+;;; ---------------------------------------------------------------------------
+
+(def ^:private runtime-info-code
+     "Remote eval code for gathering extended runtime information."
+     (str "{:clojure-version (str (:major *clojure-version*) \".\" (:minor *clojure-version*) \".\" (:incremental *clojure-version*))"
+          " :java-version (System/getProperty \"java.version\")"
+          " :java-vendor (System/getProperty \"java.vendor\")"
+          " :os (str (System/getProperty \"os.name\") \" \" (System/getProperty \"os.version\") \" \" (System/getProperty \"os.arch\"))"
+          " :processors (.availableProcessors (Runtime/getRuntime))"
+          " :max-memory-mb (quot (.maxMemory (Runtime/getRuntime)) 1048576)"
+          " :free-memory-mb (quot (.freeMemory (Runtime/getRuntime)) 1048576)"
+          " :loaded-lib-count (count (loaded-libs))"
+          " :namespace-count (count (all-ns))"
+          " :babashka-version (System/getProperty \"babashka.version\")}"))
+
+(defmethod runtime/runtime-info :babashka
+           [_runtime-type eval-fn _opts]
+           (log/log! {:level :debug
+                      :id ::runtime-info
+                      :msg "Fetching runtime info via Babashka"})
+           (let [result (eval-fn runtime-info-code)]
+             (when (map? result)
+               result)))
+
+(defmethod runtime/runtime-info :default
+           [runtime-type eval-fn opts]
+           (log/log! {:level :debug
+                      :id ::runtime-info-default
+                      :msg "Using default (Babashka) runtime-info"
+                      :data {:runtime-type runtime-type}})
+           ((get-method runtime/runtime-info :babashka) :babashka eval-fn opts))
+
+;;; ---------------------------------------------------------------------------
 ;;; list-namespaces
 ;;; ---------------------------------------------------------------------------
 
