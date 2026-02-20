@@ -4,9 +4,9 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-17 (evening)
-**Version:** v1.32.0
-**Focus:** nrepl-repl complete; future work planning (durable atoms, type/purity introspection, TUI)
+**Last Updated:** 2026-02-19 (evening)
+**Version:** v1.36.0
+**Focus:** Project-level inspector panel complete; MCP memory service upgraded
 
 ---
 
@@ -14,18 +14,21 @@
 
 All tests pass (10 module tests, 33 assertions, 0 failures). Lint and format clean.
 
-**Playwright E2E demo passed (2026-02-15):**
-- Created `demo.hello` (greet fn) → appeared in browser (94 ns)
-- Added `goodbye` fn → symbol list updated to 2 symbols
-- Updated `greet` docstring → reflected after rescan
-- Created `demo.math-utils` (add, multiply) → 95 ns in browser
-- Removed `demo.hello` via `remove-ns` → rescan retracted it → **gone from browser** (94 ns)
-- Confirmed bug reproduction: old code left stale ns with 0 symbols; fixed code removes it entirely
-- Screenshots saved as `demo-step[1-7]-*.png`
+**Recent feature work (v1.33.0–v1.36.0):**
+- **v1.36.0** — Project-level inspector panel with runtime info (nREPL/dir/JAR)
+- **v1.35.0** — FQN URI in browser title bar, async JAR scanning, deduplication fixes
+- **v1.34.0** — Auto-scroll, navigation history, symbol-at-point (Cmd+Click), drag-drop
+- **v1.33.0** — Pharo-style 4-pane browser, runtime type inference, keyboard nav, sort modes
+
+**MCP Memory Service — Upgraded (2026-02-19):**
+- Upgraded from v3.3.3 (ChromaDB) → v10.16.1 (SQLite-vec)
+- Migrated 295 memories, fixed tag format (JSON arrays → comma-separated)
+- Backup at `~/Library/Application Support/mcp-memory-backup-v3.3.3/`
+- Config: `~/.mcp.json` now uses `sqlite_vec` backend
+- New features: hybrid BM25+vector search, knowledge graph, tag filtering fixes, conversation_id
 
 **Previous E2E (2026-02-15):**
-- INSERT/UPDATE cycle with `my-test-ns` verified in Datalevin
-- Pod stays alive, server shuts down gracefully
+- Full Playwright demo verified (create/update/delete namespaces in browser)
 - Database healthy: 3 projects, 93+ nREPL namespaces
 
 ---
@@ -56,7 +59,7 @@ bb nrepl-direct eval "(ns my-test-ns) (defn greet [name] (str \"Hello, \" name))
 | `playwright` | `@playwright/mcp@latest` | Browser automation via accessibility tree |
 | `chrome-devtools` | `chrome-devtools-mcp@latest` | Chrome DevTools (navigate, screenshot, evaluate JS) |
 | `bb-mcp-nrepl` | `mcp-remote → localhost:54321/mcp` | nREPL tools from running bb-mcp-server |
-| `memory` | `mcp-memory-service` (uv) | Persistent memory across sessions |
+| `memory` | `mcp-memory-service` v10.16.1 (uv, sqlite_vec) | Persistent memory across sessions |
 
 **bb-mcp-nrepl requires `bb dev:cb-v2` running** — it connects to the fixed MCP port 54321.
 
@@ -139,14 +142,17 @@ Check `:ex`/`:root-ex` in response. v1.31.0.
 
 ## Recent Commits
 
-- `a2574d2` — Docs: Add terminal code browser (charm.clj TUI) idea to future work
-- `c31d514` — Docs: Update context.md with nrepl-repl work and JLine3 lessons
-- `8c9f6fd` — Fix: Make nREPL session optional for tab completions
-- `e8a0d14` — Fix: Proper JLine3 Parser/Completer with type hints and word-at-cursor
-- `95e5f2a` — Fix: Use 'completions' op and raw bencode for nrepl-repl tab completion
-- `26cb554` — Fix: Use reflection for ParsedLine.word() in nrepl-repl completer
-- `2ba48ae` — Fix: Use reify instead of proxy for ParsedLine in nrepl-repl
-- `ea3c75d` — Feat: Add JLine3-based nREPL REPL client for Babashka
+- `d38877e` — Feat: Project-level inspector panel with runtime info
+- `5b9bf0d` — Feat: Show FQN URI in browser title bar with Live indicator
+- `5e495ff` — Fix: Run JAR dependency scanning async to avoid blocking server startup
+- `90b35df` — Feat: JAR dependency scanning with DB-as-cache
+- `3966004` — Fix: Deduplicate namespaces and symbols across DB versions
+- `f967d25` — Feat: Auto-scroll selected items into view in pane browser lists
+- `9b41472` — Fix: Navigation history back/forward buttons now work correctly
+- `452356b` — Feat: Symbol-at-point navigation — Cmd+Click, deps/callers, clipboard, drag-drop
+- `9269836` — Feat: Show (ns ...) form as first symbol in pane browser
+- `f2f2407` — Feat: Phase 5 Polish — runtime type inference, sort mode, keyboard nav
+- `d1666f4` — Feat: Pharo-style pane browser — coordinated 4-pane layout
 
 ---
 
@@ -207,11 +213,11 @@ Detailed notes added to `IMPLEMENTATION_PLAN.md` under Future Work:
 
 ## Next Session Priorities
 
-1. **Monitor server stability** — confirm fingerprint polling works without hangs over extended period
-2. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access if sharing pod process with code-browser-v2
-3. **Fingerprint first-check gap** — The first fingerprint baseline stores the current nREPL state, but if namespaces were added between initial scan and first fingerprint check, the DB is out of sync until the next change
-4. **WinBox z-index overlap** — toolbar buttons become unclickable when another widget overlaps (workaround: `dispatchEvent('click')` via JS)
-5. **nrepl-repl polish** — Consider: interrupt during eval (SIGINT → `client/interrupt`), pprint flag, startup banner with server info
+1. ~~**Verify MCP memory v10.16.1** — confirmed working (2026-02-19): sqlite_vec backend, semantic search, tag filtering, store/retrieve/delete all pass~~
+2. **Runtime-aware browsing (Step 2)** — build on project-level inspector: live ns/var exploration via nREPL
+3. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access
+4. **Fingerprint first-check gap** — first baseline stores current state, but additions between scan and check are missed
+5. **Long-term: Datalevin MCP memory module** — replace Python memory service with pure Clojure (Datalevin 0.10.5 has vector search)
 
 ---
 
