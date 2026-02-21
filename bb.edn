@@ -318,6 +318,9 @@
   dev:cb-v2 {:doc "Code Browser v2 dev env [start|stop|restart|status] (default: start)"
              :task (apply shell "bb" "scripts/cb_v2_dev.clj" *command-line-args*)}
 
+  dev:demo-scittle {:doc "Demo Scittle app for runtime browsing [start|stop|status]"
+                    :task (apply shell "bb" "scripts/demo_scittle_dev.clj" *command-line-args*)}
+
   add-project {:doc "Add project directory to running Code Browser v2 <path> [-t target]"
                :task (apply shell "bb" "scripts/add_project_cli.clj" *command-line-args*)}
 

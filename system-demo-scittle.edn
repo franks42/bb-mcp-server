@@ -1,0 +1,23 @@
+;; Demo Scittle app — serves as the browsing subject for Code Browser v2
+;;
+;; Architecture (two-process setup):
+;;   Process A (this config) — Demo Scittle app in a browser with nREPL proxy
+;;   Process B (system-cb-v2-test.edn) — Code Browser, connects to Process A's proxy
+;;
+;; Usage:
+;;   bb dev:demo-scittle start    # Start this server
+;;   bb dev:cb-v2 start           # Start code browser (connects to port 2667)
+;;
+;; Ports (non-conflicting with code browser):
+;;   8190 — WebSocket (sente-browser)
+;;   8191 — Bootstrap HTTP (serves Scittle app page)
+;;   2667 — nREPL proxy (code browser connects here)
+;;   7988 — nREPL server (local, for server-side eval)
+
+{:modules-dir "modules"
+
+ :modules ["sente-browser" "nrepl-proxy-server" "nrepl-server"]
+
+ :config {"sente-browser" {:enabled true :ws-port 8190 :bootstrap-port 8191}
+          "nrepl-proxy-server" {:enabled true :port 2667 :write-port-file? true}
+          "nrepl-server" {:port 7988 :host "localhost"}}}

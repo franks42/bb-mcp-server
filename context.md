@@ -4,17 +4,19 @@
 > For Scittle browser work, read `docs/SCITTLE_DEV_ENVIRONMENT.md` first.
 > For nrepl-direct CLI, read `docs/bb-nrepl-direct-user-guide.md`.
 
-**Last Updated:** 2026-02-20 (evening)
-**Version:** v1.37.0
-**Focus:** Namespace Info panel with clickable dependency navigation
+**Last Updated:** 2026-02-21
+**Version:** v1.38.0
+**Focus:** Scittle runtime browsing — unit tests done, integration testing next
 
 ---
 
-## Current State — STABLE + E2E VERIFIED
+## Current State — STABLE + UNIT TESTS PASSING
 
-All tests pass (10 module tests, 33 assertions, 0 failures). Lint and format clean.
+All new code lints clean (0 errors, 0 warnings). 16 new Scittle tests pass.
+5 pre-existing failures in `handlers_test.clj` (aliases/refers version-agnostic, ns-info-basic) — NOT caused by recent work.
 
-**Recent feature work (v1.33.0–v1.37.0):**
+**Recent feature work (v1.38.0):**
+- **v1.38.0** — Scittle runtime browsing: multi-stage runtime detection, 9 multimethods for :scittle dispatch, SCI-safe eval code, demo infrastructure, dev script
 - **v1.37.0** — Namespace Info panel: doc, file, symbol count, clickable requires/required-by navigation
 - **v1.36.0** — Project-level inspector panel with runtime info (nREPL/dir/JAR)
 - **v1.35.0** — FQN URI in browser title bar, async JAR scanning, deduplication fixes
@@ -23,14 +25,54 @@ All tests pass (10 module tests, 33 assertions, 0 failures). Lint and format cle
 
 **MCP Memory Service — Upgraded (2026-02-19):**
 - Upgraded from v3.3.3 (ChromaDB) → v10.16.1 (SQLite-vec)
-- Migrated 295 memories, fixed tag format (JSON arrays → comma-separated)
-- Backup at `~/Library/Application Support/mcp-memory-backup-v3.3.3/`
 - Config: `~/.mcp.json` now uses `sqlite_vec` backend
-- New features: hybrid BM25+vector search, knowledge graph, tag filtering fixes, conversation_id
 
-**Previous E2E (2026-02-15):**
-- Full Playwright demo verified (create/update/delete namespaces in browser)
-- Database healthy: 3 projects, 93+ nREPL namespaces
+---
+
+## NEXT STEPS — Integration Testing with Playwright
+
+The Scittle runtime browsing code is implemented and unit-tested. **Integration testing is the next step:**
+
+### Step 1: Start the Demo Scittle App (Process A)
+```bash
+bb dev:demo-scittle start    # Starts server, opens browser at http://localhost:8191
+# Wait for green "Connected" in browser
+bb nrepl-direct load-local-file demo/scittle-app/demo_app.cljs -t demo-scittle/browser-1
+```
+
+### Step 2: Start the Code Browser (Process B)
+```bash
+bb dev:cb-v2 start           # Starts code browser, connects to demo-scittle port 2667
+```
+
+### Step 3: Playwright Verification
+Use Playwright MCP tools to verify:
+1. Select "demo-scittle" project → verify project info shows "scittle" type
+2. Select `demo.core` namespace → verify symbols (`increment!`, `decrement!`, `!app-state`)
+3. Select `!app-state` → verify Value tab shows atom contents
+4. Click + button in demo app → verify Value tab detects change via polling
+5. Verify Source tab shows "Source not available" message
+
+### Key Files for Scittle Runtime
+| File | Purpose |
+|------|---------|
+| `modules/code-browser-v2/src/code_browser/sources/runtime/scittle.clj` | 9 multimethods for :scittle |
+| `modules/code-browser-v2/src/code_browser/sources/runtime.clj` | Multi-stage detect-runtime |
+| `modules/code-browser-v2/src/code_browser/handlers.clj` | Project info display (3-way cond) |
+| `system-demo-scittle.edn` | Demo app server config |
+| `demo/scittle-app/demo_app.cljs` | Demo app (3 namespaces) |
+| `scripts/demo_scittle_dev.clj` | Dev script |
+| `system-cb-v2-test.edn` | Code browser config (includes demo-scittle source) |
+
+### Scittle vs Babashka — Key Differences in Eval Code
+- `(instance? Atom val)` instead of `clojure.lang.IAtom`
+- `(hash val)` instead of `System/identityHashCode` (value-based, not identity-based)
+- `(catch :default _)` instead of `(catch Exception _)`
+- `pr-str` instead of `java.io.StringWriter` + `clojure.pprint/pprint`
+- No `clojure.repl/source-fn` — source unavailable
+- No `clojure.lang.MultiFn` — simplified type detection (macro/fn/def)
+- No `ratio?`, `uri?`, `delay?`, `future?` predicates
+- No statechart/Service/Store detection (JVM class-based)
 
 ---
 
@@ -43,14 +85,24 @@ bb dev:cb-v2 start --no-open    # Same but skip browser
 bb dev:cb-v2 stop               # Stop server + nREPL target
 bb dev:cb-v2 status             # Check both processes
 
-# Two-process architecture:
+# Demo Scittle app (browsing subject):
+bb dev:demo-scittle start       # Start demo app server
+bb dev:demo-scittle stop        # Stop it
+bb dev:demo-scittle status      # Check status
+
+# Two-process architecture (code browser):
 # Process 1: nREPL target on port 9876 (auto-managed by dev:cb-v2)
 # Process 2: Main server — fixed MCP port 54321, nREPL 7888
 # Browser:   http://localhost:8091
 
+# Three-process architecture (scittle browsing):
+# Process A: Demo Scittle app — ports 8190/8191/2667/7988
+# Process B: Code Browser — ports 8090/8091/54321/7888/9876
+# Process A's nREPL proxy (2667) is listed as source in system-cb-v2-test.edn
+
 # Testing:
 bb nrepl-direct eval "(+ 1 2)" -t cb-v2-test
-bb nrepl-direct eval "(ns my-test-ns) (defn greet [name] (str \"Hello, \" name))" --port 9876
+bb nrepl-direct eval "(+ 1 2)" -t demo-scittle/browser-1
 ```
 
 ### MCP Servers Installed (user scope — all projects)
@@ -64,18 +116,20 @@ bb nrepl-direct eval "(ns my-test-ns) (defn greet [name] (str \"Hello, \" name))
 
 **bb-mcp-nrepl requires `bb dev:cb-v2` running** — it connects to the fixed MCP port 54321.
 
-**To use Playwright/Chrome in a session:** Restart Claude Code after install. Use `browser_navigate`, `browser_snapshot`, `browser_take_screenshot`, `browser_click`, `browser_evaluate` etc.
-
 ### Key Ports (fixed)
 
-| Port | Service |
-|------|---------|
-| 54321 | MCP HTTP endpoint (for Claude Code MCP client) |
-| 9876 | nREPL target (introspection subject) |
-| 7888 | nREPL server (main server) |
-| 8090 | Sente WebSocket |
-| 8091 | Browser bootstrap (open this in browser) |
-| 1667 | nREPL proxy |
+| Port | Service | Process |
+|------|---------|---------|
+| 54321 | MCP HTTP endpoint (for Claude Code MCP client) | Code Browser |
+| 9876 | nREPL target (introspection subject) | Code Browser |
+| 7888 | nREPL server (main server) | Code Browser |
+| 8090 | Sente WebSocket | Code Browser |
+| 8091 | Browser bootstrap | Code Browser |
+| 1667 | nREPL proxy | Code Browser |
+| 8190 | Sente WebSocket | Demo Scittle |
+| 8191 | Browser bootstrap | Demo Scittle |
+| 2667 | nREPL proxy | Demo Scittle |
+| 7988 | nREPL server | Demo Scittle |
 
 ---
 
@@ -85,7 +139,7 @@ The fingerprint-based change detection requires **two calls** to detect a change
 1. First call with no stored fingerprint → stores baseline, returns `changed? false`
 2. Second call → compares against stored baseline, detects actual changes
 
-When the browser polls automatically, this happens naturally. For manual testing, trigger the check twice or use `core/rescan-project!` for immediate effect.
+**Scittle note:** Uses `(hash val)` which is value-based (not identity-based like JVM's `System/identityHashCode`). This means changes are detected when values change, not just when identity changes. Acceptable tradeoff for SCI runtime.
 
 ---
 
@@ -99,129 +153,34 @@ When the browser polls automatically, this happens naturally. For manual testing
 
 2. **`pod-call-with-timeout` future wrapper (datalevin.clj):** Scattered pod I/O across random threads via `(future ...)`. Timed-out futures left zombie threads on pod stdout, desynchronizing bencode protocol. **Fix:** Removed wrapper, reverted to direct calls.
 
-**Research findings (for future reference):**
-- babashka/pods #60: Pod read errors cause hangs (fixed Dec 2022)
-- datalevin #274: Hangs on unknown attributes (nil → no response)
-- datalevin #331: Query threading in write tx (fixed v0.10.1)
-- Pod exception handler: non-transit-serializable `ex-data` → no response → hang
-- No runtime logging for datalevin pod (hardcoded `debug? false`). Alternatives: bencode proxy, macOS `sample <pid>`
-
-### Fixed: Datalevin 0.9.27 → 0.10.5 (2026-02-15)
-
-Updated across all files. Old databases deleted and recreated.
-
-### Fixed: db-lock for Pod Serialization (2026-02-14–15)
-
-`(defonce db-lock (Object.))` in handlers.clj. All pod-calling functions use `(locking db-lock ...)`. `dispatch-event` itself NOT locked (nREPL evals can take 30s+).
-
-**Note:** `datalevin-pod` module's functions do NOT use `db-lock` — concern if sharing pod process.
-
 ### Fixed: `!` Escaping in All CLI Scripts (2026-02-15)
 
-Claude Code's Bash tool escapes `!` → `\!` in single-quoted strings (known bug: anthropics/claude-code#2941, closed NOT_PLANNED). Since `\!` is never valid Clojure, all four CLI scripts now auto-unescape `\!` → `!`:
-
-| Script | CLI command | Committed |
-|--------|------------|-----------|
-| `scripts/nrepl_direct_cli.clj` | `bb nrepl-direct eval` | `5d09b64` |
-| `scripts/nrepl_cli.clj` | `bb nrepl eval` | `82934b3` |
-| `scripts/mcp_eval_script.clj` | `bb mcp-eval` | `82934b3` |
-| `scripts/mcp_cli.clj` | `bb mcp call` | `82934b3` |
-
-**MCP nrepl tools do NOT need this fix** — they receive params via JSON-RPC over HTTP, not shell args.
-
+Claude Code's Bash tool escapes `!` → `\!` in single-quoted strings. All four CLI scripts auto-unescape.
 **Best practice (still in CLAUDE.md):** Always use double quotes for eval strings containing `!`.
 
 ### Fixed: Self-Introspection Deadlock (2026-02-14)
 
 External nREPL target on port 9876. `bb dev:cb-v2` manages both processes.
 
-### Fixed: nrepl-direct Silent Error Swallowing (2026-02-14)
-
-Check `:ex`/`:root-ex` in response. v1.31.0.
-
 ---
 
 ## Recent Commits
 
+- `(pending)` — Feat: Scittle runtime browsing — multi-stage detection, 9 multimethods, demo infrastructure
+- `87c8fd1` — Feat: Clickable dependency chips in ns-info panel
 - `ee9a94f` — Test: Add ns-info inspector panel screenshot
 - `fad90b8` — Feat: Namespace Info panel in code browser inspector
 - `d38877e` — Feat: Project-level inspector panel with runtime info
 - `5b9bf0d` — Feat: Show FQN URI in browser title bar with Live indicator
-- `5e495ff` — Fix: Run JAR dependency scanning async to avoid blocking server startup
-- `90b35df` — Feat: JAR dependency scanning with DB-as-cache
-- `3966004` — Fix: Deduplicate namespaces and symbols across DB versions
-- `f967d25` — Feat: Auto-scroll selected items into view in pane browser lists
-- `9b41472` — Fix: Navigation history back/forward buttons now work correctly
-- `452356b` — Feat: Symbol-at-point navigation — Cmd+Click, deps/callers, clipboard, drag-drop
-- `9269836` — Feat: Show (ns ...) form as first symbol in pane browser
-- `f2f2407` — Feat: Phase 5 Polish — runtime type inference, sort mode, keyboard nav
-- `d1666f4` — Feat: Pharo-style pane browser — coordinated 4-pane layout
 
 ---
-
-### Fixed: Stale Namespace Retraction in rescan-project! (2026-02-15)
-
-**Bug:** `rescan-project!` called `retract-project-entities!` with the caller-supplied URI string (e.g. `"nrepl://localhost:9876@..."`) but DB entities store `:uri/project` as the source's project-name (e.g. `"localhost:9876"`). Query found zero entities → nothing retracted → stale namespaces persisted.
-
-**Fix:** Changed line 442 of `core.clj` to use `(:project-name source)` instead of `project-name`. Commit `fc24a25`.
-
-**Verified:** Playwright E2E demo confirmed namespace disappears from browser after `remove-ns` + rescan.
-
----
-
-## nREPL REPL — `bb nrepl-repl` (2026-02-17)
-
-**Pure Babashka JLine3 REPL client** — replaces JVM-based `bb rebel-nrepl-client` (~50ms startup vs 2-5s).
-
-**File:** `scripts/nrepl_repl.clj` (~630 lines)
-
-**Features (all 3 phases implemented):**
-- Multi-line editing (edamame-based incomplete form detection)
-- Tab completion from nREPL server (`"completions"` op, raw bencode)
-- Syntax highlighting (parens, keywords, strings, special forms)
-- Persistent history (`~/.bb-nrepl-repl-history`)
-- Special commands: `:quit`, `:doc`, `:source`, `:ns`
-- Doc-at-point widget (Ctrl+X Ctrl+D)
-- Force-accept widget (Ctrl+X Ctrl+A) for submitting incomplete forms
-
-**Usage:**
-```bash
-bb nrepl-repl -t cb-v2-test          # Connect via target nickname
-bb nrepl-repl --port 9876            # Connect via explicit port
-bb nrepl-repl --host remote --port 9876  # Remote host
-```
-
-**Key lessons learned (Babashka + JLine3):**
-- **Type hints are MANDATORY** — `^ParsedLine`, `^String`, `^int`, `^Parser$ParseContext` on all reify methods; SCI can't resolve methods without them
-- **One interface per reify** — SCI/GraalVM limitation
-- **`reify` not `proxy`** — proxy doesn't work for ParsedLine in bb
-- **CompletingParsedLine NOT reifiable** from user bb scripts (only ParsedLine)
-- **Parser must handle `COMPLETE` context separately** — extract word-at-cursor for tab completion, not just ACCEPT_LINE for multi-line
-- **Babashka nREPL uses `"completions"` op** (not cider-nrepl's `"complete"`)
-- **Babashka nREPL doesn't support session cloning** — `clone-session` returns nil; session must be optional
-- **`client/send-message` → `merge-responses` drops `:completions`** — must read raw bencode directly
-
-**Deprecation:** `bb rebel-nrepl-client` now prints deprecation notice pointing to `bb nrepl-repl`.
-
----
-
-## Future Ideas Discussed (2026-02-17)
-
-Detailed notes added to `IMPLEMENTATION_PLAN.md` under Future Work:
-
-- **Terminal Code Browser (charm.clj TUI)** — Multi-panel terminal UI using charm.clj Elm architecture. Works over SSH, ~50ms startup. Depends on charm.clj layout maturity.
-- **Durable Atoms (sqlatom / editscript / Datalevin)** — Persistent atoms backed by SQLite or Datalevin. Key insight: schema is the optimization boundary (with schema → efficient deltas, without → opaque blob). Immediate use case: telemetry event persistence. Related libs: `sqlatom` (SQLite CAS), `editscript` (diff/patch Clojure data).
-- **Type & Purity Introspection** — Layered type inference (declared schemas → clj-kondo → type hints → LLM-inferred) + purity analysis (pure / read-only / effectful). Store in Datalevin, display in code browser. Related tools: Spectrum, type-infer, Typed Clojure.
-- **Markdown rendering** — `glow` CLI installed for terminal markdown rendering (charmbracelet).
 
 ## Next Session Priorities
 
-1. ~~**Verify MCP memory v10.16.1** — confirmed working (2026-02-19)~~
-2. ~~**Namespace Info panel** — completed (v1.37.0): doc, deps, clickable navigation~~
-3. **Runtime-aware browsing (Step 2)** — build on project-level inspector: live ns/var exploration via nREPL
-4. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access
-5. **Fingerprint first-check gap** — first baseline stores current state, but additions between scan and check are missed
-6. **Long-term: Datalevin MCP memory module** — replace Python memory service with pure Clojure (Datalevin 0.10.5 has vector search)
+1. **Integration test Scittle browsing with Playwright** — see "NEXT STEPS" section above
+2. **Consider `datalevin-pod` module locking** — its functions bypass `db-lock`, potential concurrent access
+3. **Fingerprint first-check gap** — first baseline stores current state, but additions between scan and check are missed
+4. **Long-term: Datalevin MCP memory module** — replace Python memory service with pure Clojure
 
 ---
 

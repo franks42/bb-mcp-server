@@ -17,29 +17,45 @@
 (defn detect-runtime
   "Detect the runtime type of a connected nREPL server.
 
+   Multi-stage detection:
+   1. Try JVM detection (System/getProperty) — works for Babashka and JVM Clojure
+   2. If that fails (returns nil/error in SCI), try Scittle detection (js/ globals)
+   3. Fall back to {:type :jvm-clojure :version \"unknown\"}
+
    Arguments:
      eval-fn - (fn [code-string] -> parsed-result)
 
    Returns:
-     {:type :babashka|:jvm-clojure :version \"...\"}"
+     {:type :babashka|:jvm-clojure|:scittle :version \"...\"}"
   [eval-fn]
   (log/log! {:level :debug
              :id ::detect-runtime
              :msg "Detecting runtime type"})
-  (let [result (eval-fn "(let [bb (System/getProperty \"babashka.version\")] {:type (if bb :babashka :jvm-clojure) :version (or bb (System/getProperty \"java.version\"))})")]
-    (if (map? result)
+  ;; Stage 1: Try JVM detection (Babashka or JVM Clojure)
+  (let [jvm-result (eval-fn "(try (let [bb (System/getProperty \"babashka.version\")] {:type (if bb :babashka :jvm-clojure) :version (or bb (System/getProperty \"java.version\"))}) (catch Exception _ nil))")]
+    (if (map? jvm-result)
       (do
        (log/log! {:level :info
                   :id ::runtime-detected
-                  :msg "Runtime detected"
-                  :data result})
-       (update result :type keyword))
-      (do
-       (log/log! {:level :warn
-                  :id ::runtime-detect-failed
-                  :msg "Failed to detect runtime, defaulting to :jvm-clojure"
-                  :data {:result result}})
-       {:type :jvm-clojure :version "unknown"}))))
+                  :msg "Runtime detected (JVM)"
+                  :data jvm-result})
+       (update jvm-result :type keyword))
+      ;; Stage 2: Try Scittle/SCI detection
+      (let [sci-result (eval-fn "(try {:type :scittle :version (try (str js/scittle.core.version) (catch :default _ \"unknown\")) :user-agent (try (str js/navigator.userAgent) (catch :default _ \"unknown\"))} (catch :default _ nil))")]
+        (if (map? sci-result)
+          (do
+           (log/log! {:level :info
+                      :id ::runtime-detected
+                      :msg "Runtime detected (Scittle)"
+                      :data sci-result})
+           (update sci-result :type keyword))
+          ;; Stage 3: Fallback
+          (do
+           (log/log! {:level :warn
+                      :id ::runtime-detect-failed
+                      :msg "Failed to detect runtime, defaulting to :jvm-clojure"
+                      :data {:jvm-result jvm-result :sci-result sci-result}})
+           {:type :jvm-clojure :version "unknown"}))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Multimethod Declarations
@@ -245,3 +261,4 @@
 ;;; ---------------------------------------------------------------------------
 
 (require 'code-browser.sources.runtime.babashka)
+(require 'code-browser.sources.runtime.scittle)

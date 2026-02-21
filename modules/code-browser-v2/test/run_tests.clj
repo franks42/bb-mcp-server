@@ -15,6 +15,7 @@
 ;; Source adapter tests
 (require 'code-browser.sources.directory-test)
 (require 'code-browser.sources.runtime-test)
+(require 'code-browser.sources.runtime.scittle-test)
 (require 'code-browser.sources.nrepl-test)
 
 (def result
@@ -25,6 +26,7 @@
                   'code-browser.handlers-test
                   'code-browser.sources.directory-test
                   'code-browser.sources.runtime-test
+                  'code-browser.sources.runtime.scittle-test
                   'code-browser.sources.nrepl-test))
 
 (when (or (pos? (:fail result)) (pos? (:error result)))

@@ -276,21 +276,44 @@
         port (:port source)]
     (cond-> {:connection {:host (str host) :port port}}
             runtime (assoc :runtime
-                           (cond-> {:clojure-version (:clojure-version runtime)
-                                    :java-version (:java-version runtime)
-                                    :java-vendor (:java-vendor runtime)
-                                    :os (:os runtime)
-                                    :processors (:processors runtime)
-                                    :max-memory-mb (:max-memory-mb runtime)
-                                    :free-memory-mb (:free-memory-mb runtime)
-                                    :loaded-lib-count (:loaded-lib-count runtime)
-                                    :namespace-count (:namespace-count runtime)}
-                                   (:babashka-version runtime)
-                                   (assoc :type "babashka"
-                                          :version (:babashka-version runtime))
-                                   (nil? (:babashka-version runtime))
-                                   (assoc :type "jvm-clojure"
-                                          :version (:clojure-version runtime)))))))
+                           (cond
+                             ;; Scittle runtime — browser/SCI
+                             (:scittle-version runtime)
+                             {:type "scittle"
+                              :version (:scittle-version runtime)
+                              :clojure-version (:clojure-version runtime)
+                              :namespace-count (:namespace-count runtime)
+                              :platform (:platform runtime)
+                              :user-agent (:user-agent runtime)
+                              :location (:location runtime)}
+
+                             ;; Babashka runtime
+                             (:babashka-version runtime)
+                             {:type "babashka"
+                              :version (:babashka-version runtime)
+                              :clojure-version (:clojure-version runtime)
+                              :java-version (:java-version runtime)
+                              :java-vendor (:java-vendor runtime)
+                              :os (:os runtime)
+                              :processors (:processors runtime)
+                              :max-memory-mb (:max-memory-mb runtime)
+                              :free-memory-mb (:free-memory-mb runtime)
+                              :loaded-lib-count (:loaded-lib-count runtime)
+                              :namespace-count (:namespace-count runtime)}
+
+                             ;; JVM Clojure runtime (default)
+                             :else
+                             {:type "jvm-clojure"
+                              :version (:clojure-version runtime)
+                              :clojure-version (:clojure-version runtime)
+                              :java-version (:java-version runtime)
+                              :java-vendor (:java-vendor runtime)
+                              :os (:os runtime)
+                              :processors (:processors runtime)
+                              :max-memory-mb (:max-memory-mb runtime)
+                              :free-memory-mb (:free-memory-mb runtime)
+                              :loaded-lib-count (:loaded-lib-count runtime)
+                              :namespace-count (:namespace-count runtime)})))))
 
 (defn- query-project-info
   "Gather project-level info for the inspector panel.
