@@ -65,10 +65,12 @@
    Returns:
      Ring handler function."
   [json-rpc-handler config]
-  (let [{:keys [path health-path]} config
-        base-router (router/create-router json-rpc-handler
-                                          {:path path
-                                           :health-path health-path})]
+  (let [{:keys [create-router-fn] :as all-config} config
+        ;; Default is the MCP-only router (mcp-http.router/create-router).
+        ;; streamable-http injects the combined MCP+REST router via :create-router-fn,
+        ;; and the full config (incl. :rest-config) is passed through unchanged.
+        router-fn (or create-router-fn router/create-router)
+        base-router (router-fn json-rpc-handler all-config)]
     ;; Apply CORS wrapper
     (router/wrap-cors base-router)))
 

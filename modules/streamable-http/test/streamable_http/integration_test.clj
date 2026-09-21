@@ -47,6 +47,24 @@
      :id id}))
 
 ;; =============================================================================
+;; REST test data (defined before server-fixture so it resolves at load)
+;; =============================================================================
+
+(def rest-tools
+     "Sample tools for REST tests (include :handler so POST can execute)."
+     {:add {:name "add" :module "math" :description "Add two numbers"
+            :inputSchema {:type "object" :properties {:a {:type "number"} :b {:type "number"}}}
+            :handler (fn [{:keys [a b]}] {:result (+ a b)})}})
+
+(def test-rest-config
+     "Minimal :rest-config, shaped like bb-mcp-server/main builds it."
+     {:list-tools-fn            (fn [_] (map #(select-keys % [:name :description :inputSchema :module]) (vals rest-tools)))
+      :list-modules-fn          (fn [] (distinct (map :module (vals rest-tools))))
+      :list-tools-for-module-fn (fn [m] (filter #(= m (:module %)) (vals rest-tools)))
+      :get-tool-in-module-fn    (fn [m t] (some #(when (and (= m (:module %)) (= t (:name %))) %) (vals rest-tools)))
+      :server-info-fn           (fn [] {:name "test-server" :version "1.0.0" :moduleToolSeparator "."})})
+
+;; =============================================================================
 ;; Fixtures
 ;; =============================================================================
 
@@ -55,7 +73,9 @@
 (defn server-fixture
   "Start server before tests, stop after."
   [f]
-  (reset! test-server (core/start-server! echo-handler {:port test-port}))
+  (reset! test-server (core/start-server! echo-handler
+                                             {:port test-port
+                                              :rest-config test-rest-config}))
   (Thread/sleep 100) ; Give server time to start
   (try
    (f)
@@ -87,6 +107,13 @@
   (http/delete (str base-url path)
                {:headers headers
                 :throw false}))
+
+(defn- get-json
+  "Send a GET request."
+  [path & [headers]]
+  (http/get (str base-url path)
+            {:headers (or headers {})
+             :throw false}))
 
 ;; =============================================================================
 ;; Health Check Tests
@@ -240,3 +267,41 @@
          (testing "Responses include CORS headers"
                   (let [resp (http/get (str base-url "/health") {:throw false})]
                     (is (some? (get-in resp [:headers "access-control-allow-origin"]))))))
+
+
+;; =============================================================================
+;; REST /api/* tests (regression: /api/* was dead before the router fix)
+;; =============================================================================
+
+(deftest test-rest-server-info
+         (testing "GET /api/server returns info (was 404 before the router fix)"
+                  (let [resp (get-json "/api/server")
+                        body (util/parse-json (:body resp))]
+                    (is (= 200 (:status resp)))
+                    (is (= "test-server" (:name body))))))
+
+(deftest test-rest-list-modules
+         (testing "GET /api/modules lists modules"
+                  (let [resp (get-json "/api/modules")
+                        body (util/parse-json (:body resp))]
+                    (is (= 200 (:status resp)))
+                    (is (some? (first (:modules body)))))))
+
+(deftest test-rest-openapi
+         (testing "GET /api/openapi.json returns a valid spec"
+                  (let [resp (get-json "/api/openapi.json")
+                        body (util/parse-json (:body resp))]
+                    (is (= 200 (:status resp)))
+                    (is (some? (get-in body [:openapi]))))))
+
+(deftest test-rest-call-tool
+         (testing "POST /api/modules/:mod/tools/:name executes a tool via REST"
+                  (let [resp (post-json "/api/modules/math/tools/add" {:a 20 :b 22})
+                        body (util/parse-json (:body resp))]
+                    (is (#{200 201} (:status resp)) "expected a success status")
+                    (is (= 42 (get-in body [:result :result])) "(20 + 22) = 42"))))
+
+(deftest test-rest-unknown-404
+         (testing "Unknown /api path returns 404 (graceful, not a crash)"
+                  (let [resp (get-json "/api/does-not-exist")]
+                    (is (= 404 (:status resp))))))

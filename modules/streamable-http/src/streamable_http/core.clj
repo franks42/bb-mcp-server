@@ -19,7 +19,8 @@
      (shttp/stop-server! server)"
     (:require [streamable-http.server :as server]
               [streamable-http.session :as session]
-              [streamable-http.sse :as sse]))
+              [streamable-http.sse :as sse]
+              [streamable-http.router :as router]))
 
 ;; =============================================================================
 ;; Configuration
@@ -54,7 +55,13 @@
      (def server (start-server! my-handler {:port 8080}))
      ((:stop! server))  ; or (stop-server! server)"
   [json-rpc-handler & [config]]
-  (server/start-server! json-rpc-handler (merge default-config config)))
+  ;; Use the combined MCP+REST router (streamable-http.router) so that the
+  ;; :rest-config passed by callers (e.g. bb-mcp-server/main) is actually
+  ;; mounted on /api/*. Without this the router defaulted to MCP-only and the
+  ;; REST/OpenAPI surface was silently dropped.
+  (server/start-server! json-rpc-handler
+                        (merge default-config config
+                               {:create-router-fn router/create-router})))
 
 (defn stop-server!
   "Stop a running server.
